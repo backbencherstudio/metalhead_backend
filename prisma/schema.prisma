@@ -1,6 +1,5 @@
 generator client {
-  provider        = "prisma-client-js"
-  previewFeatures = ["fullTextSearchPostgres"]
+  provider = "prisma-client-js"
 }
 
 datasource db {
@@ -82,9 +81,10 @@ model User {
   roles                Role[]
   role_users           RoleUser[]
   payment_transactions PaymentTransaction[]
-  age Int?
-  bio String?
-  skills String?
+  age                  Int?
+  bio                  String?
+  skills               String?
+  jobs                 Job[]
 
   @@map("users")
 }
@@ -421,6 +421,65 @@ model UserSetting {
 
   @@map("user_settings")
 }
+
+// Job posting models
+model Job {
+  id         String    @id @default(cuid())
+  created_at DateTime  @default(now())
+  updated_at DateTime  @default(now())
+  deleted_at DateTime?
+  status     Int?      @default(1) @db.SmallInt
+  title          String?
+  category       String?
+  date_and_time  DateTime?
+  price          Decimal?
+  payment_type   String?
+  job_type       String?
+  location       String?
+  estimated_time String?
+  description String? @db.Text
+  requirements JobRequirement[]
+  notes JobNote[]
+  photos String?
+  user_id String?
+  user    User?   @relation(fields: [user_id], references: [id])
+
+  @@map("jobs")
+}
+
+model JobRequirement {
+  id         String    @id @default(cuid())
+  created_at DateTime  @default(now())
+  updated_at DateTime  @default(now())
+  deleted_at DateTime?
+  status     Int?      @default(1) @db.SmallInt
+
+  title       String?
+  description String? @db.Text
+
+  job_id String?
+  job    Job?    @relation(fields: [job_id], references: [id], onDelete: Cascade)
+
+  @@map("job_requirements")
+}
+
+model JobNote {
+  id         String    @id @default(cuid())
+  created_at DateTime  @default(now())
+  updated_at DateTime  @default(now())
+  deleted_at DateTime?
+  status     Int?      @default(1) @db.SmallInt
+
+  title       String?
+  description String? @db.Text
+
+  job_id String?
+  job    Job?    @relation(fields: [job_id], references: [id], onDelete: Cascade)
+
+  @@map("job_notes")
+}
+
+
 
 // this table stores example
 // model Note {

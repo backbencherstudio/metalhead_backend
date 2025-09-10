@@ -31,11 +31,11 @@ async function bootstrap() {
   //   }
   //   next();
   // });
-  app.useStaticAssets(join(__dirname, '..', 'public'), {
+  app.useStaticAssets(join(process.cwd(), 'public'), {
     index: false,
     prefix: '/public',
   });
-  app.useStaticAssets(join(__dirname, '..', 'public/storage'), {
+  app.useStaticAssets(join(process.cwd(), 'public', 'storage'), {
     index: false,
     prefix: '/storage',
   });
