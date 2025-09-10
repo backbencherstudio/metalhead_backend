@@ -258,49 +258,6 @@ export class JobService {
     });
   }
 
-  async addPhoto(jobId: string, photoData: any, userId: string): Promise<void> {
-    const existingJob = await this.prisma.job.findFirst({
-      where: {
-        id: jobId,
-        user_id: userId,
-        status: 1,
-        deleted_at: null,
-      },
-    });
-
-    if (!existingJob) {
-      throw new NotFoundException('Job not found or you do not have permission to add photos');
-    }
-
-    await this.prisma.job.update({
-      where: { id: jobId },
-      data: {
-        photos: photoData.file,
-      },
-    });
-  }
-
-  async removePhoto(jobId: string, userId: string): Promise<void> {
-    const existingJob = await this.prisma.job.findFirst({
-      where: {
-        id: jobId,
-        user_id: userId,
-        status: 1,
-        deleted_at: null,
-      },
-    });
-
-    if (!existingJob) {
-      throw new NotFoundException('Job not found or you do not have permission to remove photos');
-    }
-
-    await this.prisma.job.update({
-      where: { id: jobId },
-      data: {
-        photos: null,
-      },
-    });
-  }
 
   private mapToResponseDto(job: any): JobResponseDto {
     return {
