@@ -10,9 +10,10 @@ import {
   Query,
   UseInterceptors,
   UploadedFile,
+  UploadedFiles,
   Req,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { FileInterceptor, FileFieldsInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { ApiBearerAuth, ApiOperation, ApiTags, ApiConsumes, ApiBody } from '@nestjs/swagger';
 import { JobService } from './job.service';
@@ -149,16 +150,88 @@ export class JobController {
     return this.jobService.findOne(id);
   }
 
-  @ApiOperation({ summary: 'Update a job posting' })
+  @ApiOperation({ summary: 'Update a job posting (supports image replace)' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        title: { type: 'string' },
+        category: { type: 'string' },
+        date_and_time: { type: 'string', format: 'date-time' },
+        price: { type: 'number' },
+        payment_type: { type: 'string' },
+        job_type: { type: 'string' },
+        location: { type: 'string' },
+        estimated_time: { type: 'string' },
+        description: { type: 'string' },
+        requirements: { type: 'string' },
+        notes: { type: 'string' },
+        file: { type: 'string', format: 'binary' },
+      },
+    },
+  })
   @Patch(':id')
+  @UseInterceptors(
+    FileFieldsInterceptor(
+      [
+        { name: 'file', maxCount: 1 },
+        { name: 'File', maxCount: 1 },
+        { name: 'image', maxCount: 1 },
+        { name: 'photo', maxCount: 1 },
+      ],
+      {
+        storage: memoryStorage(),
+        limits: { fileSize: 10 * 1024 * 1024 },
+        fileFilter: (req, file, cb) => cb(null, true),
+      },
+    ),
+  )
   async update(
     @Param('id') id: string,
-    @Body() updateJobDto: UpdateJobDto,
+    @Body() updateJobDto: any,
+    @UploadedFiles() files: Record<string, Express.Multer.File[]>,
     @Req() req: Request,
   ): Promise<JobResponseDto> {
     const userId = (req as any).user.id;
-    return this.jobService.update(id, updateJobDto, userId);
+
+    let requirements = [];
+    let notes = [];
+    if (updateJobDto.requirements) {
+      try { requirements = JSON.parse(updateJobDto.requirements); } catch {}
+    }
+    if (updateJobDto.notes) {
+      try { notes = JSON.parse(updateJobDto.notes); } catch {}
+    }
+
+    let photoPath: string | undefined;
+    const fileCandidate =
+      files?.file?.[0] || files?.File?.[0] || files?.image?.[0] || files?.photo?.[0];
+    if (fileCandidate) {
+      const fileExtension = fileCandidate.originalname.split('.').pop();
+      const uniqueFileName = `job-photos/${uuidv4()}.${fileExtension}`;
+      await SojebStorage.put(uniqueFileName, fileCandidate.buffer);
+      photoPath = uniqueFileName;
+    }
+
+    const dto: UpdateJobDto = {
+      title: updateJobDto.title,
+      category: updateJobDto.category,
+      date_and_time: updateJobDto.date_and_time,
+      price: updateJobDto.price ? parseFloat(updateJobDto.price) : undefined,
+      payment_type: updateJobDto.payment_type,
+      job_type: updateJobDto.job_type,
+      location: updateJobDto.location,
+      estimated_time: updateJobDto.estimated_time,
+      description: updateJobDto.description,
+      requirements: requirements.length ? requirements : undefined,
+      notes: notes.length ? notes : undefined,
+    } as any;
+
+    return this.jobService.update(id, dto, userId, photoPath);
   }
+
+ 
 
   @ApiOperation({ summary: 'Delete a job posting' })
   @Delete(':id')

@@ -51,6 +51,83 @@ export class JobService {
     return this.mapToResponseDto(job);
   }
 
+  async update(
+    id: string,
+    updateJobDto: UpdateJobDto,
+    userId: string,
+    newPhotoPath?: string,
+  ): Promise<JobResponseDto> {
+    const existingJob = await this.prisma.job.findFirst({
+      where: {
+        id,
+        user_id: userId,
+        status: 1,
+        deleted_at: null,
+      },
+    });
+
+    if (!existingJob) {
+      throw new NotFoundException(
+        'Job not found or you do not have permission to update it',
+      );
+    }
+
+    const { requirements, notes, ...jobData } = updateJobDto as any;
+
+    // Replace photo if a new one is provided
+    if (newPhotoPath) {
+      if (existingJob.photos) {
+        try {
+          await SojebStorage.delete(existingJob.photos);
+        } catch {}
+      }
+    }
+
+    const job = await this.prisma.job.update({
+      where: { id },
+      data: {
+        ...jobData,
+        ...(newPhotoPath ? { photos: newPhotoPath } : {}),
+        ...(requirements
+          ? {
+              requirements: {
+                deleteMany: {},
+                create: requirements.map((req: any) => ({
+                  title: req.title,
+                  description: req.description,
+                })),
+              },
+            }
+          : {}),
+        ...(notes
+          ? {
+              notes: {
+                deleteMany: {},
+                create: notes.map((note: any) => ({
+                  title: note.title,
+                  description: note.description,
+                })),
+              },
+            }
+          : {}),
+      },
+      include: {
+        requirements: true,
+        notes: true,
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            avatar: true,
+          },
+        },
+      },
+    });
+
+    return this.mapToResponseDto(job);
+  }
+
   async findAll(
     page: number = 1,
     limit: number = 10,
@@ -179,61 +256,7 @@ export class JobService {
     };
   }
 
-  async update(id: string, updateJobDto: UpdateJobDto, userId: string): Promise<JobResponseDto> {
-    const existingJob = await this.prisma.job.findFirst({
-      where: {
-        id,
-        user_id: userId,
-        status: 1,
-        deleted_at: null,
-      },
-    });
-
-    if (!existingJob) {
-      throw new NotFoundException('Job not found or you do not have permission to update it');
-    }
-
-    const { requirements, notes, ...jobData } = updateJobDto;
-
-    const job = await this.prisma.job.update({
-      where: { id },
-      data: {
-        ...jobData,
-        requirements: requirements
-          ? {
-              deleteMany: {},
-              create: requirements.map((req) => ({
-                title: req.title,
-                description: req.description,
-              })),
-            }
-          : undefined,
-        notes: notes
-          ? {
-              deleteMany: {},
-              create: notes.map((note) => ({
-                title: note.title,
-                description: note.description,
-              })),
-            }
-          : undefined,
-      },
-      include: {
-        requirements: true,
-        notes: true,
-        user: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-            avatar: true,
-          },
-        },
-      },
-    });
-
-    return this.mapToResponseDto(job);
-  }
+  
 
   async remove(id: string, userId: string): Promise<void> {
     const existingJob = await this.prisma.job.findFirst({
