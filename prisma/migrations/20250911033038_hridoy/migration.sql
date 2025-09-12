@@ -1,6 +1,12 @@
 -- CreateEnum
 CREATE TYPE "MessageStatus" AS ENUM ('PENDING', 'SENT', 'DELIVERED', 'READ');
 
+-- CreateEnum
+CREATE TYPE "CounterOfferStatus" AS ENUM ('PENDING', 'ACCEPTED', 'DECLINED', 'CANCELLED', 'EXPIRED');
+
+-- CreateEnum
+CREATE TYPE "JobStage" AS ENUM ('OPEN', 'CONFIRMED', 'ONGOING', 'COMPLETED', 'PAID', 'CANCELLED');
+
 -- CreateTable
 CREATE TABLE "accounts" (
     "id" TEXT NOT NULL,
@@ -51,6 +57,9 @@ CREATE TABLE "users" (
     "email_verified_at" TIMESTAMP(3),
     "is_two_factor_enabled" INTEGER DEFAULT 0,
     "two_factor_secret" TEXT,
+    "age" INTEGER,
+    "bio" TEXT,
+    "skills" TEXT,
 
     CONSTRAINT "users_pkey" PRIMARY KEY ("id")
 );
@@ -318,6 +327,82 @@ CREATE TABLE "user_settings" (
 );
 
 -- CreateTable
+CREATE TABLE "Job" (
+    "id" TEXT NOT NULL,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "deleted_at" TIMESTAMP(3),
+    "status" SMALLINT DEFAULT 1,
+    "title" TEXT,
+    "category" TEXT,
+    "date_and_time" TIMESTAMP(3),
+    "price" DECIMAL(65,30),
+    "payment_type" TEXT,
+    "job_type" TEXT,
+    "location" TEXT,
+    "estimated_time" TEXT,
+    "description" TEXT,
+    "photos" TEXT,
+    "user_id" TEXT,
+    "helper_id" TEXT,
+    "agreed_price" DECIMAL(65,30),
+    "stage" "JobStage" DEFAULT 'OPEN',
+    "accepted_counter_offer_id" TEXT,
+
+    CONSTRAINT "Job_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "CounterOffer" (
+    "id" TEXT NOT NULL,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "status" "CounterOfferStatus" NOT NULL DEFAULT 'PENDING',
+    "job_id" TEXT NOT NULL,
+    "helper_id" TEXT NOT NULL,
+    "amount" DECIMAL(65,30),
+    "offer_type" TEXT,
+    "note" TEXT,
+    "proposed_at" TIMESTAMP(3),
+    "proposed_location" TEXT,
+    "proposed_estimated_time" TEXT,
+    "accepted_at" TIMESTAMP(3),
+    "declined_at" TIMESTAMP(3),
+    "cancelled_at" TIMESTAMP(3),
+    "expired_at" TIMESTAMP(3),
+
+    CONSTRAINT "CounterOffer_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "job_requirements" (
+    "id" TEXT NOT NULL,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "deleted_at" TIMESTAMP(3),
+    "status" SMALLINT DEFAULT 1,
+    "title" TEXT,
+    "description" TEXT,
+    "job_id" TEXT,
+
+    CONSTRAINT "job_requirements_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "job_notes" (
+    "id" TEXT NOT NULL,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "deleted_at" TIMESTAMP(3),
+    "status" SMALLINT DEFAULT 1,
+    "title" TEXT,
+    "description" TEXT,
+    "job_id" TEXT,
+
+    CONSTRAINT "job_notes_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
 CREATE TABLE "_PermissionToRole" (
     "A" TEXT NOT NULL,
     "B" TEXT NOT NULL,
@@ -339,6 +424,24 @@ CREATE UNIQUE INDEX "users_domain_key" ON "users"("domain");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "settings_key_key" ON "settings"("key");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Job_accepted_counter_offer_id_key" ON "Job"("accepted_counter_offer_id");
+
+-- CreateIndex
+CREATE INDEX "Job_category_job_type_status_deleted_at_idx" ON "Job"("category", "job_type", "status", "deleted_at");
+
+-- CreateIndex
+CREATE INDEX "Job_created_at_idx" ON "Job"("created_at");
+
+-- CreateIndex
+CREATE INDEX "CounterOffer_job_id_idx" ON "CounterOffer"("job_id");
+
+-- CreateIndex
+CREATE INDEX "CounterOffer_helper_id_idx" ON "CounterOffer"("helper_id");
+
+-- CreateIndex
+CREATE INDEX "CounterOffer_status_idx" ON "CounterOffer"("status");
 
 -- CreateIndex
 CREATE INDEX "_PermissionToRole_B_index" ON "_PermissionToRole"("B");
@@ -402,6 +505,27 @@ ALTER TABLE "user_settings" ADD CONSTRAINT "user_settings_user_id_fkey" FOREIGN 
 
 -- AddForeignKey
 ALTER TABLE "user_settings" ADD CONSTRAINT "user_settings_setting_id_fkey" FOREIGN KEY ("setting_id") REFERENCES "settings"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Job" ADD CONSTRAINT "Job_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Job" ADD CONSTRAINT "Job_helper_id_fkey" FOREIGN KEY ("helper_id") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Job" ADD CONSTRAINT "Job_accepted_counter_offer_id_fkey" FOREIGN KEY ("accepted_counter_offer_id") REFERENCES "CounterOffer"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "CounterOffer" ADD CONSTRAINT "CounterOffer_job_id_fkey" FOREIGN KEY ("job_id") REFERENCES "Job"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "CounterOffer" ADD CONSTRAINT "CounterOffer_helper_id_fkey" FOREIGN KEY ("helper_id") REFERENCES "users"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "job_requirements" ADD CONSTRAINT "job_requirements_job_id_fkey" FOREIGN KEY ("job_id") REFERENCES "Job"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "job_notes" ADD CONSTRAINT "job_notes_job_id_fkey" FOREIGN KEY ("job_id") REFERENCES "Job"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "_PermissionToRole" ADD CONSTRAINT "_PermissionToRole_A_fkey" FOREIGN KEY ("A") REFERENCES "permissions"("id") ON DELETE CASCADE ON UPDATE CASCADE;

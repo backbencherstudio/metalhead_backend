@@ -116,22 +116,33 @@ export class JobController {
   }
 
   @ApiOperation({ summary: 'Get all jobs with pagination and filters' })
-  @Get()
-  async findAll(
-    @Query('page') page: string = '1',
-    @Query('limit') limit: string = '10',
-    @Query('category') category?: string,
-    @Query('location') location?: string,
-    @Query('jobType') jobType?: string,
-  ) {
-    return this.jobService.findAll(
-      parseInt(page),
-      parseInt(limit),
-      category,
-      location,
-      jobType,
-    );
+@Get()
+async findAll(
+  @Query('page') page: string = '1',
+  @Query('limit') limit: string = '10',
+  @Query('category') category?: string,
+  @Query('location') location?: string,
+  @Query('jobType') jobType?: string,
+  @Query('priceRange') priceRange?: string,  // price range will come as a string (e.g., "100,500")
+  @Query('sortBy') sortBy?: string, // sorting options
+) {
+  let parsedPriceRange = null;
+  if (priceRange) {
+    const [min, max] = priceRange.split(',').map((str) => parseFloat(str));
+    parsedPriceRange = { min, max };
   }
+
+  return this.jobService.findAll(
+    parseInt(page),
+    parseInt(limit),
+    category,
+    location,
+    jobType,
+    parsedPriceRange,
+    sortBy,
+  );
+}
+
 
   @ApiOperation({ summary: 'Get jobs posted by the current user' })
   @Get('my-jobs')

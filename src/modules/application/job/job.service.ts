@@ -7,7 +7,7 @@ import { SojebStorage } from '../../../common/lib/Disk/SojebStorage';
 
 @Injectable()
 export class JobService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService) { }
 
   async create(createJobDto: CreateJobDto, userId: string, photoPath?: string): Promise<JobResponseDto> {
     const { requirements, notes, ...jobData } = createJobDto;
@@ -19,19 +19,19 @@ export class JobService {
         photos: photoPath,
         requirements: requirements
           ? {
-              create: requirements.map((req) => ({
-                title: req.title,
-                description: req.description,
-              })),
-            }
+            create: requirements.map((req) => ({
+              title: req.title,
+              description: req.description,
+            })),
+          }
           : undefined,
         notes: notes
           ? {
-              create: notes.map((note) => ({
-                title: note.title,
-                description: note.description,
-              })),
-            }
+            create: notes.map((note) => ({
+              title: note.title,
+              description: note.description,
+            })),
+          }
           : undefined,
       },
       include: {
@@ -79,7 +79,7 @@ export class JobService {
       if (existingJob.photos) {
         try {
           await SojebStorage.delete(existingJob.photos);
-        } catch {}
+        } catch { }
       }
     }
 
@@ -90,25 +90,25 @@ export class JobService {
         ...(newPhotoPath ? { photos: newPhotoPath } : {}),
         ...(requirements
           ? {
-              requirements: {
-                deleteMany: {},
-                create: requirements.map((req: any) => ({
-                  title: req.title,
-                  description: req.description,
-                })),
-              },
-            }
+            requirements: {
+              deleteMany: {},
+              create: requirements.map((req: any) => ({
+                title: req.title,
+                description: req.description,
+              })),
+            },
+          }
           : {}),
         ...(notes
           ? {
-              notes: {
-                deleteMany: {},
-                create: notes.map((note: any) => ({
-                  title: note.title,
-                  description: note.description,
-                })),
-              },
-            }
+            notes: {
+              deleteMany: {},
+              create: notes.map((note: any) => ({
+                title: note.title,
+                description: note.description,
+              })),
+            },
+          }
           : {}),
       },
       include: {
@@ -134,9 +134,10 @@ export class JobService {
     category?: string,
     location?: string,
     jobType?: string,
+    priceRange?: { min: number, max: number },
+    sortBy?: string, // added sorting logic
   ): Promise<{ jobs: JobResponseDto[]; total: number; totalPages: number }> {
     const skip = (page - 1) * limit;
-    
     const where: any = {
       status: 1,
       deleted_at: null,
@@ -157,14 +158,37 @@ export class JobService {
       where.job_type = jobType;
     }
 
+    if (priceRange) {
+      where.price = {
+        gte: priceRange.min,
+        lte: priceRange.max,
+      };
+    }
+
+    const orderBy: any = (() => {
+      switch (sortBy) {
+        case 'price_asc':
+          return { price: 'asc' as const };
+        case 'price_desc':
+          return { price: 'desc' as const };
+        case 'location':
+          return { location: 'asc' as const };
+        case 'location_desc':
+          return { location: 'desc' as const };
+        case 'title':
+          return { title: 'asc' as const };
+        default:
+          return { created_at: 'desc' as const };
+      }
+    })();
+
+
     const [jobs, total] = await Promise.all([
       this.prisma.job.findMany({
         where,
         skip,
         take: limit,
-        orderBy: {
-          created_at: 'desc',
-        },
+        orderBy,
         include: {
           requirements: true,
           notes: true,
@@ -181,6 +205,7 @@ export class JobService {
       this.prisma.job.count({ where }),
     ]);
 
+
     const totalPages = Math.ceil(total / limit);
 
     return {
@@ -189,6 +214,7 @@ export class JobService {
       totalPages,
     };
   }
+
 
   async findOne(id: string): Promise<JobResponseDto> {
     const job = await this.prisma.job.findFirst({
@@ -208,6 +234,36 @@ export class JobService {
             avatar: true,
           },
         },
+        // Include counter offers and accepted offer
+        counter_offers: {
+          include: {
+            helper: {
+              select: {
+                id: true,
+                name: true,
+                avatar: true,
+              },
+            },
+          },
+        },
+        accepted_offers: {
+          include: {
+            counter_offer: {
+              include: {
+                helper: {
+                  select: {
+                    id: true,
+                    name: true,
+                    first_name: true,
+                    last_name: true,
+                    email: true,
+                    phone_number: true,
+                  },
+                },
+              },
+            },
+          },
+        }, // Get the accepted counter offer details with helper contact
       },
     });
 
@@ -256,7 +312,7 @@ export class JobService {
     };
   }
 
-  
+
 
   async remove(id: string, userId: string): Promise<void> {
     const existingJob = await this.prisma.job.findFirst({
@@ -283,6 +339,9 @@ export class JobService {
 
 
   private mapToResponseDto(job: any): JobResponseDto {
+    const accepted = job.accepted_offers && job.accepted_offers.length ? job.accepted_offers[0] : undefined;
+    const current_status = accepted ? 'confirmed' : 'counter_offer';
+
     return {
       id: job.id,
       title: job.title,
@@ -300,6 +359,24 @@ export class JobService {
       user_id: job.user_id,
       created_at: job.created_at,
       updated_at: job.updated_at,
+      current_status,
+      accepted_offer: accepted
+        ? {
+            amount: Number(accepted.counter_offer.amount),
+            type: accepted.counter_offer.type,
+            note: accepted.counter_offer.note ?? undefined,
+            helper: {
+              id: accepted.counter_offer.helper.id,
+              name:
+                accepted.counter_offer.helper.name ??
+                [accepted.counter_offer.helper.first_name, accepted.counter_offer.helper.last_name]
+                  .filter(Boolean)
+                  .join(' '),
+              email: accepted.counter_offer.helper.email ?? '',
+              phone_number: accepted.counter_offer.helper.phone_number ?? undefined,
+            },
+          }
+        : undefined,
     };
   }
 }

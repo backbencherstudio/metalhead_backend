@@ -86,6 +86,8 @@ model User {
   skills               String?
   jobs                 Job[]
 
+  helper_offers   CounterOffer[]   @relation("UserHelperOffers")
+  accepted_offers AcceptedOffer[]  @relation("UserAcceptedOffers")
   @@map("users")
 }
 
@@ -429,20 +431,23 @@ model Job {
   updated_at DateTime  @default(now())
   deleted_at DateTime?
   status     Int?      @default(1) @db.SmallInt
-  title          String?
-  category       String?
+  title      String?
+  category   String?
   date_and_time  DateTime?
-  price          Decimal?
+  price      Decimal?      // Original price set by user
+  final_price Decimal?     // Price after counter offer accepted
   payment_type   String?
   job_type       String?
   location       String?
   estimated_time String?
-  description String? @db.Text
-  requirements JobRequirement[]
-  notes JobNote[]
-  photos String?
-  user_id String?
-  user    User?   @relation(fields: [user_id], references: [id])
+  description    String? @db.Text
+  requirements   JobRequirement[]
+  notes          JobNote[]
+  photos         String?
+  user_id        String?
+  user           User?   @relation(fields: [user_id], references: [id])
+  counter_offers CounterOffer[]   @relation("JobCounterOffers")
+  accepted_offers AcceptedOffer[] @relation("JobAcceptedOffers")
 
   @@map("jobs")
 }
@@ -479,6 +484,41 @@ model JobNote {
   @@map("job_notes")
 }
 
+model CounterOffer {
+  id         String   @id @default(cuid())
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+
+  amount   Decimal
+  type     String
+  note     String?
+
+  job_id   String
+  job      Job  @relation("JobCounterOffers", fields: [job_id], references: [id])
+
+  helper_id String
+  helper    User @relation("UserHelperOffers", fields: [helper_id], references: [id])
+
+  acceptedOffer AcceptedOffer?
+
+  @@map("counter_offers")
+}
+
+model AcceptedOffer {
+  id         String   @id @default(cuid())
+  created_at DateTime @default(now())
+
+  counter_offer_id String  @unique
+  counter_offer    CounterOffer @relation(fields: [counter_offer_id], references: [id], onDelete: Cascade)
+
+  job_id   String
+  job      Job  @relation("JobAcceptedOffers", fields: [job_id], references: [id])
+
+  user_id  String
+  user     User @relation("UserAcceptedOffers", fields: [user_id], references: [id])
+
+  @@map("accepted_offers")
+}
 
 
 // this table stores example

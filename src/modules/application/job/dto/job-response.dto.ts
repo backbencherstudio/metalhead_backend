@@ -111,4 +111,24 @@ export class JobResponseDto {
 
   @ApiProperty()
   updated_at: Date;
+
+  // Additional fields for accepted offer and status
+  @ApiProperty({ required: false })
+  current_status?: string; // e.g., 'confirmed' when a counter offer is accepted, else 'counter_offer'
+
+  @ApiProperty({
+    required: false,
+    description: 'Accepted offer details if present',
+  })
+  accepted_offer?: {
+    amount: number;
+    type: string;
+    note?: string;
+    helper: {
+      id: string;
+      name: string;
+      email: string;
+      phone_number?: string;
+    };
+  };
 }
