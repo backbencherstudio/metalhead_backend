@@ -499,7 +499,7 @@ export class UserRepository {
     }
   }
 
-  // convert user type to admin/vendor
+  // convert user type between user and helper
   static async convertTo(user_id: string, type: string = 'user') {
     try {
       const userDetails = await UserRepository.getUserDetails(user_id);
@@ -509,12 +509,31 @@ export class UserRepository {
           message: 'User not found',
         };
       }
-      if (userDetails.type == 'vendor') {
+      
+      // Validate that the target type is either 'user' or 'helper'
+      if (type !== 'user' && type !== 'helper') {
         return {
           success: false,
-          message: 'User is already a vendor',
+          message: 'Invalid type. Only "user" and "helper" are allowed',
         };
       }
+      
+      // Check if user is already the target type
+      if (userDetails.type === type) {
+        return {
+          success: false,
+          message: `User is already a ${type}`,
+        };
+      }
+      
+      // Only allow conversion between 'user' and 'helper'
+      if (userDetails.type !== 'user' && userDetails.type !== 'helper') {
+        return {
+          success: false,
+          message: 'User must be either "user" or "helper" to convert',
+        };
+      }
+      
       await prisma.user.update({
         where: { id: user_id },
         data: { type: type },
@@ -522,7 +541,7 @@ export class UserRepository {
 
       return {
         success: true,
-        message: 'Converted to ' + type + ' successfully',
+        message: `Converted to ${type} successfully`,
       };
     } catch (error) {
       return {

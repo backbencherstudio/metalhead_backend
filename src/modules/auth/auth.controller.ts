@@ -578,6 +578,23 @@ export class AuthController {
     }
   }
   // --------- end 2FA ---------
+
+  @ApiOperation({ summary: 'Convert user type between user and helper' })
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Post('convert-role')
+  async convertRole(@Req() req: Request, @Body() body: { type: string }) {
+    try {
+      const user_id = req.user.userId;
+      const result = await this.authService.convertUserType(user_id, body.type);
+      return result;
+    } catch (error) {
+      return {
+        success: false,
+        message: error.message,
+      };
+    }
+  }
   
 }
 

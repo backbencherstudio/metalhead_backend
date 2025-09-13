@@ -939,5 +939,17 @@ export class AuthService {
     }
   }
   // --------- end 2FA ---------
+
+  async convertUserType(userId: string, type: string) {
+    try {
+      const result = await UserRepository.convertTo(userId, type);
+      return result;
+    } catch (error) {
+      return {
+        success: false,
+        message: error.message,
+      };
+    }
+  }
   
 }
