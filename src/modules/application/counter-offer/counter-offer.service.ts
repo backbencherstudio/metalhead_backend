@@ -21,7 +21,16 @@ export class CounterOfferService {
     });
     if (!job) throw new NotFoundException('Job not found');
 
-    // 2. Create counter-offer
+    // 2. Check if job already has an accepted offer
+    const existingAcceptedOffer = await this.prisma.acceptedOffer.findFirst({
+      where: { job_id },
+      select: { id: true },
+    });
+    if (existingAcceptedOffer) {
+      throw new ForbiddenException('Cannot create counter offer: job already has an accepted offer');
+    }
+
+    // 3. Create counter-offer
     return this.prisma.counterOffer.create({
       data: {
         job_id,
@@ -57,90 +66,92 @@ export class CounterOfferService {
 
 
   // src/modules/application/counter-offer/counter-offer.service.ts
-async acceptCounterOffer(counter_offer_id: string, user_id: string): Promise<AcceptedCounterOfferResponseDto> {
-    // 1. Fetch counter-offer with job
-    const counterOffer = await this.prisma.counterOffer.findUnique({
-      where: { id: counter_offer_id },
-      include: {
-        job: true,
-        helper: true,
-        acceptedOffer: true, // check if already accepted
-      },
-    });
-
-    if (!counterOffer) throw new NotFoundException('Counter offer not found');
-
-    // 2. Ensure this counter-offer is not already accepted
-    if (counterOffer.acceptedOffer)
-      throw new ForbiddenException('This counter offer is already accepted');
-
-    // 3. Ensure the user accepting it is the **owner of the job**
-    // If job has no owner yet (null), assign the caller as the owner to unblock acceptance.
-    if (!counterOffer.job.user_id) {
-      await this.prisma.job.update({
-        where: { id: counterOffer.job.id },
-        data: { user_id },
-      });
-      counterOffer.job.user_id = user_id;
-    }
-    if (counterOffer.job.user_id !== user_id)
-      throw new ForbiddenException('You are not authorized to accept this counter offer');
-
-    // 4. Ensure the job does not already have an accepted offer
-    const existingAcceptedForJob = await this.prisma.acceptedOffer.findFirst({
-      where: { job_id: counterOffer.job.id },
-      select: { id: true },
-    });
-    if (existingAcceptedForJob) {
-      throw new ForbiddenException('This job already has an accepted offer');
-    }
-
-    // 5. Create AcceptedOffer
-    const acceptedOffer = await this.prisma.acceptedOffer.create({
-      data: {
-        counter_offer_id: counter_offer_id,
-        job_id: counterOffer.job.id,
-        user_id: user_id,
-      },
-      include: {
-        counter_offer: {
-          select: {
-            id: true,
-            amount: true,
-            type: true,
-            note: true,
-            helper: { select: { id: true, name: true, first_name: true, last_name: true, email: true } },
-          },
+  async acceptCounterOffer(counter_offer_id: string, user_id: string): Promise<AcceptedCounterOfferResponseDto> {
+    return await this.prisma.$transaction(async (tx) => {
+      // 1. Fetch counter-offer with job
+      const counterOffer = await tx.counterOffer.findUnique({
+        where: { id: counter_offer_id },
+        include: {
+          job: true,
+          helper: true,
+          acceptedOffer: true, // check if already accepted
         },
-        job: true,
-        user: true,
-      },
+      });
+
+      if (!counterOffer) throw new NotFoundException('Counter offer not found');
+
+      // 2. Ensure this counter-offer is not already accepted
+      if (counterOffer.acceptedOffer)
+        throw new ForbiddenException('This counter offer is already accepted');
+
+      // 3. Ensure the user accepting it is the **owner of the job**
+      // If job has no owner yet (null), assign the caller as the owner to unblock acceptance.
+      if (!counterOffer.job.user_id) {
+        await tx.job.update({
+          where: { id: counterOffer.job.id },
+          data: { user_id },
+        });
+        counterOffer.job.user_id = user_id;
+      }
+      if (counterOffer.job.user_id !== user_id)
+        throw new ForbiddenException('You are not authorized to accept this counter offer');
+
+      // 4. Ensure the job does not already have an accepted offer
+      const existingAcceptedForJob = await tx.acceptedOffer.findFirst({
+        where: { job_id: counterOffer.job.id },
+        select: { id: true },
+      });
+      if (existingAcceptedForJob) {
+        throw new ForbiddenException('This job already has an accepted offer');
+      }
+
+      // 5. Create AcceptedOffer
+      const acceptedOffer = await tx.acceptedOffer.create({
+        data: {
+          counter_offer_id: counter_offer_id,
+          job_id: counterOffer.job.id,
+          user_id: user_id,
+        },
+        include: {
+          counter_offer: {
+            select: {
+              id: true,
+              amount: true,
+              type: true,
+              note: true,
+              helper: { select: { id: true, name: true, first_name: true, last_name: true, email: true } },
+            },
+          },
+          job: true,
+          user: true,
+        },
+      });
+
+      // 6. Update job.final_price
+      await tx.job.update({
+        where: { id: counterOffer.job.id },
+        data: { final_price: Number(counterOffer.amount) },
+      });
+
+      const response: AcceptedCounterOfferResponseDto = {
+        job_id: acceptedOffer.job.id,
+        job_title: acceptedOffer.job.title ?? '',
+        original_price: acceptedOffer.job.price ? Number(acceptedOffer.job.price) : 0,
+        counter_offer_amount: Number(acceptedOffer.counter_offer.amount),
+        counter_offer_type: acceptedOffer.counter_offer.type,
+        counter_offer_note: acceptedOffer.counter_offer.note ?? undefined,
+        helper_id: acceptedOffer.counter_offer.helper.id,
+        helper_name: (
+          acceptedOffer.counter_offer.helper.name ??
+          [acceptedOffer.counter_offer.helper.first_name, acceptedOffer.counter_offer.helper.last_name]
+            .filter(Boolean)
+            .join(' ')
+        ) || '',
+        helper_email: acceptedOffer.counter_offer.helper.email ?? '',
+      };
+
+      return response;
     });
-
-    // 6. Update job.final_price
-    await this.prisma.job.update({
-      where: { id: counterOffer.job.id },
-      data: { final_price: counterOffer.amount },
-    });
-
-    const response: AcceptedCounterOfferResponseDto = {
-      job_id: acceptedOffer.job.id,
-      job_title: acceptedOffer.job.title ?? '',
-      original_price: acceptedOffer.job.price ? Number(acceptedOffer.job.price) : 0,
-      counter_offer_amount: Number(acceptedOffer.counter_offer.amount),
-      counter_offer_type: acceptedOffer.counter_offer.type,
-      counter_offer_note: acceptedOffer.counter_offer.note ?? undefined,
-      helper_id: acceptedOffer.counter_offer.helper.id,
-      helper_name: (
-        acceptedOffer.counter_offer.helper.name ??
-        [acceptedOffer.counter_offer.helper.first_name, acceptedOffer.counter_offer.helper.last_name]
-          .filter(Boolean)
-          .join(' ')
-      ) || '',
-      helper_email: acceptedOffer.counter_offer.helper.email ?? '',
-    };
-
-    return response;
   }
 
   async declineCounterOffer(counter_offer_id: string, user_id: string) {
@@ -177,6 +188,15 @@ async acceptCounterOffer(counter_offer_id: string, user_id: string): Promise<Acc
     });
     if (!original) throw new NotFoundException('Counter offer not found');
 
+    // Check if job already has an accepted offer FIRST (before any other checks)
+    const existingAcceptedOffer = await this.prisma.acceptedOffer.findFirst({
+      where: { job_id: original.job_id },
+      select: { id: true },
+    });
+    if (existingAcceptedOffer) {
+      throw new ForbiddenException('Cannot counter back: job already has an accepted offer');
+    }
+
     // If job has no owner yet (null), assign the caller as the owner to unblock counter-back
     if (!original.job.user_id) {
       await this.prisma.job.update({ where: { id: original.job.id }, data: { user_id } });
@@ -188,7 +208,7 @@ async acceptCounterOffer(counter_offer_id: string, user_id: string): Promise<Acc
       throw new ForbiddenException('You are not authorized to counter this offer');
     }
 
-    // Cannot counter back after acceptance
+    // Cannot counter back after acceptance (double check)
     if (original.acceptedOffer) {
       throw new ForbiddenException('Cannot counter after an offer has been accepted');
     }
