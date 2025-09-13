@@ -6,6 +6,7 @@ import { CreateCounterOfferDto } from '../counter-offer/dtos/create-counter-offe
 import { AcceptCounterOfferDto } from '../counter-offer/dtos/accept-counter-offer.dto';
 import { AcceptedCounterOfferResponseDto } from '../counter-offer/dtos/accepted-counter-offer-response.dto';
 import { UserCounterOfferDto } from './dtos/user-counter-offer.dto';
+import { HelperAcceptCounterOfferDto } from './dtos/helper-accept-counter-offer.dto';
 
 @Injectable()
 export class CounterOfferService {
@@ -30,16 +31,29 @@ export class CounterOfferService {
       throw new ForbiddenException('Cannot create counter offer: job already has an accepted offer');
     }
 
-    // 3. Create counter-offer
-    return this.prisma.counterOffer.create({
-      data: {
-        job_id,
-        helper_id,
-        amount,
-        type,
-        note,
-      },
+    // 3. Create counter-offer and update job status to "counter_offer"
+    const result = await this.prisma.$transaction(async (tx) => {
+      const counterOffer = await tx.counterOffer.create({
+        data: {
+          job_id,
+          helper_id,
+          amount,
+          type,
+          note,
+        },
+      });
+
+      // Update job status to "counter_offer" when first counter offer is created
+      // This ensures the job shows as having active negotiations
+      await tx.job.update({
+        where: { id: job_id },
+        data: { job_status: 'counter_offer' },
+      });
+
+      return counterOffer;
     });
+
+    return result;
   }
 
   async getCounterOffersByJob(job_id: string) {
@@ -127,10 +141,13 @@ export class CounterOfferService {
         },
       });
 
-      // 6. Update job.final_price
+      // 6. Update job.final_price and status to "confirmed"
       await tx.job.update({
         where: { id: counterOffer.job.id },
-        data: { final_price: Number(counterOffer.amount) },
+        data: { 
+          final_price: Number(counterOffer.amount),
+          job_status: 'confirmed'
+        },
       });
 
       const response: AcceptedCounterOfferResponseDto = {
@@ -148,6 +165,7 @@ export class CounterOfferService {
             .join(' ')
         ) || '',
         helper_email: acceptedOffer.counter_offer.helper.email ?? '',
+        status: 'accepted',
       };
 
       return response;
@@ -221,17 +239,122 @@ export class CounterOfferService {
     }
 
     // Create a new counter offer from the user to the same helper on same job
-    const newOffer = await this.prisma.counterOffer.create({
-      data: {
-        job_id: original.job_id,
-        helper_id: original.helper_id,
-        amount,
-        type,
-        note,
-      },
+    const newOffer = await this.prisma.$transaction(async (tx) => {
+      const counterOffer = await tx.counterOffer.create({
+        data: {
+          job_id: original.job_id,
+          helper_id: original.helper_id,
+          amount,
+          type,
+          note,
+        },
+      });
+
+      // Update job status to "counter_offer" when user counters back
+      // This maintains the negotiation state until an offer is accepted
+      await tx.job.update({
+        where: { id: original.job_id },
+        data: { job_status: 'counter_offer' },
+      });
+
+      return counterOffer;
     });
 
     return newOffer;
+  }
+
+  async helperAcceptCounterOffer(counter_offer_id: string, dto: HelperAcceptCounterOfferDto): Promise<AcceptedCounterOfferResponseDto> {
+    const { helper_id } = dto;
+
+    return await this.prisma.$transaction(async (tx) => {
+      // 1. Fetch counter-offer with job and helper
+      const counterOffer = await tx.counterOffer.findUnique({
+        where: { id: counter_offer_id },
+        include: {
+          job: true,
+          helper: true,
+          acceptedOffer: true,
+        },
+      });
+
+      if (!counterOffer) throw new NotFoundException('Counter offer not found');
+
+      // 2. Ensure this counter-offer is not already accepted
+      if (counterOffer.acceptedOffer)
+        throw new ForbiddenException('This counter offer is already accepted');
+
+      // 3. Ensure the helper accepting it is the **helper who received the counter offer**
+      if (counterOffer.helper_id !== helper_id) {
+        throw new ForbiddenException('You are not authorized to accept this counter offer');
+      }
+
+      // 4. Ensure only helpers can accept counter offers
+      const actor = await tx.user.findUnique({ where: { id: helper_id }, select: { type: true } });
+      if (!actor) throw new NotFoundException('Helper not found');
+      if (actor.type && actor.type !== 'helper') {
+        throw new ForbiddenException('Only helpers can accept counter offers');
+      }
+
+      // 5. Check if job already has an accepted offer
+      const existingAcceptedForJob = await tx.acceptedOffer.findFirst({
+        where: { job_id: counterOffer.job.id },
+        select: { id: true },
+      });
+      if (existingAcceptedForJob) {
+        throw new ForbiddenException('This job already has an accepted offer');
+      }
+
+      // 6. Create AcceptedOffer
+      const acceptedOffer = await tx.acceptedOffer.create({
+        data: {
+          counter_offer_id: counter_offer_id,
+          job_id: counterOffer.job.id,
+          user_id: counterOffer.job.user_id, // job owner
+        },
+        include: {
+          counter_offer: {
+            select: {
+              id: true,
+              amount: true,
+              type: true,
+              note: true,
+              helper: { select: { id: true, name: true, first_name: true, last_name: true, email: true } },
+            },
+          },
+          job: true,
+          user: true,
+        },
+      });
+
+      // 7. Update job.final_price and status to "confirmed"
+      await tx.job.update({
+        where: { id: counterOffer.job.id },
+        data: { 
+          final_price: Number(counterOffer.amount),
+          job_status: 'confirmed'
+        },
+      });
+
+      const response: AcceptedCounterOfferResponseDto = {
+        job_id: acceptedOffer.job.id,
+        job_title: acceptedOffer.job.title ?? '',
+        original_price: acceptedOffer.job.price ? Number(acceptedOffer.job.price) : 0,
+        counter_offer_amount: Number(acceptedOffer.counter_offer.amount),
+        counter_offer_type: acceptedOffer.counter_offer.type,
+        counter_offer_note: acceptedOffer.counter_offer.note ?? undefined,
+        helper_id: acceptedOffer.counter_offer.helper.id,
+        helper_name: (
+          acceptedOffer.counter_offer.helper.name ??
+          [acceptedOffer.counter_offer.helper.first_name, acceptedOffer.counter_offer.helper.last_name]
+            .filter(Boolean)
+            .join(' ')
+        ) || '',
+        helper_email: acceptedOffer.counter_offer.helper.email ?? '',
+        status: 'accepted',
+      };
+
+      return response;
+    });
   }
 
 }

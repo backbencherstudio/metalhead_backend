@@ -4,6 +4,7 @@ import { CounterOfferService } from './counter-offer.service';
 import { CreateCounterOfferDto } from '../counter-offer/dtos/create-counter-offer.dto';
 import { AcceptCounterOfferDto } from './dtos/accept-counter-offer.dto';
 import { UserCounterOfferDto } from './dtos/user-counter-offer.dto';
+import { HelperAcceptCounterOfferDto } from './dtos/helper-accept-counter-offer.dto';
 
 
 @Controller('counter-offers')
@@ -46,5 +47,13 @@ export class CounterOfferController {
     @Body() dto: UserCounterOfferDto,
   ) {
     return this.counterOfferService.userCounterBack(counter_offer_id, dto);
+  }
+
+  @Post('helper-accept/:counter_offer_id')
+  async helperAcceptCounterOffer(
+    @Param('counter_offer_id') counter_offer_id: string,
+    @Body() dto: HelperAcceptCounterOfferDto,
+  ) {
+    return this.counterOfferService.helperAcceptCounterOffer(counter_offer_id, dto);
   }
 }

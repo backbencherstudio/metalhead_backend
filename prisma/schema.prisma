@@ -431,6 +431,7 @@ model Job {
   updated_at DateTime  @default(now())
   deleted_at DateTime?
   status     Int?      @default(1) @db.SmallInt
+  job_status String?   @default("posted") // posted, counter_offer, confirmed, ongoing, completed, paid
   title      String?
   category   String?
   date_and_time  DateTime?

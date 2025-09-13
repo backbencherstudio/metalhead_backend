@@ -340,7 +340,19 @@ export class JobService {
 
   private mapToResponseDto(job: any): JobResponseDto {
     const accepted = job.accepted_offers && job.accepted_offers.length ? job.accepted_offers[0] : undefined;
-    const current_status = accepted ? 'confirmed' : 'counter_offer';
+    const hasCounterOffers = job.counter_offers && job.counter_offers.length > 0;
+    
+    // Determine current status based on actual state
+    let current_status = job.job_status; // Start with the actual job_status from database
+    
+    // Override with calculated status only if needed
+    if (accepted) {
+      current_status = 'confirmed';
+    } else if (hasCounterOffers) {
+      current_status = 'counter_offer';
+    } else {
+      current_status = 'posted';
+    }
 
     return {
       id: job.id,
@@ -359,6 +371,7 @@ export class JobService {
       user_id: job.user_id,
       created_at: job.created_at,
       updated_at: job.updated_at,
+      job_status: job.job_status,
       current_status,
       accepted_offer: accepted
         ? {

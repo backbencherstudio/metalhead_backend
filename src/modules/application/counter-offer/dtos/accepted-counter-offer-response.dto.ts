@@ -9,6 +9,7 @@ export class AcceptedCounterOfferResponseDto {
   helper_id: string;
   helper_name: string;
   helper_email: string;
+  status: string; // "accepted" - indicates the offer was accepted
 }
 
 
