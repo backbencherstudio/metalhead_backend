@@ -3,6 +3,7 @@ import { Controller, Post, Body, Get, Param, Patch, Delete, UseGuards, Req } fro
 import { CounterOfferService } from './counter-offer.service';
 import { CreateCounterOfferDto } from '../counter-offer/dtos/create-counter-offer.dto';
 import { AcceptCounterOfferDto } from './dtos/accept-counter-offer.dto';
+import { UserCounterOfferDto } from './dtos/user-counter-offer.dto';
 
 
 @Controller('counter-offers')
@@ -37,5 +38,13 @@ export class CounterOfferController {
     @Body('user_id') user_id: string, // for testing; later replace with auth guard
   ) {
     return this.counterOfferService.declineCounterOffer(counter_offer_id, user_id);
+  }
+
+  @Post('user-counter/:counter_offer_id')
+  async userCounterBack(
+    @Param('counter_offer_id') counter_offer_id: string,
+    @Body() dto: UserCounterOfferDto,
+  ) {
+    return this.counterOfferService.userCounterBack(counter_offer_id, dto);
   }
 }

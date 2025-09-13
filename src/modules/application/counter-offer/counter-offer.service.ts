@@ -5,6 +5,7 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { CreateCounterOfferDto } from '../counter-offer/dtos/create-counter-offer.dto';
 import { AcceptCounterOfferDto } from '../counter-offer/dtos/accept-counter-offer.dto';
 import { AcceptedCounterOfferResponseDto } from '../counter-offer/dtos/accepted-counter-offer-response.dto';
+import { UserCounterOfferDto } from './dtos/user-counter-offer.dto';
 
 @Injectable()
 export class CounterOfferService {
@@ -164,6 +165,53 @@ async acceptCounterOffer(counter_offer_id: string, user_id: string): Promise<Acc
     await this.prisma.counterOffer.delete({ where: { id: counter_offer_id } });
 
     return { success: true };
+  }
+
+  async userCounterBack(counter_offer_id: string, dto: UserCounterOfferDto) {
+    const { amount, type, note, user_id } = dto;
+
+    // Load original counter offer with job and helper
+    const original = await this.prisma.counterOffer.findUnique({
+      where: { id: counter_offer_id },
+      include: { job: true, helper: true, acceptedOffer: true },
+    });
+    if (!original) throw new NotFoundException('Counter offer not found');
+
+    // If job has no owner yet (null), assign the caller as the owner to unblock counter-back
+    if (!original.job.user_id) {
+      await this.prisma.job.update({ where: { id: original.job.id }, data: { user_id } });
+      original.job.user_id = user_id;
+    }
+
+    // Only job owner can counter back
+    if (original.job.user_id !== user_id) {
+      throw new ForbiddenException('You are not authorized to counter this offer');
+    }
+
+    // Cannot counter back after acceptance
+    if (original.acceptedOffer) {
+      throw new ForbiddenException('Cannot counter after an offer has been accepted');
+    }
+
+    // Ensure only users (not helpers) can counter back
+    const actor = await this.prisma.user.findUnique({ where: { id: user_id }, select: { type: true } });
+    if (!actor) throw new NotFoundException('User not found');
+    if (actor.type && actor.type !== 'user') {
+      throw new ForbiddenException('Only users can counter back a helper\'s offer');
+    }
+
+    // Create a new counter offer from the user to the same helper on same job
+    const newOffer = await this.prisma.counterOffer.create({
+      data: {
+        job_id: original.job_id,
+        helper_id: original.helper_id,
+        amount,
+        type,
+        note,
+      },
+    });
+
+    return newOffer;
   }
 
 }
