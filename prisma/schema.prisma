@@ -453,6 +453,7 @@ model Job {
   counter_offers CounterOffer[]   @relation("JobCounterOffers")
   accepted_offers AcceptedOffer[] @relation("JobAcceptedOffers")
   reviews        Review[]
+  status_history JobStatusHistory[]
 
   @@map("jobs")
 }
@@ -547,6 +548,23 @@ model Review{
   job    Job?   @relation(fields: [job_id], references: [id], onDelete: Cascade)
 
   @@map("reviews")
+}
+
+model JobStatusHistory {
+  id          String   @id @default(cuid())
+  created_at  DateTime @default(now())
+  updated_at  DateTime @default(now())
+
+  job_id String
+  job    Job     @relation(fields: [job_id], references: [id], onDelete: Cascade)
+
+  // e.g. posted, counter_offer, confirmed, ongoing, completed, paid, cancelled
+  status       String
+  occurred_at  DateTime @default(now())
+  meta         Json?
+
+  @@index([job_id, status])
+  @@map("job_status_histories")
 }
 
 // this table stores example

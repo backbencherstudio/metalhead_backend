@@ -252,6 +252,20 @@ async findAll(
     return { message: 'Job marked as completed successfully' };
   }
 
+  @ApiOperation({ summary: 'Mark job as started' })
+  @Patch(':id/start')
+  async startJob(@Param('id') id: string, @Req() req: Request): Promise<{ message: string }> {
+    const userId = (req as any).user.id;
+    await this.jobService.startJob(id, userId);
+    return { message: 'Job marked as started successfully' };
+  }
+
+  @ApiOperation({ summary: 'Get job status timeline' })
+  @Get(':id/timeline')
+  async getTimeline(@Param('id') id: string) {
+    return this.jobService.getTimeline(id);
+  }
+
   @ApiOperation({ summary: 'Delete a job posting' })
   @Delete(':id')
   async remove(@Param('id') id: string, @Req() req: Request): Promise<{ message: string }> {

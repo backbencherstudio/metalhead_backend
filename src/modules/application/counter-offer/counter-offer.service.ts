@@ -50,6 +50,16 @@ export class CounterOfferService {
         data: { job_status: 'counter_offer' },
       });
 
+      // Create status history entry
+      await (tx as any).jobStatusHistory?.create({
+        data: {
+          job_id,
+          status: 'counter_offer',
+          occurred_at: new Date(),
+          meta: { counter_offer_id: counterOffer.id, amount, type },
+        },
+      });
+
       return counterOffer;
     });
 
@@ -147,6 +157,16 @@ export class CounterOfferService {
         data: { 
           final_price: Number(counterOffer.amount),
           job_status: 'confirmed'
+        },
+      });
+
+      // Add status history for confirmed
+      await (tx as any).jobStatusHistory?.create({
+        data: {
+          job_id: counterOffer.job.id,
+          status: 'confirmed',
+          occurred_at: new Date(),
+          meta: { accepted_counter_offer_id: acceptedOffer.id },
         },
       });
 
@@ -332,6 +352,16 @@ export class CounterOfferService {
         data: { 
           final_price: Number(counterOffer.amount),
           job_status: 'confirmed'
+        },
+      });
+
+      // Add status history for confirmed
+      await (tx as any).jobStatusHistory?.create({
+        data: {
+          job_id: counterOffer.job.id,
+          status: 'confirmed',
+          occurred_at: new Date(),
+          meta: { accepted_counter_offer_id: acceptedOffer.id },
         },
       });
 

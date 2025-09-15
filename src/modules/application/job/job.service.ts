@@ -48,6 +48,15 @@ export class JobService {
       },
     });
 
+    // record posted history
+    await (this.prisma as any).jobStatusHistory?.create({
+      data: {
+        job_id: job.id,
+        status: 'posted',
+        occurred_at: job.created_at,
+      },
+    });
+
     return this.mapToResponseDto(job);
   }
 
@@ -353,17 +362,104 @@ export class JobService {
       throw new BadRequestException('Job must have an accepted offer to be completed');
     }
 
-    // Check if job is in confirmed status
-    if (job.job_status !== 'confirmed') {
-      throw new BadRequestException('Job must be confirmed before it can be completed');
+    // Check if job is in confirmed or ongoing status
+    if (job.job_status !== 'confirmed' && job.job_status !== 'ongoing') {
+      throw new BadRequestException('Job must be confirmed/started before it can be completed');
     }
 
-    await this.prisma.job.update({
-      where: { id },
-      data: {
-        job_status: 'completed',
+    await this.prisma.$transaction(async (tx) => {
+      await tx.job.update({
+        where: { id },
+        data: {
+          job_status: 'completed',
+        },
+      });
+
+      await (tx as any).jobStatusHistory?.create({
+        data: {
+          job_id: id,
+          status: 'completed',
+          occurred_at: new Date(),
+        },
+      });
+    });
+  }
+
+  async startJob(id: string, userId: string): Promise<void> {
+    const job = await this.prisma.job.findFirst({
+      where: { id, status: 1, deleted_at: null },
+      include: { accepted_offers: true },
+    });
+
+    if (!job) throw new NotFoundException('Job not found');
+
+    const isJobOwner = job.user_id === userId;
+    const isHelper = job.accepted_offers.some((offer) => offer.counter_offer_id);
+
+    if (!isJobOwner && !isHelper) {
+      throw new ForbiddenException('Only job participants can start the job');
+    }
+
+    if (job.job_status !== 'confirmed') {
+      throw new BadRequestException('Job must be confirmed to start');
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.job.update({ where: { id }, data: { job_status: 'ongoing' } });
+      await (tx as any).jobStatusHistory?.create({
+        data: { job_id: id, status: 'started', occurred_at: new Date() },
+      });
+    });
+  }
+
+  async getTimeline(jobId: string) {
+    // returns ordered timeline entries
+    const entries = await (this.prisma as any).jobStatusHistory?.findMany({
+      where: { job_id: jobId },
+      orderBy: { occurred_at: 'asc' },
+    }).catch?.(() => [] as any[]);
+
+    // In case prisma client hasn't been generated yet or table empty
+    const stored = Array.isArray(entries) ? entries : [];
+
+    // Also load base entities for synthesis
+    const job = await this.prisma.job.findFirst({
+      where: { id: jobId, deleted_at: null },
+      include: {
+        counter_offers: true,
+        accepted_offers: true,
       },
     });
+
+    if (!job) throw new NotFoundException('Job not found');
+
+    const result: { status: string; time: Date; meta?: any }[] = [];
+
+    for (const h of stored) {
+      result.push({ status: h.status, time: h.occurred_at, meta: h.meta ?? undefined });
+    }
+
+    if (!result.some(e => e.status === 'posted') && job.created_at) {
+      result.push({ status: 'posted', time: job.created_at });
+    }
+
+    if (!result.some(e => e.status === 'counter_offer') && job.counter_offers?.length) {
+      const firstCO = [...job.counter_offers].sort((a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())[0];
+      if (firstCO?.created_at) result.push({ status: 'counter_offer', time: firstCO.created_at, meta: { counter_offer_id: firstCO.id } });
+    }
+
+    const accepted = job.accepted_offers && job.accepted_offers[0];
+    if (!result.some(e => e.status === 'confirmed') && (accepted as any)?.created_at) {
+      result.push({ status: 'confirmed', time: (accepted as any).created_at, meta: { accepted_offer_id: (accepted as any).id } });
+    }
+
+    if (job.job_status === 'completed' && !result.some(e => e.status === 'completed')) {
+      const completedTime = job.updated_at ?? new Date();
+      result.push({ status: 'completed', time: completedTime });
+    }
+
+    result.sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+    return result;
   }
 
   async remove(id: string, userId: string): Promise<void> {
