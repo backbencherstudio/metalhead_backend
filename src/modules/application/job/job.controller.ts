@@ -244,6 +244,14 @@ async findAll(
 
  
 
+  @ApiOperation({ summary: 'Mark job as completed' })
+  @Patch(':id/complete')
+  async completeJob(@Param('id') id: string, @Req() req: Request): Promise<{ message: string }> {
+    const userId = (req as any).user.id;
+    await this.jobService.completeJob(id, userId);
+    return { message: 'Job marked as completed successfully' };
+  }
+
   @ApiOperation({ summary: 'Delete a job posting' })
   @Delete(':id')
   async remove(@Param('id') id: string, @Req() req: Request): Promise<{ message: string }> {

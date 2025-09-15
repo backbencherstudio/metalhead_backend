@@ -88,6 +88,8 @@ model User {
 
   helper_offers   CounterOffer[]   @relation("UserHelperOffers")
   accepted_offers AcceptedOffer[]  @relation("UserAcceptedOffers")
+  reviewer_reviews Review[]        @relation("ReviewerReviews")
+  reviewee_reviews Review[]        @relation("RevieweeReviews")
   @@map("users")
 }
 
@@ -142,6 +144,7 @@ model Permission {
 
   permission_roles PermissionRole[]
   roles            Role[]           @relation("PermissionToRole")
+  
 
   @@map("permissions")
 }
@@ -449,6 +452,7 @@ model Job {
   user           User?   @relation(fields: [user_id], references: [id])
   counter_offers CounterOffer[]   @relation("JobCounterOffers")
   accepted_offers AcceptedOffer[] @relation("JobAcceptedOffers")
+  reviews        Review[]
 
   @@map("jobs")
 }
@@ -521,6 +525,29 @@ model AcceptedOffer {
   @@map("accepted_offers")
 }
 
+model Review{
+  id         String    @id @default(cuid())
+  created_at DateTime  @default(now())
+  updated_at DateTime  @default(now())
+  deleted_at DateTime?
+
+  rating Int? // 1-5 star rating
+  comment String? @db.Text // Review text/note
+
+  // Who wrote the review
+  reviewer_id String?
+  reviewer    User?   @relation("ReviewerReviews", fields: [reviewer_id], references: [id])
+
+  // Who is being reviewed
+  reviewee_id String?
+  reviewee    User?   @relation("RevieweeReviews", fields: [reviewee_id], references: [id])
+
+  // Which job this review is for
+  job_id String?
+  job    Job?   @relation(fields: [job_id], references: [id], onDelete: Cascade)
+
+  @@map("reviews")
+}
 
 // this table stores example
 // model Note {

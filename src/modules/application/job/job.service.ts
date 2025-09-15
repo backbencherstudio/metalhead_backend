@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CreateJobDto } from './dto/create-job.dto';
 import { UpdateJobDto } from './dto/update-job.dto';
@@ -313,6 +313,58 @@ export class JobService {
   }
 
 
+
+  async completeJob(id: string, userId: string): Promise<void> {
+    const job = await this.prisma.job.findFirst({
+      where: {
+        id,
+        status: 1,
+        deleted_at: null,
+      },
+      include: {
+        accepted_offers: {
+          include: {
+            counter_offer: {
+              include: {
+                helper: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!job) {
+      throw new NotFoundException('Job not found');
+    }
+
+    // Check if the user is either the job owner or the helper
+    const isJobOwner = job.user_id === userId;
+    const isHelper = job.accepted_offers.some(
+      offer => offer.counter_offer.helper_id === userId
+    );
+
+    if (!isJobOwner && !isHelper) {
+      throw new ForbiddenException('Only job participants can mark job as completed');
+    }
+
+    // Check if job has an accepted offer
+    if (!job.accepted_offers || job.accepted_offers.length === 0) {
+      throw new BadRequestException('Job must have an accepted offer to be completed');
+    }
+
+    // Check if job is in confirmed status
+    if (job.job_status !== 'confirmed') {
+      throw new BadRequestException('Job must be confirmed before it can be completed');
+    }
+
+    await this.prisma.job.update({
+      where: { id },
+      data: {
+        job_status: 'completed',
+      },
+    });
+  }
 
   async remove(id: string, userId: string): Promise<void> {
     const existingJob = await this.prisma.job.findFirst({

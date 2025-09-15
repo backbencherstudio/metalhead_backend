@@ -4,9 +4,10 @@ import { ContactModule } from './contact/contact.module';
 import { FaqModule } from './faq/faq.module';
 import { JobModule } from './job/job.module';
 import { CounterOfferModule } from './counter-offer/counter-offer.module';
+import { ReviewModule } from './review/review.module';
 
 
 @Module({
-  imports: [NotificationModule, ContactModule, FaqModule, JobModule, CounterOfferModule],
+  imports: [NotificationModule, ContactModule, FaqModule, JobModule, CounterOfferModule, ReviewModule],
 })
 export class ApplicationModule {}
