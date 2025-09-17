@@ -196,22 +196,27 @@ export class AuthService {
   }
 
   async validateUser(
-    email: string,
+    identifier: string,
     pass: string,
     token?: string,
   ): Promise<any> {
     const _password = pass;
+    
+    // Find user by email or username
     const user = await this.prisma.user.findFirst({
       where: {
-        email: email,
+        OR: [
+          { email: identifier },
+          { username: identifier }
+        ],
       },
     });
     
     if (user) {
-      const _isValidPassword = await UserRepository.validatePassword({
-        email: email,
-        password: _password,
-      });
+      // Use bcrypt to compare password directly
+      const bcrypt = await import('bcrypt');
+      const _isValidPassword = await bcrypt.compare(_password, user.password);
+      
       if (_isValidPassword) {
         const { password, ...result } = user;
         if (user.is_two_factor_enabled) {
@@ -219,33 +224,17 @@ export class AuthService {
             const isValid = await UserRepository.verify2FA(user.id, token);
             if (!isValid) {
               throw new UnauthorizedException('Invalid token');
-              // return {
-              //   success: false,
-              //   message: 'Invalid token',
-              // };
             }
           } else {
             throw new UnauthorizedException('Token is required');
-            // return {
-            //   success: false,
-            //   message: 'Token is required',
-            // };
           }
         }
         return result;
       } else {
         throw new UnauthorizedException('Password not matched');
-        // return {
-        //   success: false,
-        //   message: 'Password not matched',
-        // };
       }
     } else {
-      throw new UnauthorizedException('Email not found');
-      // return {
-      //   success: false,
-      //   message: 'Email not found',
-      // };
+      throw new UnauthorizedException('User not found');
     }
   }
 
