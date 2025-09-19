@@ -19,7 +19,7 @@ export class UcodeRepository {
     email = null,
   }): Promise<string> {
     // OTP valid for 5 minutes
-    const otpExpiryTime = 5 * 60 * 1000;
+    const otpExpiryTime = 2 * 60 * 1000;
     expired_at = new Date(Date.now() + otpExpiryTime);
 
     const userDetails = await UserRepository.getUserDetails(userId);

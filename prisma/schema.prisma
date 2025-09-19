@@ -83,7 +83,7 @@ model User {
   payment_transactions PaymentTransaction[]
   age                  Int?
   bio                  String?
-  skills               String?
+  skills               String[] // Array of skill strings
   jobs                 Job[]
 
   helper_offers   CounterOffer[]   @relation("UserHelperOffers")

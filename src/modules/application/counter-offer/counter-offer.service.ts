@@ -7,6 +7,7 @@ import { AcceptCounterOfferDto } from '../counter-offer/dtos/accept-counter-offe
 import { AcceptedCounterOfferResponseDto } from '../counter-offer/dtos/accepted-counter-offer-response.dto';
 import { UserCounterOfferDto } from './dtos/user-counter-offer.dto';
 import { HelperAcceptCounterOfferDto } from './dtos/helper-accept-counter-offer.dto';
+import { NotificationRepository } from '../../../common/repository/notification/notification.repository';
 
 @Injectable()
 export class CounterOfferService {
@@ -62,6 +63,20 @@ export class CounterOfferService {
 
       return counterOffer;
     });
+
+    // 4. Send notification to job owner about new counter offer
+    try {
+      await NotificationRepository.createNotification({
+        sender_id: helper_id,
+        receiver_id: job.user_id,
+        text: `New counter offer received for job: ${amount} ${type}`,
+        type: 'booking',
+        entity_id: result.id,
+      });
+    } catch (error) {
+      console.error('Failed to send counter offer notification:', error);
+      // Don't throw error to avoid breaking the main flow
+    }
 
     return result;
   }
@@ -190,6 +205,27 @@ export class CounterOfferService {
 
       return response;
     });
+  }
+
+  // Add notification after counter offer acceptance
+  async acceptCounterOfferWithNotification(counter_offer_id: string, user_id: string): Promise<AcceptedCounterOfferResponseDto> {
+    const result = await this.acceptCounterOffer(counter_offer_id, user_id);
+    
+    // Send notification to helper about offer acceptance
+    try {
+      await NotificationRepository.createNotification({
+        sender_id: user_id,
+        receiver_id: result.helper_id,
+        text: `Your counter offer has been accepted for job: ${result.job_title}`,
+        type: 'booking',
+        entity_id: counter_offer_id,
+      });
+    } catch (error) {
+      console.error('Failed to send acceptance notification:', error);
+      // Don't throw error to avoid breaking the main flow
+    }
+
+    return result;
   }
 
   async declineCounterOffer(counter_offer_id: string, user_id: string) {
@@ -385,6 +421,35 @@ export class CounterOfferService {
 
       return response;
     });
+  }
+
+  // Add notification after helper accepts counter offer
+  async helperAcceptCounterOfferWithNotification(counter_offer_id: string, dto: HelperAcceptCounterOfferDto): Promise<AcceptedCounterOfferResponseDto> {
+    const result = await this.helperAcceptCounterOffer(counter_offer_id, dto);
+    
+    // Get job owner ID for notification
+    const job = await this.prisma.job.findUnique({
+      where: { id: result.job_id },
+      select: { user_id: true }
+    });
+    
+    // Send notification to job owner about helper acceptance
+    if (job?.user_id) {
+      try {
+        await NotificationRepository.createNotification({
+          sender_id: dto.helper_id,
+          receiver_id: job.user_id,
+          text: `Helper has accepted your counter offer for job: ${result.job_title}`,
+          type: 'booking',
+          entity_id: counter_offer_id,
+        });
+      } catch (error) {
+        console.error('Failed to send helper acceptance notification:', error);
+        // Don't throw error to avoid breaking the main flow
+      }
+    }
+
+    return result;
   }
 
 }

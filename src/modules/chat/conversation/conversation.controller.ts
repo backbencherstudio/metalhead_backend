@@ -8,7 +8,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ConversationService } from './conversation.service';
-import { CreateConversationDto } from './dto/create-conversation.dto';
+import { CreateConversationDto, CreateConversationFromJobDto } from './dto/create-conversation.dto';
 import { RolesGuard } from '../../../common/guard/role/roles.guard';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
@@ -17,7 +17,7 @@ import { Roles } from '../../../common/guard/role/roles.decorator';
 
 @ApiBearerAuth()
 @ApiTags('Conversation')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard)
 @Controller('chat/conversation')
 export class ConversationController {
   constructor(private readonly conversationService: ConversationService) {}
@@ -30,6 +30,19 @@ export class ConversationController {
         createConversationDto,
       );
       return conversation;
+    } catch (error) {
+      return {
+        success: false,
+        message: error.message,
+      };
+    }
+  }
+
+  @ApiOperation({ summary: 'Create or get conversation for a confirmed job' })
+  @Post('from-job')
+  async createFromJob(@Body() dto: CreateConversationFromJobDto) {
+    try {
+      return await this.conversationService.createFromJob(dto.job_id);
     } catch (error) {
       return {
         success: false,

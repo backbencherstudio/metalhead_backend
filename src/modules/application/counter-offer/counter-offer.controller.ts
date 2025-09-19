@@ -30,7 +30,7 @@ export class CounterOfferController {
     @Param('counter_offer_id') counter_offer_id: string,
     @Body('user_id') user_id: string, // for testing; later replace with auth guard
   ) {
-    return this.counterOfferService.acceptCounterOffer(counter_offer_id, user_id);
+    return this.counterOfferService.acceptCounterOfferWithNotification(counter_offer_id, user_id);
   }
 
   @Post('decline/:counter_offer_id')
@@ -54,6 +54,6 @@ export class CounterOfferController {
     @Param('counter_offer_id') counter_offer_id: string,
     @Body() dto: HelperAcceptCounterOfferDto,
   ) {
-    return this.counterOfferService.helperAcceptCounterOffer(counter_offer_id, dto);
+    return this.counterOfferService.helperAcceptCounterOfferWithNotification(counter_offer_id, dto);
   }
 }

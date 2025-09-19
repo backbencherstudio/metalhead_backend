@@ -1,8 +1,17 @@
-import { ApiProperty, PartialType } from '@nestjs/swagger';
+import { ApiProperty, PartialType, OmitType } from '@nestjs/swagger';
 import { CreateUserDto } from './create-user.dto';
-import { IsOptional, IsPhoneNumber } from 'class-validator';
+import { IsOptional, IsPhoneNumber, ValidateIf, IsArray, IsString } from 'class-validator';
 
-export class UpdateUserDto extends PartialType(CreateUserDto) {
+// Email is intentionally excluded from updates for security reasons
+export class UpdateUserDto extends PartialType(OmitType(CreateUserDto, ['email'] as const)) {
+  // Explicitly reject email updates
+  @ValidateIf(() => false) // This will always fail validation if email is provided
+  @ApiProperty({
+    description: 'Email is not updateable through this endpoint',
+    example: 'This field will be ignored',
+    required: false,
+  })
+  email?: string;
   @IsOptional()
   @ApiProperty({
     description: 'Country',
@@ -89,9 +98,12 @@ export class UpdateUserDto extends PartialType(CreateUserDto) {
   age?: number;
 
   @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
   @ApiProperty({
-    description: 'Address',
-    example: 'Plumbing, Fixing leakages',
+    description: 'Array of skills',
+    example: ['Plumbing', 'Fixing leakages', 'Electrical work', 'Carpentry'],
+    type: [String],
   })
-  skills?: string;
+  skills?: string[];
 }

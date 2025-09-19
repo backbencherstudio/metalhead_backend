@@ -16,3 +16,10 @@ export class CreateConversationDto {
   })
   participant_id: string;
 }
+
+export class CreateConversationFromJobDto {
+  @IsNotEmpty()
+  @IsString()
+  @ApiProperty({ description: 'The id of the confirmed job' })
+  job_id: string;
+}

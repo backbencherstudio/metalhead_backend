@@ -7,6 +7,7 @@ import appConfig from '../../../config/app.config';
 import { SojebStorage } from '../../../common/lib/Disk/SojebStorage';
 import { DateHelper } from '../../../common/helper/date.helper';
 import { MessageGateway } from '../message/message.gateway';
+import { ForbiddenException, NotFoundException } from '@nestjs/common';
 
 @Injectable()
 export class ConversationService {
@@ -144,6 +145,111 @@ export class ConversationService {
         success: false,
         message: error.message,
       };
+    }
+  }
+
+  /**
+   * Create or fetch a conversation for a confirmed job between job owner and accepted helper
+   */
+  async createFromJob(job_id: string) {
+    try {
+      // find confirmed job with accepted offer
+      const job = await this.prisma.job.findFirst({
+        where: { id: job_id, deleted_at: null },
+        include: {
+          accepted_offers: {
+            include: { counter_offer: { select: { helper_id: true } } },
+          },
+          user: { select: { id: true } },
+        },
+      });
+
+      if (!job) {
+        throw new NotFoundException('Job not found');
+      }
+      if (job.job_status !== 'confirmed' && job.job_status !== 'ongoing') {
+        throw new ForbiddenException('Chat is only available for confirmed/ongoing jobs');
+      }
+
+      const helperId = job.accepted_offers?.[0]?.counter_offer?.helper_id;
+      const ownerId = job.user_id;
+      if (!helperId || !ownerId) {
+        throw new ForbiddenException('No accepted helper for this job');
+      }
+
+      // check existing both directions
+      let conversation = await this.prisma.conversation.findFirst({
+        where: {
+          OR: [
+            { creator_id: ownerId, participant_id: helperId },
+            { creator_id: helperId, participant_id: ownerId },
+          ],
+        },
+        select: {
+          id: true,
+          creator_id: true,
+          participant_id: true,
+          created_at: true,
+          updated_at: true,
+          creator: { select: { id: true, name: true, avatar: true } },
+          participant: { select: { id: true, name: true, avatar: true } },
+        },
+      });
+
+      if (conversation) {
+        // add avatar urls
+        if (conversation.creator?.avatar) {
+          conversation.creator['avatar_url'] = SojebStorage.url(
+            appConfig().storageUrl.avatar + conversation.creator.avatar,
+          );
+        }
+        if (conversation.participant?.avatar) {
+          conversation.participant['avatar_url'] = SojebStorage.url(
+            appConfig().storageUrl.avatar + conversation.participant.avatar,
+          );
+        }
+        return { success: true, data: conversation };
+      }
+
+      // create new
+      conversation = await this.prisma.conversation.create({
+        data: { creator_id: ownerId, participant_id: helperId },
+        select: {
+          id: true,
+          creator_id: true,
+          participant_id: true,
+          created_at: true,
+          updated_at: true,
+          creator: { select: { id: true, name: true, avatar: true } },
+          participant: { select: { id: true, name: true, avatar: true } },
+        },
+      });
+
+      // add avatar urls
+      if (conversation.creator?.avatar) {
+        conversation.creator['avatar_url'] = SojebStorage.url(
+          appConfig().storageUrl.avatar + conversation.creator.avatar,
+        );
+      }
+      if (conversation.participant?.avatar) {
+        conversation.participant['avatar_url'] = SojebStorage.url(
+          appConfig().storageUrl.avatar + conversation.participant.avatar,
+        );
+      }
+
+      // notify both users
+      this.messageGateway.server.to(ownerId).emit('conversation', {
+        from: ownerId,
+        data: conversation,
+      });
+      this.messageGateway.server.to(helperId).emit('conversation', {
+        from: helperId,
+        data: conversation,
+      });
+
+      return { success: true, message: 'Conversation created', data: conversation };
+    } catch (error) {
+      return { success: false, message: error.message };
     }
   }
 

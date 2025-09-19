@@ -23,7 +23,7 @@ export class AuthService {
     private prisma: PrismaService,
     private mailService: MailService,
     @InjectRedis() private readonly redis: Redis,
-  ) {}
+  ) { }
 
   async me(userId: string) {
     try {
@@ -34,14 +34,19 @@ export class AuthService {
         select: {
           id: true,
           name: true,
-          username:true,
+          username: true,
           email: true,
           avatar: true,
-          address: true,
           phone_number: true,
           type: true,
           gender: true,
-          
+          address: true,
+          state: true,
+          city: true,
+          zip_code: true,
+          skills: true,
+          bio: true,
+          age: true,
           date_of_birth: true,
           created_at: true,
         },
@@ -85,6 +90,14 @@ export class AuthService {
     image?: Express.Multer.File,
   ) {
     try {
+      // Check if email is provided and reject it
+      if (updateUserDto.email) {
+        return {
+          success: false,
+          message: 'Email is not updateable through this endpoint. Please use the email change functionality if available.',
+        };
+      }
+
       const data: any = {};
       if (updateUserDto.first_name) {
         data.first_name = updateUserDto.first_name;
@@ -126,6 +139,7 @@ export class AuthService {
         data.age = updateUserDto.age;
       }
       if (updateUserDto.skills) {
+        // Skills is now an array of strings - Prisma will handle JSON conversion
         data.skills = updateUserDto.skills;
       }
       if (updateUserDto.date_of_birth) {
@@ -154,18 +168,18 @@ export class AuthService {
       }
 
       if (updateUserDto.username) {
-      const usernameUpdateResponse = await UserRepository.changeUsername({
-        user_id: userId,
-        new_username: updateUserDto.username,
-      });
+        const usernameUpdateResponse = await UserRepository.changeUsername({
+          user_id: userId,
+          new_username: updateUserDto.username,
+        });
 
-      if (!usernameUpdateResponse.success) {
-        return {
-          success: false,
-          message: usernameUpdateResponse.message,
-        };
+        if (!usernameUpdateResponse.success) {
+          return {
+            success: false,
+            message: usernameUpdateResponse.message,
+          };
+        }
       }
-    }
 
 
       const user = await UserRepository.getUserDetails(userId);
@@ -201,7 +215,7 @@ export class AuthService {
     token?: string,
   ): Promise<any> {
     const _password = pass;
-    
+
     // Find user by email or username
     const user = await this.prisma.user.findFirst({
       where: {
@@ -211,12 +225,12 @@ export class AuthService {
         ],
       },
     });
-    
+
     if (user) {
       // Use bcrypt to compare password directly
       const bcrypt = await import('bcrypt');
       const _isValidPassword = await bcrypt.compare(_password, user.password);
-      
+
       if (_isValidPassword) {
         const { password, ...result } = user;
         if (user.is_two_factor_enabled) {
@@ -355,7 +369,7 @@ export class AuthService {
     last_name: string;
     email: string;
     password: string;
-    phone_number:number;
+    phone_number: number;
     type: string;
   }) {
     try {
@@ -702,38 +716,38 @@ export class AuthService {
     }
   }
 
-//   async requestUsernameChange(user_id: string, email: string) {
-//   try {
-//     const user = await UserRepository.getUserByEmail(email);
-//     if (!user) {
-//       return {
-//         success: false,
-//         message: 'User with this email address does not exist', 
-//       };
-//     }
-//     const token = await UcodeRepository.createToken({
-//       userId: user_id,
-//       isOtp: true,
-//       email: email, 
-//     });
+  //   async requestUsernameChange(user_id: string, email: string) {
+  //   try {
+  //     const user = await UserRepository.getUserByEmail(email);
+  //     if (!user) {
+  //       return {
+  //         success: false,
+  //         message: 'User with this email address does not exist', 
+  //       };
+  //     }
+  //     const token = await UcodeRepository.createToken({
+  //       userId: user_id,
+  //       isOtp: true,
+  //       email: email, 
+  //     });
 
-//     await this.mailService.sendOtpCodeToEmail({
-//       email: email,
-//       name: user.username, 
-//       otp: token,
-//     });
+  //     await this.mailService.sendOtpCodeToEmail({
+  //       email: email,
+  //       name: user.username, 
+  //       otp: token,
+  //     });
 
-//     return {
-//       success: true,
-//       message: 'We have sent an OTP code to your email for username change', 
-//     };
-//   } catch (error) {
-//     return {
-//       success: false,
-//       message: error.message, 
-//     };
-//   }
-// }
+  //     return {
+  //       success: true,
+  //       message: 'We have sent an OTP code to your email for username change', 
+  //     };
+  //   } catch (error) {
+  //     return {
+  //       success: false,
+  //       message: error.message, 
+  //     };
+  //   }
+  // }
 
 
   async changeEmail({
@@ -795,58 +809,58 @@ export class AuthService {
 
   async changeUsername({
     user_id,
-  new_email,
-  token,
-  new_username,
-}: {
-  user_id: string;
-  new_email: string;
-  token: string;
-  new_username: string;
-}) {
-  try {
-    const user = await UserRepository.getUserDetails(user_id);
+    new_email,
+    token,
+    new_username,
+  }: {
+    user_id: string;
+    new_email: string;
+    token: string;
+    new_username: string;
+  }) {
+    try {
+      const user = await UserRepository.getUserDetails(user_id);
 
-    if (!user) {
+      if (!user) {
+        return {
+          success: false,
+          message: 'User not found',
+        };
+      }
+
+      // Validate the token for email change
+      const existToken = await UcodeRepository.validateToken({
+        email: new_email,
+        token,
+        forEmailChange: true,
+      });
+
+      if (!existToken) {
+        return {
+          success: false,
+          message: 'Invalid token',
+        };
+      }
+
+      // Proceed with updating both email and username
+      const updatedUser = await this.prisma.user.update({
+        where: { id: user_id },
+        data: {
+          username: new_username, // Update username
+        },
+      });
+
+      return {
+        success: true,
+        message: 'username updated successfully',
+        data: updatedUser,
+      };
+    } catch (error) {
       return {
         success: false,
-        message: 'User not found',
+        message: error.message || 'Something went wrong',
       };
     }
-
-    // Validate the token for email change
-    const existToken = await UcodeRepository.validateToken({
-      email: new_email,
-      token,
-      forEmailChange: true,
-    });
-
-    if (!existToken) {
-      return {
-        success: false,
-        message: 'Invalid token',
-      };
-    }
-
-    // Proceed with updating both email and username
-    const updatedUser = await this.prisma.user.update({
-      where: { id: user_id },
-      data: {
-        username: new_username, // Update username
-      },
-    });
-
-    return {
-      success: true,
-      message: 'username updated successfully',
-      data: updatedUser,
-    };
-  } catch (error) {
-    return {
-      success: false,
-      message: error.message || 'Something went wrong',
-    };
-  }
   }
 
   // --------- 2FA ---------
@@ -940,5 +954,5 @@ export class AuthService {
       };
     }
   }
-  
+
 }
