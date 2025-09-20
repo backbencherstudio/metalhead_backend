@@ -595,6 +595,58 @@ export class AuthController {
       };
     }
   }
+
+  // Helper Onboarding Endpoints
+  @ApiOperation({ summary: 'Get Stripe onboarding link for helper' })
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Get('helper/onboarding-link')
+  async getHelperOnboardingLink(@Req() req: Request) {
+    try {
+      const user_id = req.user.userId;
+      const result = await this.authService.getHelperOnboardingLink(user_id);
+      return result;
+    } catch (error) {
+      return {
+        success: false,
+        message: error.message,
+      };
+    }
+  }
+
+  @ApiOperation({ summary: 'Check helper onboarding status' })
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Get('helper/onboarding-status')
+  async checkHelperOnboardingStatus(@Req() req: Request) {
+    try {
+      const user_id = req.user.userId;
+      const result = await this.authService.checkHelperOnboardingStatus(user_id);
+      return result;
+    } catch (error) {
+      return {
+        success: false,
+        message: error.message,
+      };
+    }
+  }
+
+  @ApiOperation({ summary: 'Get helper payment status' })
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Get('helper/payment-status')
+  async getHelperPaymentStatus(@Req() req: Request) {
+    try {
+      const user_id = req.user.userId;
+      const result = await this.authService.getHelperPaymentStatus(user_id);
+      return result;
+    } catch (error) {
+      return {
+        success: false,
+        message: error.message,
+      };
+    }
+  }
   
 }
 

@@ -460,4 +460,11 @@ export class StripePayment {
     );
     return event;
   }
+
+// Add this method to StripePayment class
+static async checkAccountStatus(accountId: string) {
+  const account = await Stripe.accounts.retrieve(accountId);
+  return account;
+}
+
 }

@@ -86,10 +86,15 @@ model User {
   skills               String[] // Array of skill strings
   jobs                 Job[]
 
-  helper_offers   CounterOffer[]   @relation("UserHelperOffers")
-  accepted_offers AcceptedOffer[]  @relation("UserAcceptedOffers")
+  helper_offers    CounterOffer[]  @relation("UserHelperOffers")
+  accepted_offers  AcceptedOffer[] @relation("UserAcceptedOffers")
   reviewer_reviews Review[]        @relation("ReviewerReviews")
   reviewee_reviews Review[]        @relation("RevieweeReviews")
+
+  stripe_account_id String?       
+  stripe_account_status String?    
+  stripe_payouts_enabled      Boolean? @default(false)
+  stripe_onboarding_completed Boolean? @default(false)
   @@map("users")
 }
 
@@ -144,7 +149,6 @@ model Permission {
 
   permission_roles PermissionRole[]
   roles            Role[]           @relation("PermissionToRole")
-  
 
   @@map("permissions")
 }
@@ -429,31 +433,32 @@ model UserSetting {
 
 // Job posting models
 model Job {
-  id         String    @id @default(cuid())
-  created_at DateTime  @default(now())
-  updated_at DateTime  @default(now())
-  deleted_at DateTime?
-  status     Int?      @default(1) @db.SmallInt
-  job_status String?   @default("posted") // posted, counter_offer, confirmed, ongoing, completed, paid
-  title      String?
-  category   String?
-  date_and_time  DateTime?
-  price      Decimal?      // Original price set by user
-  final_price Decimal?     // Price after counter offer accepted
-  payment_type   String?
-  job_type       String?
-  location       String?
-  estimated_time String?
-  description    String? @db.Text
-  requirements   JobRequirement[]
-  notes          JobNote[]
-  photos         String?
-  user_id        String?
-  user           User?   @relation(fields: [user_id], references: [id])
-  counter_offers CounterOffer[]   @relation("JobCounterOffers")
-  accepted_offers AcceptedOffer[] @relation("JobAcceptedOffers")
-  reviews        Review[]
-  status_history JobStatusHistory[]
+  id              String             @id @default(cuid())
+  created_at      DateTime           @default(now())
+  updated_at      DateTime           @default(now())
+  deleted_at      DateTime?
+  status          Int?               @default(1) @db.SmallInt
+  job_status      String?            @default("posted") // posted, counter_offer, confirmed, ongoing, completed, paid
+  title           String?
+  category        String?
+  date_and_time   DateTime?
+  price           Decimal? // Original price set by user
+  final_price     Decimal? // Price after counter offer accepted
+  payment_type    String?
+  job_type        String?
+  location        String?
+  estimated_time  String?
+  description     String?            @db.Text
+  requirements    JobRequirement[]
+  notes           JobNote[] //only be enabled if user selects the job type as urgent
+  photos          String?
+  user_id         String?
+  user            User?              @relation(fields: [user_id], references: [id])
+  counter_offers  CounterOffer[]     @relation("JobCounterOffers")
+  accepted_offers AcceptedOffer[]    @relation("JobAcceptedOffers")
+  reviews         Review[]
+  status_history  JobStatusHistory[]
+
 
   @@map("jobs")
 }
@@ -495,15 +500,15 @@ model CounterOffer {
   created_at DateTime @default(now())
   updated_at DateTime @default(now())
 
-  amount   Decimal
-  type     String
-  note     String?
+  amount Decimal
+  type   String
+  note   String?
 
-  job_id   String
-  job      Job  @relation("JobCounterOffers", fields: [job_id], references: [id])
+  job_id String
+  job    Job    @relation("JobCounterOffers", fields: [job_id], references: [id])
 
   helper_id String
-  helper    User @relation("UserHelperOffers", fields: [helper_id], references: [id])
+  helper    User   @relation("UserHelperOffers", fields: [helper_id], references: [id])
 
   acceptedOffer AcceptedOffer?
 
@@ -514,25 +519,25 @@ model AcceptedOffer {
   id         String   @id @default(cuid())
   created_at DateTime @default(now())
 
-  counter_offer_id String  @unique
+  counter_offer_id String       @unique
   counter_offer    CounterOffer @relation(fields: [counter_offer_id], references: [id], onDelete: Cascade)
 
-  job_id   String
-  job      Job  @relation("JobAcceptedOffers", fields: [job_id], references: [id])
+  job_id String
+  job    Job    @relation("JobAcceptedOffers", fields: [job_id], references: [id])
 
-  user_id  String
-  user     User @relation("UserAcceptedOffers", fields: [user_id], references: [id])
+  user_id String
+  user    User   @relation("UserAcceptedOffers", fields: [user_id], references: [id])
 
   @@map("accepted_offers")
 }
 
-model Review{
+model Review {
   id         String    @id @default(cuid())
   created_at DateTime  @default(now())
   updated_at DateTime  @default(now())
   deleted_at DateTime?
 
-  rating Int? // 1-5 star rating
+  rating  Int? // 1-5 star rating
   comment String? @db.Text // Review text/note
 
   // Who wrote the review
@@ -545,23 +550,23 @@ model Review{
 
   // Which job this review is for
   job_id String?
-  job    Job?   @relation(fields: [job_id], references: [id], onDelete: Cascade)
+  job    Job?    @relation(fields: [job_id], references: [id], onDelete: Cascade)
 
   @@map("reviews")
 }
 
 model JobStatusHistory {
-  id          String   @id @default(cuid())
-  created_at  DateTime @default(now())
-  updated_at  DateTime @default(now())
+  id         String   @id @default(cuid())
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
 
   job_id String
-  job    Job     @relation(fields: [job_id], references: [id], onDelete: Cascade)
+  job    Job    @relation(fields: [job_id], references: [id], onDelete: Cascade)
 
   // e.g. posted, counter_offer, confirmed, ongoing, completed, paid, cancelled
-  status       String
-  occurred_at  DateTime @default(now())
-  meta         Json?
+  status      String
+  occurred_at DateTime @default(now())
+  meta        Json?
 
   @@index([job_id, status])
   @@map("job_status_histories")
