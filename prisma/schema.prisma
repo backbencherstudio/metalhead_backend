@@ -441,7 +441,7 @@ model Job {
   job_status      String?            @default("posted") // posted, counter_offer, confirmed, ongoing, completed, paid
   title           String?
   category        String?
-  date_and_time   DateTime?
+  date_and_time   DateTime? 
   price           Decimal? // Original price set by user
   final_price     Decimal? // Price after counter offer accepted
   payment_type    String?

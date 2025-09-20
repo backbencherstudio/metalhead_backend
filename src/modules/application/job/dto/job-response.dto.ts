@@ -100,6 +100,9 @@ export class JobResponseDto {
   @ApiProperty({ type: [JobNoteResponseDto] })
   notes: JobNoteResponseDto[];
 
+  @ApiProperty({ required: false })
+  urgent_note?: string;
+
   @ApiProperty()
   photos: string;
 

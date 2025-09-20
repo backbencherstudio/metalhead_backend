@@ -452,4 +452,113 @@ export class CounterOfferService {
     return result;
   }
 
+  async directAcceptJob(jobId: string, dto: any): Promise<any> {
+    const { helper_id, note } = dto;
+    
+    if (!helper_id) {
+      throw new ForbiddenException('Helper ID is required');
+    }
+
+    // 1. Verify job exists and get job details
+    const job = await this.prisma.job.findUnique({
+      where: { id: jobId },
+      include: {
+        user: true,
+      },
+    });
+
+    if (!job) {
+      throw new NotFoundException('Job not found');
+    }
+
+    if (!job.user_id) {
+      throw new ForbiddenException('Job must have an owner before it can be accepted');
+    }
+
+    // 2. Fetch helper information
+    const helper = await this.prisma.user.findUnique({
+      where: { id: helper_id },
+      select: { id: true, name: true, first_name: true, last_name: true, email: true },
+    });
+
+    if (!helper) {
+      throw new NotFoundException('Helper not found');
+    }
+
+    // 3. Check if job already has an accepted offer
+    const existingAcceptedOffer = await this.prisma.acceptedOffer.findFirst({
+      where: { job_id: jobId },
+      select: { id: true },
+    });
+
+    if (existingAcceptedOffer) {
+      throw new ForbiddenException('Job already has an accepted offer');
+    }
+
+    // 4. Create counter offer and accepted offer in transaction
+    const result = await this.prisma.$transaction(async (tx) => {
+      // Create counter offer with original job price
+      const counterOffer = await tx.counterOffer.create({
+        data: {
+          job_id: jobId,
+          helper_id,
+          amount: job.price,
+          type: 'direct_accept',
+          note: note || 'I can start immediately and complete this project within the timeline',
+        },
+      });
+
+      // Create accepted offer
+      const acceptedOffer = await tx.acceptedOffer.create({
+        data: {
+          job_id: jobId,
+          counter_offer_id: counterOffer.id,
+          user_id: job.user_id, // Add the job owner's user_id
+        },
+      });
+
+      // Update job status to confirmed
+      await tx.job.update({
+        where: { id: jobId },
+        data: {
+          job_status: 'confirmed',
+          final_price: job.price,
+        },
+      });
+
+      return {
+        job_id: jobId,
+        job_title: job.title,
+        original_price: job.price,
+        counter_offer_amount: counterOffer.amount,
+        counter_offer_type: counterOffer.type,
+        counter_offer_note: counterOffer.note,
+        helper_id,
+        helper_name: (
+          helper.name ??
+          [helper.first_name, helper.last_name]
+            .filter(Boolean)
+            .join(' ')
+        ) || '',
+        helper_email: helper.email ?? '',
+        status: 'accepted',
+      };
+    });
+
+    // 5. Send notification to job owner
+    try {
+      await NotificationRepository.createNotification({
+        sender_id: helper_id,
+        receiver_id: job.user_id,
+        text: `A helper has directly accepted your job: ${job.title}`,
+        type: 'booking',
+        entity_id: jobId,
+      });
+    } catch (error) {
+      console.error('Failed to send notification:', error);
+    }
+
+    return result;
+  }
+
 }

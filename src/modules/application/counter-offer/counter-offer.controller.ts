@@ -5,6 +5,8 @@ import { CreateCounterOfferDto } from '../counter-offer/dtos/create-counter-offe
 import { AcceptCounterOfferDto } from './dtos/accept-counter-offer.dto';
 import { UserCounterOfferDto } from './dtos/user-counter-offer.dto';
 import { HelperAcceptCounterOfferDto } from './dtos/helper-accept-counter-offer.dto';
+import { DirectAcceptJobDto } from './dtos/direct-accept-job.dto';
+import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 
 
 @Controller('counter-offers')
@@ -55,5 +57,16 @@ export class CounterOfferController {
     @Body() dto: HelperAcceptCounterOfferDto,
   ) {
     return this.counterOfferService.helperAcceptCounterOfferWithNotification(counter_offer_id, dto);
+  }
+
+  @Post('direct-accept/:job_id')
+  @UseGuards(JwtAuthGuard)
+  async directAcceptJob(
+    @Param('job_id') job_id: string,
+    @Body() dto: DirectAcceptJobDto,
+    @Req() req: Request,
+  ) {
+    const helper_id = (req as any).user.userId || (req as any).user.id;
+    return this.counterOfferService.directAcceptJob(job_id, { ...dto, helper_id });
   }
 }

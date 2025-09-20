@@ -353,6 +353,17 @@ export class JobService {
       offer => offer.counter_offer.helper_id === userId
     );
 
+    console.log('Complete Job Debug:', {
+      userId,
+      jobUserId: job.user_id,
+      isJobOwner,
+      isHelper,
+      acceptedOffers: job.accepted_offers.map(offer => ({
+        counterOfferId: offer.counter_offer_id,
+        helperId: offer.counter_offer?.helper_id
+      }))
+    });
+
     if (!isJobOwner && !isHelper) {
       throw new ForbiddenException('Only job participants can mark job as completed');
     }
@@ -385,16 +396,144 @@ export class JobService {
     });
   }
 
+  async finishJob(id: string, userId: string): Promise<void> {
+    const job = await this.prisma.job.findFirst({
+      where: {
+        id,
+        status: 1,
+        deleted_at: null,
+      },
+      include: {
+        accepted_offers: {
+          include: {
+            counter_offer: {
+              include: {
+                helper: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!job) {
+      throw new NotFoundException('Job not found');
+    }
+
+    // Check if the user is the job owner (only job owner can finish and release payment)
+    if (job.user_id !== userId) {
+      throw new ForbiddenException('Only job owner can finish the job and release payment');
+    }
+
+    // Check if job has an accepted offer
+    if (!job.accepted_offers || job.accepted_offers.length === 0) {
+      throw new BadRequestException('Job must have an accepted offer to be finished');
+    }
+
+    // Check if job is in completed status
+    if (job.job_status !== 'completed') {
+      throw new BadRequestException('Job must be completed by helper before it can be finished');
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.job.update({
+        where: { id },
+        data: {
+          job_status: 'paid',
+        },
+      });
+
+      await (tx as any).jobStatusHistory?.create({
+        data: {
+          job_id: id,
+          status: 'paid',
+          occurred_at: new Date(),
+        },
+      });
+    });
+
+    // TODO: Add escrow payment release logic here
+    // This will be implemented when escrow service is available
+    console.log(`Payment should be released for job ${id} to helper ${job.accepted_offers[0].counter_offer.helper_id}`);
+  }
+
+  async autoCompleteJob(id: string): Promise<void> {
+    const job = await this.prisma.job.findFirst({
+      where: {
+        id,
+        status: 1,
+        deleted_at: null,
+        job_status: 'completed',
+      },
+      include: {
+        accepted_offers: {
+          include: {
+            counter_offer: {
+              include: {
+                helper: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!job) {
+      throw new NotFoundException('Job not found or not in completed status');
+    }
+
+    // Check if 24 hours have passed since job was completed
+    const completedTime = job.updated_at;
+    const now = new Date();
+    const hoursSinceCompletion = (now.getTime() - completedTime.getTime()) / (1000 * 60 * 60);
+
+    if (hoursSinceCompletion < 24) {
+      throw new BadRequestException('Job cannot be auto-completed yet. 24 hours must pass since completion.');
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.job.update({
+        where: { id },
+        data: {
+          job_status: 'paid',
+        },
+      });
+
+      await (tx as any).jobStatusHistory?.create({
+        data: {
+          job_id: id,
+          status: 'auto_paid',
+          occurred_at: new Date(),
+        },
+      });
+    });
+
+    // TODO: Add escrow payment release logic here
+    console.log(`Auto-payment released for job ${id} to helper ${job.accepted_offers[0].counter_offer.helper_id}`);
+  }
+
   async startJob(id: string, userId: string): Promise<void> {
     const job = await this.prisma.job.findFirst({
       where: { id, status: 1, deleted_at: null },
-      include: { accepted_offers: true },
+      include: {
+        accepted_offers: {
+          include: {
+            counter_offer: {
+              include: {
+                helper: true,
+              },
+            },
+          },
+        },
+      },
     });
 
     if (!job) throw new NotFoundException('Job not found');
 
     const isJobOwner = job.user_id === userId;
-    const isHelper = job.accepted_offers.some((offer) => offer.counter_offer_id);
+    const isHelper = job.accepted_offers.some(
+      offer => offer.counter_offer.helper_id === userId
+    );
 
     if (!isJobOwner && !isHelper) {
       throw new ForbiddenException('Only job participants can start the job');
@@ -515,6 +654,7 @@ export class JobService {
       description: job.description,
       requirements: job.requirements || [],
       notes: job.notes || [],
+      urgent_note: job.urgent_note,
       photos: job.photos ? SojebStorage.url(job.photos) : null,
       user_id: job.user_id,
       created_at: job.created_at,

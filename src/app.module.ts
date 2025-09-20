@@ -22,6 +22,7 @@ import { ChatModule } from './modules/chat/chat.module';
 import { PaymentModule } from './modules/payment/payment.module';
 import { HelperOnboardingModule } from './modules/payment/helper-onboarding/helper-onboarding.module';
 import { HelperOnboardingService } from './modules/payment/helper-onboarding/helper-onboarding.service';
+import { DashboardModule } from './modules/application/dashboard/dashboard.module';
 
 @Module({
   imports: [
@@ -77,6 +78,7 @@ import { HelperOnboardingService } from './modules/payment/helper-onboarding/hel
     ChatModule,
     PaymentModule,
     HelperOnboardingModule,
+    DashboardModule,
   ],
   controllers: [AppController],
   providers: [

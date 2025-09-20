@@ -105,4 +105,14 @@ export class CreateJobDto {
     required: false,
   })
   notes?: CreateJobNoteDto[];
+
+  // Urgent Note
+  @IsOptional()
+  @IsString()
+  @ApiProperty({
+    description: 'Urgent note for the job',
+    example: 'This job needs to be completed urgently within 24 hours',
+    required: false,
+  })
+  urgent_note?: string;
 }

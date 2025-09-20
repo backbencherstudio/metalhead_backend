@@ -66,7 +66,9 @@ export class JobController {
     @UploadedFile() file: Express.Multer.File,
     @Req() req: Request,
   ): Promise<JobResponseDto> {
-    const userId = (req as any).user.id;
+    const userId = (req as any).user.userId || (req as any).user.id;
+    console.log('JWT User Object:', (req as any).user);
+    console.log('Extracted User ID:', userId);
     
     // Parse JSON strings for requirements and notes
     let requirements = [];
@@ -110,6 +112,7 @@ export class JobController {
       description: createJobDto.description,
       requirements: requirements,
       notes: notes,
+      urgent_note: createJobDto.urgent_note,
     };
     
     return this.jobService.create(jobData, userId, photoPath);
@@ -151,7 +154,7 @@ async findAll(
     @Query('limit') limit: string = '10',
     @Req() req: Request,
   ) {
-    const userId = (req as any).user.id;
+    const userId = (req as any).user.userId || (req as any).user.id;
     return this.jobService.findByUser(userId, parseInt(page), parseInt(limit));
   }
 
@@ -204,14 +207,14 @@ async findAll(
     @UploadedFiles() files: Record<string, Express.Multer.File[]>,
     @Req() req: Request,
   ): Promise<JobResponseDto> {
-    const userId = (req as any).user.id;
+    const userId = (req as any).user.userId || (req as any).user.id;
 
     let requirements = [];
     let notes = [];
-    if (updateJobDto.requirements) {
+    if (updateJobDto?.requirements) {
       try { requirements = JSON.parse(updateJobDto.requirements); } catch {}
     }
-    if (updateJobDto.notes) {
+    if (updateJobDto?.notes) {
       try { notes = JSON.parse(updateJobDto.notes); } catch {}
     }
 
@@ -226,17 +229,18 @@ async findAll(
     }
 
     const dto: UpdateJobDto = {
-      title: updateJobDto.title,
-      category: updateJobDto.category,
-      date_and_time: updateJobDto.date_and_time,
-      price: updateJobDto.price ? parseFloat(updateJobDto.price) : undefined,
-      payment_type: updateJobDto.payment_type,
-      job_type: updateJobDto.job_type,
-      location: updateJobDto.location,
-      estimated_time: updateJobDto.estimated_time,
-      description: updateJobDto.description,
+      title: updateJobDto?.title,
+      category: updateJobDto?.category,
+      date_and_time: updateJobDto?.date_and_time,
+      price: updateJobDto?.price ? parseFloat(updateJobDto.price) : undefined,
+      payment_type: updateJobDto?.payment_type,
+      job_type: updateJobDto?.job_type,
+      location: updateJobDto?.location,
+      estimated_time: updateJobDto?.estimated_time,
+      description: updateJobDto?.description,
       requirements: requirements.length ? requirements : undefined,
       notes: notes.length ? notes : undefined,
+      urgent_note: updateJobDto?.urgent_note,
     } as any;
 
     return this.jobService.update(id, dto, userId, photoPath);
@@ -244,20 +248,35 @@ async findAll(
 
  
 
-  @ApiOperation({ summary: 'Mark job as completed' })
+  @ApiOperation({ summary: 'Mark job as started (Helper only)' })
+  @Patch(':id/start')
+  async startJob(@Param('id') id: string, @Req() req: Request): Promise<{ message: string }> {
+    const userId = (req as any).user.userId || (req as any).user.id;
+    await this.jobService.startJob(id, userId);
+    return { message: 'Job marked as started successfully' };
+  }
+
+  @ApiOperation({ summary: 'Mark job as completed (Helper only)' })
   @Patch(':id/complete')
   async completeJob(@Param('id') id: string, @Req() req: Request): Promise<{ message: string }> {
-    const userId = (req as any).user.id;
+    const userId = (req as any).user.userId || (req as any).user.id;
     await this.jobService.completeJob(id, userId);
     return { message: 'Job marked as completed successfully' };
   }
 
-  @ApiOperation({ summary: 'Mark job as started' })
-  @Patch(':id/start')
-  async startJob(@Param('id') id: string, @Req() req: Request): Promise<{ message: string }> {
-    const userId = (req as any).user.id;
-    await this.jobService.startJob(id, userId);
-    return { message: 'Job marked as started successfully' };
+  @ApiOperation({ summary: 'Mark job as finished and release payment (User only)' })
+  @Patch(':id/finish')
+  async finishJob(@Param('id') id: string, @Req() req: Request): Promise<{ message: string }> {
+    const userId = (req as any).user.userId || (req as any).user.id;
+    await this.jobService.finishJob(id, userId);
+    return { message: 'Job marked as finished and payment released successfully' };
+  }
+
+  @ApiOperation({ summary: 'Auto-complete job after 24 hours (System only)' })
+  @Patch(':id/auto-complete')
+  async autoCompleteJob(@Param('id') id: string): Promise<{ message: string }> {
+    await this.jobService.autoCompleteJob(id);
+    return { message: 'Job auto-completed and payment released successfully' };
   }
 
   @ApiOperation({ summary: 'Get job status timeline' })
@@ -269,7 +288,7 @@ async findAll(
   @ApiOperation({ summary: 'Delete a job posting' })
   @Delete(':id')
   async remove(@Param('id') id: string, @Req() req: Request): Promise<{ message: string }> {
-    const userId = (req as any).user.id;
+    const userId = (req as any).user.userId || (req as any).user.id;
     await this.jobService.remove(id, userId);
     return { message: 'Job deleted successfully' };
   }
