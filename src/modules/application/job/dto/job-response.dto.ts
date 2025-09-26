@@ -88,6 +88,12 @@ export class JobResponseDto {
   @ApiProperty()
   location: string;
 
+  @ApiProperty({ required: false })
+  latitude?: number;
+
+  @ApiProperty({ required: false })
+  longitude?: number;
+
   @ApiProperty()
   estimated_time: string;
 

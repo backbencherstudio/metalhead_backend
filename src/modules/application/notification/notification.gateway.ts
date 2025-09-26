@@ -110,25 +110,25 @@ export class NotificationGateway
   }
 
   @SubscribeMessage('findAllNotification')
-  findAll() {
-    return this.notificationService.findAll();
+  findAll(@MessageBody() data: { userId: string }) {
+    return this.notificationService.findAll(data.userId);
   }
 
   @SubscribeMessage('findOneNotification')
-  findOne(@MessageBody() id: number) {
-    return this.notificationService.findOne(id);
+  findOne(@MessageBody() data: { id: string }) {
+    return this.notificationService.findOne(data.id);
   }
 
   @SubscribeMessage('updateNotification')
   update(@MessageBody() updateNotificationDto: UpdateNotificationDto) {
     return this.notificationService.update(
-      updateNotificationDto.id,
+      updateNotificationDto.id.toString(),
       updateNotificationDto,
     );
   }
 
   @SubscribeMessage('removeNotification')
-  remove(@MessageBody() id: number) {
-    return this.notificationService.remove(id);
+  remove(@MessageBody() data: { id: string; userId: string }) {
+    return this.notificationService.remove(data.id, data.userId);
   }
 }

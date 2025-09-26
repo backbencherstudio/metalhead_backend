@@ -14,10 +14,7 @@ export class UserCounterOfferDto {
   @IsString()
   note?: string;
 
-  // For testing; later replace with auth guard
-  @IsNotEmpty()
-  @IsString()
-  user_id: string;
+  // user_id will be extracted from JWT token
 }
 
 

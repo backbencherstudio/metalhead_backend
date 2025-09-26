@@ -1,8 +1,9 @@
-import { IsNotEmpty, IsOptional, IsString, IsNumber, IsDateString, IsArray, ValidateNested, IsDecimal } from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString, IsNumber, IsDateString, IsArray, ValidateNested, IsDecimal, IsEnum } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { CreateJobRequirementDto } from './create-job-requirement.dto';
 import { CreateJobNoteDto } from './create-job-note.dto';
+import { JobCategory } from '../enums/job-category.enum';
 
 export class CreateJobDto {
   // Job Summary
@@ -15,12 +16,14 @@ export class CreateJobDto {
   title: string;
 
   @IsNotEmpty()
-  @IsString()
+  @IsEnum(JobCategory)
   @ApiProperty({
     description: 'Job category',
-    example: 'Technology',
+    example: JobCategory.TECHNOLOGY,
+    enum: JobCategory,
+    enumName: 'JobCategory',
   })
-  category: string;
+  category: JobCategory;
 
   @IsNotEmpty()
   @IsDateString()
@@ -63,6 +66,24 @@ export class CreateJobDto {
     example: 'New York, NY',
   })
   location: string;
+
+  @IsOptional()
+  @IsNumber()
+  @ApiProperty({
+    description: 'Job location latitude (auto-generated from location if not provided)',
+    example: 40.7128,
+    required: false,
+  })
+  latitude?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @ApiProperty({
+    description: 'Job location longitude (auto-generated from location if not provided)',
+    example: -74.0060,
+    required: false,
+  })
+  longitude?: number;
 
   @IsOptional()
   @IsString()

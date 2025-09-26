@@ -12,14 +12,18 @@ import {
   UploadedFile,
   UploadedFiles,
   Req,
+  BadRequestException,
 } from '@nestjs/common';
 import { FileInterceptor, FileFieldsInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
-import { ApiBearerAuth, ApiOperation, ApiTags, ApiConsumes, ApiBody } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiTags, ApiConsumes, ApiBody, ApiResponse } from '@nestjs/swagger';
 import { JobService } from './job.service';
 import { CreateJobDto } from './dto/create-job.dto';
 import { UpdateJobDto } from './dto/update-job.dto';
 import { JobResponseDto } from './dto/job-response.dto';
+import { UpdateHelperPreferencesDto } from './dto/update-helper-preferences.dto';
+import { CategoriesListResponseDto, CategoryResponseDto } from './dto/category-response.dto';
+import { JobCategory, JOB_CATEGORY_LABELS, JOB_CATEGORY_DESCRIPTIONS } from './enums/job-category.enum';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { Request } from 'express';
 import { SojebStorage } from '../../../common/lib/Disk/SojebStorage';
@@ -119,32 +123,39 @@ export class JobController {
   }
 
   @ApiOperation({ summary: 'Get all jobs with pagination and filters' })
-@Get()
-async findAll(
-  @Query('page') page: string = '1',
-  @Query('limit') limit: string = '10',
-  @Query('category') category?: string,
-  @Query('location') location?: string,
-  @Query('jobType') jobType?: string,
-  @Query('priceRange') priceRange?: string,  // price range will come as a string (e.g., "100,500")
-  @Query('sortBy') sortBy?: string, // sorting options
-) {
-  let parsedPriceRange = null;
-  if (priceRange) {
-    const [min, max] = priceRange.split(',').map((str) => parseFloat(str));
-    parsedPriceRange = { min, max };
-  }
+  @Get()
+  async findAll(
+    @Query('page') page: string = '1',
+    @Query('limit') limit: string = '10',
+    @Query('category') category?: string,
+    @Query('location') location?: string,
+    @Query('jobType') jobType?: string,
+    @Query('priceRange') priceRange?: string,  // price range will come as a string (e.g., "100,500")
+    @Query('sortBy') sortBy?: string, // sorting options
+    @Query('search') search?: string, // search in title and description
+  ) {
+    // Validate category if provided
+    if (category && !Object.values(JobCategory).includes(category as JobCategory)) {
+      throw new BadRequestException(`Invalid category: ${category}. Valid categories are: ${Object.values(JobCategory).join(', ')}`);
+    }
 
-  return this.jobService.findAll(
-    parseInt(page),
-    parseInt(limit),
-    category,
-    location,
-    jobType,
-    parsedPriceRange,
-    sortBy,
-  );
-}
+    let parsedPriceRange = null;
+    if (priceRange) {
+      const [min, max] = priceRange.split(',').map((str) => parseFloat(str));
+      parsedPriceRange = { min, max };
+    }
+
+    return this.jobService.findAll(
+      parseInt(page),
+      parseInt(limit),
+      category,
+      location,
+      jobType,
+      parsedPriceRange,
+      sortBy,
+      search,
+    );
+  }
 
 
   @ApiOperation({ summary: 'Get jobs posted by the current user' })
@@ -156,6 +167,81 @@ async findAll(
   ) {
     const userId = (req as any).user.userId || (req as any).user.id;
     return this.jobService.findByUser(userId, parseInt(page), parseInt(limit));
+  }
+
+  @ApiOperation({ summary: 'Get all available job categories' })
+  @ApiResponse({ status: 200, description: 'Categories retrieved successfully', type: CategoriesListResponseDto })
+  @Get('categories')
+  async getCategories(): Promise<CategoriesListResponseDto> {
+    const categories: CategoryResponseDto[] = Object.values(JobCategory).map(category => ({
+      key: category,
+      label: JOB_CATEGORY_LABELS[category],
+      description: JOB_CATEGORY_DESCRIPTIONS[category],
+    }));
+
+    return {
+      categories,
+      total: categories.length,
+    };
+  }
+
+  @ApiOperation({ summary: 'Get specific category details' })
+  @ApiResponse({ status: 200, description: 'Category details retrieved successfully', type: CategoryResponseDto })
+  @Get('categories/:category')
+  async getCategoryDetails(@Param('category') category: string): Promise<CategoryResponseDto> {
+    if (!Object.values(JobCategory).includes(category as JobCategory)) {
+      throw new BadRequestException(`Invalid category: ${category}`);
+    }
+
+    const categoryKey = category as JobCategory;
+    return {
+      key: categoryKey,
+      label: JOB_CATEGORY_LABELS[categoryKey],
+      description: JOB_CATEGORY_DESCRIPTIONS[categoryKey],
+    };
+  }
+
+  @ApiOperation({ summary: 'Get jobs by specific category' })
+  @ApiResponse({ status: 200, description: 'Jobs filtered by category', type: [JobResponseDto] })
+  @Get('by-category/:category')
+  async getJobsByCategory(
+    @Param('category') category: string,
+    @Query('page') page: string = '1',
+    @Query('limit') limit: string = '10',
+    @Query('location') location?: string,
+    @Query('jobType') jobType?: string,
+    @Query('priceRange') priceRange?: string,
+    @Query('sortBy') sortBy?: string,
+  ) {
+    // Validate category
+    if (!Object.values(JobCategory).includes(category as JobCategory)) {
+      throw new BadRequestException(`Invalid category: ${category}. Valid categories are: ${Object.values(JobCategory).join(', ')}`);
+    }
+
+    let parsedPriceRange = null;
+    if (priceRange) {
+      const [min, max] = priceRange.split(',').map((str) => parseFloat(str));
+      parsedPriceRange = { min, max };
+    }
+
+    const result = await this.jobService.findAll(
+      parseInt(page),
+      parseInt(limit),
+      category,
+      location,
+      jobType,
+      parsedPriceRange,
+      sortBy,
+    );
+
+    return {
+      ...result,
+      category: {
+        key: category,
+        label: JOB_CATEGORY_LABELS[category as JobCategory],
+        description: JOB_CATEGORY_DESCRIPTIONS[category as JobCategory],
+      },
+    };
   }
 
   @ApiOperation({ summary: 'Get a specific job by ID' })
@@ -291,6 +377,65 @@ async findAll(
     const userId = (req as any).user.userId || (req as any).user.id;
     await this.jobService.remove(id, userId);
     return { message: 'Job deleted successfully' };
+  }
+
+  @ApiOperation({ summary: 'Update helper notification preferences' })
+  @Patch('helper/preferences')
+  async updateHelperPreferences(
+    @Body() dto: UpdateHelperPreferencesDto,
+    @Req() req: Request,
+  ): Promise<{ message: string }> {
+    try {
+      const userId = (req as any).user.userId || (req as any).user.id;
+      
+      console.log('JWT User Object:', (req as any).user);
+      console.log('Extracted User ID:', userId);
+      
+      if (!userId) {
+        throw new Error('User ID not found in request');
+      }
+
+      await this.jobService.updateHelperPreferences(userId, dto);
+      return { message: 'Helper preferences updated successfully' };
+    } catch (error) {
+      throw new Error(`Failed to update helper preferences: ${error.message}`);
+    }
+  }
+
+  @ApiOperation({ summary: 'Test geocoding service with an address' })
+  @Get('test-geocoding/:address')
+  async testGeocoding(@Param('address') address: string): Promise<{ success: boolean; coordinates?: { lat: number; lng: number }; message: string }> {
+    try {
+      const coordinates = await this.jobService.testGeocoding(address);
+      if (coordinates) {
+        return {
+          success: true,
+          coordinates,
+          message: `Successfully geocoded "${address}" to (${coordinates.lat}, ${coordinates.lng})`
+        };
+      } else {
+        return {
+          success: false,
+          message: `Failed to geocode address: "${address}"`
+        };
+      }
+    } catch (error) {
+      return {
+        success: false,
+        message: `Geocoding error: ${error.message}`
+      };
+    }
+  }
+
+  @ApiOperation({ summary: 'Debug: Get current user info' })
+  @Get('debug/user-info')
+  async getUserInfo(@Req() req: Request): Promise<any> {
+    const userId = (req as any).user.userId || (req as any).user.id;
+    return {
+      jwtUser: (req as any).user,
+      extractedUserId: userId,
+      timestamp: new Date().toISOString(),
+    };
   }
 
 }

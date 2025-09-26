@@ -23,6 +23,7 @@ import { PaymentModule } from './modules/payment/payment.module';
 import { HelperOnboardingModule } from './modules/payment/helper-onboarding/helper-onboarding.module';
 import { HelperOnboardingService } from './modules/payment/helper-onboarding/helper-onboarding.service';
 import { DashboardModule } from './modules/application/dashboard/dashboard.module';
+import { HelperModule } from './modules/application/helper/helper.module';
 
 @Module({
   imports: [
@@ -79,6 +80,7 @@ import { DashboardModule } from './modules/application/dashboard/dashboard.modul
     PaymentModule,
     HelperOnboardingModule,
     DashboardModule,
+    HelperModule,
   ],
   controllers: [AppController],
   providers: [

@@ -18,7 +18,5 @@ export class CreateCounterOfferDto {
   @IsString()
   note?: string;
 
-  @IsNotEmpty()
-  @IsString()
-  helper_id: string; // for now send it from Postman
+  // helper_id will be extracted from JWT token
 }

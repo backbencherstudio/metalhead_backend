@@ -4,13 +4,49 @@ import { CreateJobDto } from './dto/create-job.dto';
 import { UpdateJobDto } from './dto/update-job.dto';
 import { JobResponseDto } from './dto/job-response.dto';
 import { SojebStorage } from '../../../common/lib/Disk/SojebStorage';
+import { JobNotificationService } from './job-notification.service';
+import { GeocodingService } from '../../../common/lib/Geocoding/geocoding.service';
 
 @Injectable()
 export class JobService {
-  constructor(private prisma: PrismaService) { }
+  constructor(
+    private prisma: PrismaService,
+    private jobNotificationService: JobNotificationService,
+    private geocodingService: GeocodingService
+  ) { }
 
   async create(createJobDto: CreateJobDto, userId: string, photoPath?: string): Promise<JobResponseDto> {
     const { requirements, notes, ...jobData } = createJobDto;
+
+    // Auto-geocode the location if coordinates are not provided
+    let coordinates = null;
+    if (!jobData.latitude || !jobData.longitude) {
+      if (jobData.location) {
+        console.log(`🌍 Auto-geocoding location: "${jobData.location}"`);
+        try {
+          coordinates = await this.geocodingService.geocodeAddress(jobData.location);
+          
+          if (coordinates) {
+            jobData.latitude = coordinates.lat;
+            jobData.longitude = coordinates.lng;
+            console.log(`✅ Geocoding successful: (${coordinates.lat}, ${coordinates.lng})`);
+          } else {
+            console.log(`❌ Geocoding failed for location: "${jobData.location}"`);
+          }
+        } catch (error) {
+          console.error(`❌ Geocoding error for location: "${jobData.location}"`, error.message);
+        }
+      }
+    } else {
+      console.log(`📍 Using provided coordinates: (${jobData.latitude}, ${jobData.longitude})`);
+    }
+
+    console.log(`💾 Creating job with data:`, {
+      location: jobData.location,
+      latitude: jobData.latitude,
+      longitude: jobData.longitude,
+      title: jobData.title
+    });
 
     const job = await this.prisma.job.create({
       data: {
@@ -48,6 +84,13 @@ export class JobService {
       },
     });
 
+    console.log(`✅ Job created successfully:`, {
+      id: job.id,
+      location: job.location,
+      latitude: job.latitude,
+      longitude: job.longitude
+    });
+
     // record posted history
     await (this.prisma as any).jobStatusHistory?.create({
       data: {
@@ -55,6 +98,11 @@ export class JobService {
         status: 'posted',
         occurred_at: job.created_at,
       },
+    });
+
+    // Notify helpers about the new job (async, don't wait)
+    this.jobNotificationService.notifyHelpersAboutNewJob(job.id).catch(error => {
+      console.error('Failed to notify helpers about new job:', error);
     });
 
     return this.mapToResponseDto(job);
@@ -145,6 +193,7 @@ export class JobService {
     jobType?: string,
     priceRange?: { min: number, max: number },
     sortBy?: string, // added sorting logic
+    search?: string, // search in title and description
   ): Promise<{ jobs: JobResponseDto[]; total: number; totalPages: number }> {
     const skip = (page - 1) * limit;
     const where: any = {
@@ -172,6 +221,24 @@ export class JobService {
         gte: priceRange.min,
         lte: priceRange.max,
       };
+    }
+
+    // Add search functionality
+    if (search) {
+      where.OR = [
+        {
+          title: {
+            contains: search,
+            mode: 'insensitive',
+          },
+        },
+        {
+          description: {
+            contains: search,
+            mode: 'insensitive',
+          },
+        },
+      ];
     }
 
     const orderBy: any = (() => {
@@ -625,6 +692,10 @@ export class JobService {
   }
 
 
+  async testGeocoding(address: string): Promise<{ lat: number; lng: number } | null> {
+    return await this.geocodingService.geocodeAddress(address);
+  }
+
   private mapToResponseDto(job: any): JobResponseDto {
     const accepted = job.accepted_offers && job.accepted_offers.length ? job.accepted_offers[0] : undefined;
     const hasCounterOffers = job.counter_offers && job.counter_offers.length > 0;
@@ -650,6 +721,8 @@ export class JobService {
       payment_type: job.payment_type,
       job_type: job.job_type,
       location: job.location,
+      latitude: job.latitude,
+      longitude: job.longitude,
       estimated_time: job.estimated_time,
       description: job.description,
       requirements: job.requirements || [],
@@ -679,5 +752,9 @@ export class JobService {
           }
         : undefined,
     };
+  }
+
+  async updateHelperPreferences(userId: string, preferences: any): Promise<void> {
+    await this.jobNotificationService.updateHelperPreferences(userId, preferences);
   }
 }

@@ -95,6 +95,20 @@ model User {
   stripe_account_status String?    
   stripe_payouts_enabled      Boolean? @default(false)
   stripe_onboarding_completed Boolean? @default(false)
+  
+  // Location coordinates for distance calculation
+  latitude  Float? // User's latitude
+  longitude Float? // User's longitude
+  
+  // Helper notification preferences
+  notification_preferences Json? // Store helper's job notification settings
+  max_distance_km Int? @default(20) // Maximum distance for job notifications (default 20km)
+  min_job_price Decimal? // Minimum job price to get notified
+  max_job_price Decimal? // Maximum job price to get notified
+  preferred_categories String[] // Categories helper wants to be notified about
+  
+  // User cards
+  cards UserCard[]
   @@map("users")
 }
 
@@ -447,8 +461,11 @@ model Job {
   payment_type    String?
   job_type        String?
   location        String?
+  latitude        Float? // Job location latitude
+  longitude       Float? // Job location longitude
   estimated_time  String?
   description     String?            @db.Text
+  urgent_note     String?            @db.Text // Urgent note for urgent jobs
   requirements    JobRequirement[]
   notes           JobNote[] //only be enabled if user selects the job type as urgent
   photos          String?
@@ -587,3 +604,33 @@ model JobStatusHistory {
 //   tenant    Organization? @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
 //   @@map("posts")
 // }
+
+// User Card Management
+model UserCard {
+  id         String    @id @default(cuid())
+  created_at DateTime  @default(now())
+  updated_at DateTime  @default(now())
+  deleted_at DateTime?
+  status     Int?      @default(1) @db.SmallInt
+
+  // Card details
+  cardholder_name String
+  card_number     String // Encrypted card number (last 4 digits visible)
+  expiration_date String // Format: MM/YY
+  cvv             String // Encrypted CVV
+  card_type       String? // Visa, MasterCard, etc.
+  last_four       String // Last 4 digits for display
+  
+  // Card status
+  is_default      Boolean @default(false)
+  is_expired      Boolean @default(false)
+  
+  // Stripe integration
+  stripe_payment_method_id String? // Stripe payment method ID
+  
+  // User relationship
+  user_id String
+  user    User   @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@map("user_cards")
+}

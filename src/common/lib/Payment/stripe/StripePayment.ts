@@ -321,14 +321,26 @@ export class StripePayment {
 
   // Before making payouts, users must complete Stripe Connect onboarding.
   static async createOnboardingAccountLink(account_id: string) {
-    const accountLink = await Stripe.accountLinks.create({
-      account: account_id,
+    console.log('StripePayment.createOnboardingAccountLink called with:', {
+      account_id,
       refresh_url: appConfig().app.url,
       return_url: appConfig().app.url,
-      type: 'account_onboarding',
     });
 
-    return accountLink;
+    try {
+      const accountLink = await Stripe.accountLinks.create({
+        account: account_id,
+        refresh_url: appConfig().app.url,
+        return_url: appConfig().app.url,
+        type: 'account_onboarding',
+      });
+
+      console.log('Stripe account link created successfully:', accountLink);
+      return accountLink;
+    } catch (error) {
+      console.error('Error creating Stripe account link:', error);
+      throw error;
+    }
   }
 
   // transfer money to account

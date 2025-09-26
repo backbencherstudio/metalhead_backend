@@ -8,13 +8,17 @@ import { AcceptedCounterOfferResponseDto } from '../counter-offer/dtos/accepted-
 import { UserCounterOfferDto } from './dtos/user-counter-offer.dto';
 import { HelperAcceptCounterOfferDto } from './dtos/helper-accept-counter-offer.dto';
 import { NotificationRepository } from '../../../common/repository/notification/notification.repository';
+import { CounterOfferNotificationService } from './counter-offer-notification.service';
 
 @Injectable()
 export class CounterOfferService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private counterOfferNotificationService: CounterOfferNotificationService
+  ) {}
 
-  async createCounterOffer(dto: CreateCounterOfferDto) {
-    const { job_id, amount, type, note, helper_id } = dto;
+  async createCounterOffer(dto: CreateCounterOfferDto, helper_id: string) {
+    const { job_id, amount, type, note } = dto;
 
     // 1. Verify job exists
     const job = await this.prisma.job.findUnique({
@@ -66,13 +70,7 @@ export class CounterOfferService {
 
     // 4. Send notification to job owner about new counter offer
     try {
-      await NotificationRepository.createNotification({
-        sender_id: helper_id,
-        receiver_id: job.user_id,
-        text: `New counter offer received for job: ${amount} ${type}`,
-        type: 'booking',
-        entity_id: result.id,
-      });
+      await this.counterOfferNotificationService.notifyUserAboutCounterOffer(result.id);
     } catch (error) {
       console.error('Failed to send counter offer notification:', error);
       // Don't throw error to avoid breaking the main flow
@@ -213,13 +211,7 @@ export class CounterOfferService {
     
     // Send notification to helper about offer acceptance
     try {
-      await NotificationRepository.createNotification({
-        sender_id: user_id,
-        receiver_id: result.helper_id,
-        text: `Your counter offer has been accepted for job: ${result.job_title}`,
-        type: 'booking',
-        entity_id: counter_offer_id,
-      });
+      await this.counterOfferNotificationService.notifyHelperAboutAcceptance(counter_offer_id);
     } catch (error) {
       console.error('Failed to send acceptance notification:', error);
       // Don't throw error to avoid breaking the main flow
@@ -252,8 +244,8 @@ export class CounterOfferService {
     return { success: true };
   }
 
-  async userCounterBack(counter_offer_id: string, dto: UserCounterOfferDto) {
-    const { amount, type, note, user_id } = dto;
+  async userCounterBack(counter_offer_id: string, dto: UserCounterOfferDto, user_id: string) {
+    const { amount, type, note } = dto;
 
     // Load original counter offer with job and helper
     const original = await this.prisma.counterOffer.findUnique({
@@ -316,11 +308,18 @@ export class CounterOfferService {
       return counterOffer;
     });
 
+    // Send notification to helper about user counter back
+    try {
+      await this.counterOfferNotificationService.notifyHelperAboutUserCounterBack(newOffer.id);
+    } catch (error) {
+      console.error('Failed to send user counter back notification:', error);
+      // Don't throw error to avoid breaking the main flow
+    }
+
     return newOffer;
   }
 
-  async helperAcceptCounterOffer(counter_offer_id: string, dto: HelperAcceptCounterOfferDto): Promise<AcceptedCounterOfferResponseDto> {
-    const { helper_id } = dto;
+  async helperAcceptCounterOffer(counter_offer_id: string, helper_id: string): Promise<AcceptedCounterOfferResponseDto> {
 
     return await this.prisma.$transaction(async (tx) => {
       // 1. Fetch counter-offer with job and helper
@@ -424,8 +423,8 @@ export class CounterOfferService {
   }
 
   // Add notification after helper accepts counter offer
-  async helperAcceptCounterOfferWithNotification(counter_offer_id: string, dto: HelperAcceptCounterOfferDto): Promise<AcceptedCounterOfferResponseDto> {
-    const result = await this.helperAcceptCounterOffer(counter_offer_id, dto);
+  async helperAcceptCounterOfferWithNotification(counter_offer_id: string, helper_id: string): Promise<AcceptedCounterOfferResponseDto> {
+    const result = await this.helperAcceptCounterOffer(counter_offer_id, helper_id);
     
     // Get job owner ID for notification
     const job = await this.prisma.job.findUnique({
@@ -436,13 +435,7 @@ export class CounterOfferService {
     // Send notification to job owner about helper acceptance
     if (job?.user_id) {
       try {
-        await NotificationRepository.createNotification({
-          sender_id: dto.helper_id,
-          receiver_id: job.user_id,
-          text: `Helper has accepted your counter offer for job: ${result.job_title}`,
-          type: 'booking',
-          entity_id: counter_offer_id,
-        });
+        await this.counterOfferNotificationService.notifyUserAboutHelperAcceptance(counter_offer_id);
       } catch (error) {
         console.error('Failed to send helper acceptance notification:', error);
         // Don't throw error to avoid breaking the main flow
@@ -547,13 +540,7 @@ export class CounterOfferService {
 
     // 5. Send notification to job owner
     try {
-      await NotificationRepository.createNotification({
-        sender_id: helper_id,
-        receiver_id: job.user_id,
-        text: `A helper has directly accepted your job: ${job.title}`,
-        type: 'booking',
-        entity_id: jobId,
-      });
+      await this.counterOfferNotificationService.notifyUserAboutDirectAcceptance(jobId, helper_id);
     } catch (error) {
       console.error('Failed to send notification:', error);
     }
