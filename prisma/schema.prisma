@@ -91,7 +91,7 @@ model User {
   reviewer_reviews Review[]        @relation("ReviewerReviews")
   reviewee_reviews Review[]        @relation("RevieweeReviews")
 
-  stripe_account_id String?       
+  stripe_connect_account_id String?       
   stripe_account_status String?    
   stripe_payouts_enabled      Boolean? @default(false)
   stripe_onboarding_completed Boolean? @default(false)

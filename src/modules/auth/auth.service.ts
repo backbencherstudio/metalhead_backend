@@ -254,12 +254,11 @@ export class AuthService {
 
   async login({ email, userId }) {
     try {
-      const payload = { email: email, sub: userId };
+      const user = await UserRepository.getUserDetails(userId);
+      const payload = { email: email, sub: userId, type: user.type };
 
       const accessToken = this.jwtService.sign(payload, { expiresIn: '1h' });
       const refreshToken = this.jwtService.sign(payload, { expiresIn: '7d' });
-
-      const user = await UserRepository.getUserDetails(userId);
 
       // store refreshToken
       await this.redis.set(

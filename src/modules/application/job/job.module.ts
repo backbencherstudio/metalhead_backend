@@ -9,7 +9,15 @@ import { GeocodingService } from '../../../common/lib/Geocoding/geocoding.servic
 @Module({
   imports: [PrismaModule],
   controllers: [JobController],
-  providers: [JobService, JobNotificationService, LocationService, GeocodingService],
-  exports: [JobService, JobNotificationService],
+  providers: [
+    JobService, 
+    JobNotificationService, 
+    LocationService, 
+    GeocodingService
+  ],
+  exports: [
+    JobService, 
+    JobNotificationService
+  ],
 })
 export class JobModule {}

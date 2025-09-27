@@ -17,10 +17,16 @@ import { Request } from 'express';
 export class CounterOfferController {
   constructor(private readonly counterOfferService: CounterOfferService) {}
 
-  @ApiOperation({ summary: 'Create a new counter offer' })
+  @ApiOperation({ summary: 'Create a new counter offer (Helper only)' })
   @Post()
   async create(@Body() dto: CreateCounterOfferDto, @Req() req: Request) {
     const helperId = (req as any).user.userId || (req as any).user.id;
+    const userType = (req as any).user.type;
+    
+    if (userType !== 'helper') {
+      throw new Error('Only helpers can create counter offers. Please switch to helper role first.');
+    }
+    
     return this.counterOfferService.createCounterOffer(dto, helperId);
   }
 
@@ -74,6 +80,12 @@ export class CounterOfferController {
     @Req() req: Request,
   ) {
     const helperId = (req as any).user.userId || (req as any).user.id;
+    const userType = (req as any).user.type;
+    
+    if (userType !== 'helper') {
+      throw new Error('Only helpers can accept counter offers. Please switch to helper role first.');
+    }
+    
     return this.counterOfferService.helperAcceptCounterOfferWithNotification(counter_offer_id, helperId);
   }
 
@@ -85,6 +97,12 @@ export class CounterOfferController {
     @Req() req: Request,
   ) {
     const helper_id = (req as any).user.userId || (req as any).user.id;
+    const userType = (req as any).user.type;
+    
+    if (userType !== 'helper') {
+      throw new Error('Only helpers can accept jobs. Please switch to helper role first.');
+    }
+    
     return this.counterOfferService.directAcceptJob(job_id, { ...dto, helper_id });
   }
 }

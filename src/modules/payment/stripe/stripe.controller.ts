@@ -36,6 +36,7 @@ export class StripeController {
             paid_currency: paymentIntent.currency,
             raw_status: paymentIntent.status,
           });
+
           break;
         case 'payment_intent.payment_failed':
           const failedPaymentIntent = event.data.object;

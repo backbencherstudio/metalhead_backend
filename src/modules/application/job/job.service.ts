@@ -463,23 +463,12 @@ export class JobService {
     });
   }
 
-  async finishJob(id: string, userId: string): Promise<void> {
+  async finishJob(id: string, userId: string): Promise<{ success: boolean; message: string }> {
     const job = await this.prisma.job.findFirst({
       where: {
         id,
         status: 1,
         deleted_at: null,
-      },
-      include: {
-        accepted_offers: {
-          include: {
-            counter_offer: {
-              include: {
-                helper: true,
-              },
-            },
-          },
-        },
       },
     });
 
@@ -487,41 +476,22 @@ export class JobService {
       throw new NotFoundException('Job not found');
     }
 
-    // Check if the user is the job owner (only job owner can finish and release payment)
     if (job.user_id !== userId) {
-      throw new ForbiddenException('Only job owner can finish the job and release payment');
+      throw new ForbiddenException('Only job owner can finish the job');
     }
 
-    // Check if job has an accepted offer
-    if (!job.accepted_offers || job.accepted_offers.length === 0) {
-      throw new BadRequestException('Job must have an accepted offer to be finished');
-    }
-
-    // Check if job is in completed status
-    if (job.job_status !== 'completed') {
-      throw new BadRequestException('Job must be completed by helper before it can be finished');
-    }
-
-    await this.prisma.$transaction(async (tx) => {
-      await tx.job.update({
-        where: { id },
-        data: {
-          job_status: 'paid',
-        },
-      });
-
-      await (tx as any).jobStatusHistory?.create({
-        data: {
-          job_id: id,
-          status: 'paid',
-          occurred_at: new Date(),
-        },
-      });
+    await this.prisma.job.update({
+      where: { id },
+      data: {
+        job_status: 'paid',
+        updated_at: new Date(),
+      },
     });
 
-    // TODO: Add escrow payment release logic here
-    // This will be implemented when escrow service is available
-    console.log(`Payment should be released for job ${id} to helper ${job.accepted_offers[0].counter_offer.helper_id}`);
+    return {
+      success: true,
+      message: 'Job marked as finished successfully',
+    };
   }
 
   async autoCompleteJob(id: string): Promise<void> {
@@ -696,6 +666,224 @@ export class JobService {
     return await this.geocodingService.geocodeAddress(address);
   }
 
+  /**
+   * Get jobs near user location (works for both user and helper roles)
+   * This allows users to browse jobs in their area regardless of their current role
+   */
+  async getJobsNearUser(
+    userId: string,
+    radiusKm: number = 20,
+    page: number = 1,
+    limit: number = 10,
+    category?: string,
+  ): Promise<{ jobs: JobResponseDto[]; total: number; page: number; limit: number; radius: number }> {
+    console.log(`🔍 Getting jobs near user: ${userId}, radius: ${radiusKm}km`);
+    
+    // Get user's location
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        latitude: true,
+        longitude: true,
+        city: true,
+        state: true,
+        type: true,
+      },
+    });
+
+    console.log(`👤 User found:`, {
+      id: user?.id,
+      latitude: user?.latitude,
+      longitude: user?.longitude,
+      city: user?.city,
+      state: user?.state,
+      type: user?.type
+    });
+
+    if (!user) {
+      console.error(`❌ User not found: ${userId}`);
+      throw new NotFoundException('User not found');
+    }
+
+    // If user doesn't have coordinates, we can't do distance-based search
+    if (!user.latitude || !user.longitude) {
+      console.log(`⚠️ User ${userId} doesn't have coordinates, falling back to city/state search`);
+      
+      // Fallback to city/state based search
+      const whereClause: any = {
+        job_status: 'posted',
+        deleted_at: null,
+      };
+
+      if (category) {
+        whereClause.category = category;
+      }
+
+      if (user.city && user.state) {
+        whereClause.OR = [
+          { location: { contains: user.city, mode: 'insensitive' } },
+          { location: { contains: user.state, mode: 'insensitive' } },
+        ];
+      }
+
+      const [jobs, total] = await Promise.all([
+        this.prisma.job.findMany({
+          where: whereClause,
+          include: {
+            requirements: true,
+            notes: true,
+            user: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+                avatar: true,
+              },
+            },
+            counter_offers: {
+              include: {
+                helper: {
+                  select: {
+                    id: true,
+                    name: true,
+                    email: true,
+                    avatar: true,
+                  },
+                },
+              },
+            },
+            accepted_offers: {
+              include: {
+                counter_offer: {
+                  include: {
+                    helper: {
+                      select: {
+                        id: true,
+                        name: true,
+                        email: true,
+                        phone_number: true,
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          orderBy: { created_at: 'desc' },
+          skip: (page - 1) * limit,
+          take: limit,
+        }),
+        this.prisma.job.count({ where: whereClause }),
+      ]);
+
+      return {
+        jobs: jobs.map(job => this.mapToResponseDto(job)),
+        total,
+        page,
+        limit,
+        radius: radiusKm,
+      };
+    }
+
+    // Distance-based search using coordinates
+    const jobs = await this.prisma.job.findMany({
+      where: {
+        job_status: 'posted',
+        deleted_at: null,
+        latitude: { not: null },
+        longitude: { not: null },
+        ...(category && { category }),
+      },
+      include: {
+        requirements: true,
+        notes: true,
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            avatar: true,
+          },
+        },
+        counter_offers: {
+          include: {
+            helper: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+                avatar: true,
+              },
+            },
+          },
+        },
+        accepted_offers: {
+          include: {
+            counter_offer: {
+              include: {
+                helper: {
+                  select: {
+                    id: true,
+                    name: true,
+                    email: true,
+                    phone_number: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      orderBy: { created_at: 'desc' },
+    });
+
+    // Filter jobs by distance
+    const jobsWithinRadius = jobs.filter(job => {
+      if (!job.latitude || !job.longitude) return false;
+      
+      const distance = this.calculateDistance(
+        user.latitude!,
+        user.longitude!,
+        job.latitude,
+        job.longitude,
+      );
+      
+      return distance <= radiusKm;
+    });
+
+    // Apply pagination
+    const total = jobsWithinRadius.length;
+    const paginatedJobs = jobsWithinRadius.slice((page - 1) * limit, page * limit);
+
+    return {
+      jobs: paginatedJobs.map(job => this.mapToResponseDto(job)),
+      total,
+      page,
+      limit,
+      radius: radiusKm,
+    };
+  }
+
+  /**
+   * Calculate distance between two coordinates using Haversine formula
+   */
+  private calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
+    const R = 6371; // Radius of the Earth in kilometers
+    const dLat = this.degreesToRadians(lat2 - lat1);
+    const dLon = this.degreesToRadians(lon2 - lon1);
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(this.degreesToRadians(lat1)) * Math.cos(this.degreesToRadians(lat2)) *
+      Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+  }
+
+  private degreesToRadians(degrees: number): number {
+    return degrees * (Math.PI / 180);
+  }
+
   private mapToResponseDto(job: any): JobResponseDto {
     const accepted = job.accepted_offers && job.accepted_offers.length ? job.accepted_offers[0] : undefined;
     const hasCounterOffers = job.counter_offers && job.counter_offers.length > 0;
@@ -757,4 +945,5 @@ export class JobService {
   async updateHelperPreferences(userId: string, preferences: any): Promise<void> {
     await this.jobNotificationService.updateHelperPreferences(userId, preferences);
   }
+
 }

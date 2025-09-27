@@ -53,6 +53,7 @@ export class JobNotificationService {
 
   /**
    * Find helpers who should be notified about this job
+   * Only filters by distance - all helpers within radius get notified regardless of price/category
    */
   private async findEligibleHelpers(job: any): Promise<any[]> {
     // Get all helpers (users with type = 'helper')
@@ -70,41 +71,13 @@ export class JobNotificationService {
         state: true,
         latitude: true,
         longitude: true,
-        skills: true,
         max_distance_km: true,
-        min_job_price: true,
-        max_job_price: true,
-        preferred_categories: true,
       },
     });
 
     // Filter helpers based on criteria
     const eligibleHelpers = helpers.filter(helper => {
-      // 1. Check if helper has skills matching job requirements
-      if (job.category && helper.skills && helper.skills.length > 0) {
-        const hasMatchingSkill = helper.skills.some(skill => 
-          skill.toLowerCase().includes(job.category.toLowerCase()) ||
-          job.category.toLowerCase().includes(skill.toLowerCase())
-        );
-        if (!hasMatchingSkill) return false;
-      }
-
-      // 2. Check price range
-      if (helper.min_job_price && job.price && Number(job.price) < Number(helper.min_job_price)) {
-        return false;
-      }
-      if (helper.max_job_price && job.price && Number(job.price) > Number(helper.max_job_price)) {
-        return false;
-      }
-
-      // 3. Check preferred categories (now using enum validation)
-      if (helper.preferred_categories && helper.preferred_categories.length > 0) {
-        if (!helper.preferred_categories.includes(job.category)) {
-          return false;
-        }
-      }
-
-      // 4. Check distance using coordinates (20km radius)
+      // Only check distance - notify all helpers within radius regardless of price/category
       if (helper.max_distance_km && job.latitude && job.longitude && helper.latitude && helper.longitude) {
         const isWithinDistance = this.locationService.isWithinDistance(
           job.latitude,

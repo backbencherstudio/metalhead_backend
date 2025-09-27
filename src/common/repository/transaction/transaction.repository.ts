@@ -22,7 +22,7 @@ export class TransactionRepository {
   }) {
     const data = {};
     if (booking_id) {
-      data['booking_id'] = booking_id;
+      data['order_id'] = booking_id; // Map booking_id to order_id in database
     }
     if (amount) {
       data['amount'] = Number(amount);
