@@ -427,6 +427,7 @@ export class JobController {
     }
   }
 
+
   @ApiOperation({ summary: 'Debug: Get current user info' })
   @Get('debug/user-info')
   async getUserInfo(@Req() req: Request): Promise<any> {

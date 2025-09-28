@@ -666,6 +666,7 @@ export class JobService {
     return await this.geocodingService.geocodeAddress(address);
   }
 
+
   /**
    * Get jobs near user location (works for both user and helper roles)
    * This allows users to browse jobs in their area regardless of their current role
