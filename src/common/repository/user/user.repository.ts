@@ -686,7 +686,7 @@ static async createStripeConnectAccount(user_id: string) {
         email: true, 
         name: true, 
         username: true,
-        stripe_account_id: true 
+        stripe_connect_account_id: true 
       },
     });
 
@@ -694,7 +694,7 @@ static async createStripeConnectAccount(user_id: string) {
       return { success: false, message: 'User not found' };
     }
 
-    if (user.stripe_account_id) {
+    if (user.stripe_connect_account_id) {
       return { success: false, message: 'User already has a Stripe Connect account' };
     }
 
@@ -705,7 +705,7 @@ static async createStripeConnectAccount(user_id: string) {
     await prisma.user.update({
       where: { id: user_id },
       data: {
-        stripe_account_id: stripeAccount.id,
+        stripe_connect_account_id: stripeAccount.id,
         stripe_account_status: 'pending',
       },
     });

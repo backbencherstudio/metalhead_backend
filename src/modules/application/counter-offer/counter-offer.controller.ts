@@ -103,6 +103,9 @@ export class CounterOfferController {
       throw new Error('Only helpers can accept jobs. Please switch to helper role first.');
     }
     
-    return this.counterOfferService.directAcceptJob(job_id, { ...dto, helper_id });
+    return this.counterOfferService.directAcceptJob(job_id, { 
+      note: dto.note,
+      helper_id 
+    });
   }
 }

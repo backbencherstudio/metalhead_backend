@@ -974,7 +974,7 @@ export class AuthService {
       const user = await this.prisma.user.findUnique({
         where: { id: user_id },
         select: { 
-          stripe_account_id: true, 
+          stripe_connect_account_id: true, 
           stripe_onboarding_completed: true,
           email: true 
         },
@@ -987,7 +987,7 @@ export class AuthService {
         };
       }
 
-      if (!user.stripe_account_id) {
+      if (!user.stripe_connect_account_id) {
         return {
           success: false,
           message: 'Stripe Connect account not found. Please convert to helper role first.',
@@ -1002,7 +1002,7 @@ export class AuthService {
       }
 
       // Generate onboarding link using existing StripePayment method
-      const accountLink = await StripePayment.createOnboardingAccountLink(user.stripe_account_id);
+      const accountLink = await StripePayment.createOnboardingAccountLink(user.stripe_connect_account_id);
 
       return {
         success: true,
@@ -1022,12 +1022,12 @@ export class AuthService {
       const user = await this.prisma.user.findUnique({
         where: { id: user_id },
         select: { 
-          stripe_account_id: true, 
+          stripe_connect_account_id: true, 
           stripe_onboarding_completed: true 
         },
       });
 
-      if (!user?.stripe_account_id) {
+      if (!user?.stripe_connect_account_id) {
         return {
           success: false,
           message: 'Stripe account not found',
@@ -1035,7 +1035,7 @@ export class AuthService {
       }
 
       // Check account status with Stripe
-      const account = await StripePayment.checkAccountStatus(user.stripe_account_id);
+      const account = await StripePayment.checkAccountStatus(user.stripe_connect_account_id);
       
       const isOnboardCompleted = account.details_submitted && account.charges_enabled;
 
@@ -1053,7 +1053,7 @@ export class AuthService {
       return {
         success: true,
         isOnboarded: isOnboardCompleted,
-        accountId: user.stripe_account_id,
+        accountId: user.stripe_connect_account_id,
         message: 'Onboarding status checked successfully',
       };
     } catch (error) {
@@ -1069,7 +1069,7 @@ export class AuthService {
       const user = await this.prisma.user.findUnique({
         where: { id: user_id },
         select: {
-          stripe_account_id: true,
+          stripe_connect_account_id: true,
           stripe_onboarding_completed: true,
           stripe_account_status: true,
           stripe_payouts_enabled: true,
@@ -1083,7 +1083,7 @@ export class AuthService {
         };
       }
 
-      const hasStripeAccount = !!user.stripe_account_id;
+      const hasStripeAccount = !!user.stripe_connect_account_id;
       const isOnboarded = user.stripe_onboarding_completed || false;
       const accountStatus = user.stripe_account_status || 'none';
       const canReceivePayments = isOnboarded && user.stripe_payouts_enabled;

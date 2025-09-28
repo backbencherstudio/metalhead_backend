@@ -94,4 +94,10 @@ export class ConversationController {
       };
     }
   }
+
+  @ApiOperation({ summary: 'Debug: Get raw messages for conversation' })
+  @Get(':id/debug-messages')
+  async debugMessages(@Param('id') id: string) {
+    return this.conversationService.debugMessages(id);
+  }
 }

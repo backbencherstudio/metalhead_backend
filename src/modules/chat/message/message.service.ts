@@ -11,12 +11,14 @@ import { UserRepository } from '../../../common/repository/user/user.repository'
 import { Role } from '../../../common/guard/role/role.enum';
 import { StringHelper } from '../../../common/helper/string.helper';
 import { CreateAttachmentMessageDto } from './dto/create-message.dto';
+import { ChatNotificationService } from '../chat-notification.service';
 
 @Injectable()
 export class MessageService {
   constructor(
     private prisma: PrismaService,
     private readonly messageGateway: MessageGateway,
+    private readonly chatNotificationService: ChatNotificationService,
   ) {}
 
   async create(user_id: string, createMessageDto: CreateMessageDto) {
@@ -150,6 +152,7 @@ export class MessageService {
       const enhancedMessage = {
         ...message,
         conversation_id: data.conversation_id,
+        created_at: message.created_at,
         sender: {
           id: senderInfo.id,
           name: senderInfo.name || senderInfo.username || 'Unknown',
@@ -157,6 +160,7 @@ export class MessageService {
           role: senderInfo.type,
           avatar: senderInfo.avatar,
         },
+
         receiver: {
           id: receiverInfo.id,
           name: receiverInfo.name || receiverInfo.username || 'Unknown',
@@ -165,6 +169,15 @@ export class MessageService {
           avatar: receiverInfo.avatar,
         },
       };
+
+      // Send notification to receiver
+      await this.chatNotificationService.notifyNewMessage({
+        senderId: user_id,
+        receiverId: data.receiver_id,
+        conversationId: data.conversation_id,
+        messageText: data.message,
+        messageType: 'text',
+      });
 
       return {
         success: true,
@@ -470,6 +483,7 @@ export class MessageService {
       const enhancedMessage = {
         ...message,
         conversation_id: dto.conversation_id,
+        created_at: message.created_at,
         sender: {
           id: senderInfo.id,
           name: senderInfo.name || senderInfo.username || 'Unknown',
@@ -493,6 +507,15 @@ export class MessageService {
           file_url: SojebStorage.url(appConfig().storageUrl.attachment + '/' + attachment.file),
         },
       };
+
+      // Send notification to receiver
+      await this.chatNotificationService.notifyFileAttachment({
+        senderId: user_id,
+        receiverId: dto.receiver_id,
+        conversationId: dto.conversation_id,
+        fileName: dto.name,
+        fileType: file.mimetype,
+      });
 
       return { success: true, message: 'Attachment sent', data: enhancedMessage };
     } catch (error) {

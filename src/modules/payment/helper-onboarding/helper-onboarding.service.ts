@@ -13,7 +13,7 @@ export class HelperOnboardingService {
       const user = await this.prisma.user.findUnique({
         where: { id: userId },
         select: { 
-          stripe_account_id: true, 
+          stripe_connect_account_id: true, 
           stripe_onboarding_completed: true,
           email: true 
         },
@@ -23,7 +23,7 @@ export class HelperOnboardingService {
         throw new NotFoundException('User not found');
       }
 
-      if (!user.stripe_account_id) {
+      if (!user.stripe_connect_account_id) {
         return {
           success: false,
           message: 'Stripe Connect account not found. Please convert to helper role first.',
@@ -38,10 +38,10 @@ export class HelperOnboardingService {
       }
 
       // Generate onboarding link using existing StripePayment method
-      console.log('Creating onboarding link for account:', user.stripe_account_id);
+      console.log('Creating onboarding link for account:', user.stripe_connect_account_id);
       console.log('APP_URL:', appConfig().app.url);
       
-      const accountLink = await StripePayment.createOnboardingAccountLink(user.stripe_account_id);
+      const accountLink = await StripePayment.createOnboardingAccountLink(user.stripe_connect_account_id);
       
       console.log('Generated account link:', accountLink);
 
@@ -69,12 +69,12 @@ export class HelperOnboardingService {
       const user = await this.prisma.user.findUnique({
         where: { id: userId },
         select: { 
-          stripe_account_id: true, 
+          stripe_connect_account_id: true, 
           stripe_onboarding_completed: true 
         },
       });
 
-      if (!user?.stripe_account_id) {
+      if (!user?.stripe_connect_account_id) {
         return {
           success: false,
           message: 'Stripe account not found',
@@ -82,7 +82,7 @@ export class HelperOnboardingService {
       }
 
       // Check account status with Stripe
-      const account = await StripePayment.checkAccountStatus(user.stripe_account_id);
+      const account = await StripePayment.checkAccountStatus(user.stripe_connect_account_id);
       
       const isOnboardCompleted = account.details_submitted && account.charges_enabled;
 
@@ -100,7 +100,7 @@ export class HelperOnboardingService {
       return {
         success: true,
         isOnboarded: isOnboardCompleted,
-        accountId: user.stripe_account_id,
+        accountId: user.stripe_connect_account_id,
         message: 'Onboarding status checked successfully',
       };
     } catch (error) {
@@ -126,7 +126,7 @@ export class HelperOnboardingService {
       const user = await this.prisma.user.findUnique({
         where: { id: userId },
         select: {
-          stripe_account_id: true,
+          stripe_connect_account_id: true,
           stripe_onboarding_completed: true,
           stripe_account_status: true,
           stripe_payouts_enabled: true,
@@ -137,7 +137,7 @@ export class HelperOnboardingService {
         throw new NotFoundException('User not found');
       }
 
-      const hasStripeAccount = !!user.stripe_account_id;
+      const hasStripeAccount = !!user.stripe_connect_account_id;
       const isOnboarded = user.stripe_onboarding_completed || false;
       const accountStatus = user.stripe_account_status || 'none';
       const canReceivePayments = isOnboarded && user.stripe_payouts_enabled;
@@ -170,7 +170,7 @@ export class HelperOnboardingService {
       const user = await this.prisma.user.findUnique({
         where: { id: userId },
         select: { 
-          stripe_account_id: true, 
+          stripe_connect_account_id: true, 
           stripe_onboarding_completed: true,
           email: true 
         },
@@ -186,16 +186,16 @@ export class HelperOnboardingService {
       const debugInfo: any = {
         userId,
         userEmail: user.email,
-        stripeAccountId: user.stripe_account_id,
+        stripeAccountId: user.stripe_connect_account_id,
         onboardingCompleted: user.stripe_onboarding_completed,
         appUrl: appConfig().app.url,
-        hasStripeAccount: !!user.stripe_account_id,
+        hasStripeAccount: !!user.stripe_connect_account_id,
       };
 
       // Test Stripe API connection
       try {
-        if (user.stripe_account_id) {
-          const account = await StripePayment.checkAccountStatus(user.stripe_account_id);
+        if (user.stripe_connect_account_id) {
+          const account = await StripePayment.checkAccountStatus(user.stripe_connect_account_id);
           debugInfo.stripeAccountStatus = {
             id: account.id,
             type: account.type,
@@ -216,8 +216,8 @@ export class HelperOnboardingService {
 
       // Test account link creation
       try {
-        if (user.stripe_account_id) {
-          const accountLink = await StripePayment.createOnboardingAccountLink(user.stripe_account_id);
+        if (user.stripe_connect_account_id) {
+          const accountLink = await StripePayment.createOnboardingAccountLink(user.stripe_connect_account_id);
           debugInfo.accountLink = {
             url: accountLink.url,
             expires_at: accountLink.expires_at,

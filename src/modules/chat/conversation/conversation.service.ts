@@ -8,12 +8,14 @@ import { SojebStorage } from '../../../common/lib/Disk/SojebStorage';
 import { DateHelper } from '../../../common/helper/date.helper';
 import { MessageGateway } from '../message/message.gateway';
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
+import { ChatNotificationService } from '../chat-notification.service';
 
 @Injectable()
 export class ConversationService {
   constructor(
     private prisma: PrismaService,
     private readonly messageGateway: MessageGateway,
+    private readonly chatNotificationService: ChatNotificationService,
   ) {}
 
   async create(createConversationDto: CreateConversationDto) {
@@ -135,6 +137,13 @@ export class ConversationService {
         data: conversation,
       });
 
+      // Send notification to participant about new conversation
+      await this.chatNotificationService.notifyNewConversation({
+        creatorId: data.creator_id,
+        participantId: data.participant_id,
+        conversationId: conversation.id,
+      });
+
       return {
         success: true,
         message: 'Conversation created successfully',
@@ -247,6 +256,13 @@ export class ConversationService {
         data: conversation,
       });
 
+      // Send notification to helper about new conversation
+      await this.chatNotificationService.notifyNewConversation({
+        creatorId: ownerId,
+        participantId: helperId,
+        conversationId: conversation.id,
+      });
+
       return { success: true, message: 'Conversation created', data: conversation };
     } catch (error) {
       return { success: false, message: error.message };
@@ -343,14 +359,104 @@ export class ConversationService {
               avatar: true,
             },
           },
+          messages: {
+            orderBy: {
+              created_at: 'asc',
+            },
+            select: {
+              id: true,
+              message: true,
+              created_at: true,
+              status: true,
+              sender: {
+                select: {
+                  id: true,
+                  name: true,
+                  username: true,
+                  type: true,
+                  avatar: true,
+                },
+              },
+              receiver: {
+                select: {
+                  id: true,
+                  name: true,
+                  username: true,
+                  type: true,
+                  avatar: true,
+                },
+              },
+              attachment: {
+                select: {
+                  id: true,
+                  name: true,
+                  type: true,
+                  size: true,
+                  file: true,
+                },
+              },
+            },
+          },
         },
       });
 
-      // add image url
+      if (!conversation) {
+        return {
+          success: false,
+          message: 'Conversation not found',
+        };
+      }
+
+      // add image url for creator and participant
       if (conversation.creator.avatar) {
         conversation.creator['avatar_url'] = SojebStorage.url(
           appConfig().storageUrl.avatar + conversation.creator.avatar,
         );
+      }
+      if (conversation.participant.avatar) {
+        conversation.participant['avatar_url'] = SojebStorage.url(
+          appConfig().storageUrl.avatar + conversation.participant.avatar,
+        );
+      }
+
+      // enhance messages with proper sender/receiver info and attachment URLs
+      for (const message of conversation.messages) {
+        const msg = message as any;
+        
+        // Enhance sender info
+        if (msg.sender) {
+          msg.sender = {
+            id: msg.sender.id,
+            name: msg.sender.name || msg.sender.username || 'Unknown',
+            username: msg.sender.username,
+            role: msg.sender.type,
+            avatar: msg.sender.avatar,
+            avatar_url: msg.sender.avatar ? SojebStorage.url(
+              appConfig().storageUrl.avatar + msg.sender.avatar,
+            ) : null,
+          };
+        }
+        
+        // Enhance receiver info
+        if (msg.receiver) {
+          msg.receiver = {
+            id: msg.receiver.id,
+            name: msg.receiver.name || msg.receiver.username || 'Unknown',
+            username: msg.receiver.username,
+            role: msg.receiver.type,
+            avatar: msg.receiver.avatar,
+            avatar_url: msg.receiver.avatar ? SojebStorage.url(
+              appConfig().storageUrl.avatar + msg.receiver.avatar,
+            ) : null,
+          };
+        }
+
+        // Add attachment URL if exists
+        if (msg.attachment) {
+          msg.attachment['file_url'] = SojebStorage.url(
+            appConfig().storageUrl.attachment + msg.attachment.file,
+          );
+        }
       }
 
       return {
@@ -404,6 +510,55 @@ export class ConversationService {
       return {
         success: true,
         message: 'Conversation deleted successfully',
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: error.message,
+      };
+    }
+  }
+
+  async debugMessages(id: string) {
+    try {
+      // Get all messages for this conversation without any filtering
+      const messages = await this.prisma.message.findMany({
+        where: { 
+          conversation_id: id,
+          deleted_at: null 
+        },
+        orderBy: {
+          created_at: 'asc',
+        },
+        select: {
+          id: true,
+          message: true,
+          created_at: true,
+          status: true,
+          sender_id: true,
+          receiver_id: true,
+          conversation_id: true,
+        },
+      });
+
+      // Also get conversation details
+      const conversation = await this.prisma.conversation.findUnique({
+        where: { id },
+        select: {
+          id: true,
+          creator_id: true,
+          participant_id: true,
+          created_at: true,
+        },
+      });
+
+      return {
+        success: true,
+        data: {
+          conversation,
+          messages,
+          messageCount: messages.length,
+        },
       };
     } catch (error) {
       return {
