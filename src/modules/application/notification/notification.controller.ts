@@ -48,6 +48,53 @@ export class NotificationController {
     }
   }
 
+  @ApiOperation({ summary: 'Mark notification as read' })
+  @Post(':id/read')
+  async markAsRead(@Param('id') id: string, @Req() req: Request) {
+    try {
+      const userId = (req as any).user.userId || (req as any).user.id;
+      
+      // Check if notification exists and belongs to user
+      const notification = await this.notificationService.findOne(id);
+      if (!notification || notification.receiver_id !== userId) {
+        return {
+          success: false,
+          message: 'Notification not found or you do not have permission to read it',
+        };
+      }
+
+      const result = await this.notificationService.update(id, { 
+        read_at: new Date().toISOString() 
+      });
+      return {
+        success: true,
+        message: 'Notification marked as read',
+        data: result,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: error.message,
+      };
+    }
+  }
+
+  @ApiOperation({ summary: 'Mark all notifications as read for current user' })
+  @Post('mark-all-read')
+  async markAllAsRead(@Req() req: Request) {
+    try {
+      const userId = (req as any).user.userId || (req as any).user.id;
+      
+      const result = await this.notificationService.markAllAsRead(userId);
+      return result;
+    } catch (error) {
+      return {
+        success: false,
+        message: error.message,
+      };
+    }
+  }
+
   @ApiOperation({ summary: 'Delete all notifications for current user' })
   @Delete()
   async removeAll(@Req() req: Request) {

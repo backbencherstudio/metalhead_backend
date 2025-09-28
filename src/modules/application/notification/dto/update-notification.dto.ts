@@ -2,8 +2,9 @@ import { IsOptional, IsDateString, IsString, IsNumber } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class UpdateNotificationDto {
-  @ApiProperty({ description: 'Notification ID' })
-  id: number;
+  @IsOptional()
+  @ApiProperty({ description: 'Notification ID', required: false })
+  id?: number;
 
   @IsOptional()
   @IsString()

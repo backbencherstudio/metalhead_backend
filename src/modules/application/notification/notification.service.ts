@@ -162,6 +162,31 @@ export class NotificationService {
     }
   }
 
+  async markAllAsRead(userId: string) {
+    try {
+      // Mark all unread notifications as read for the user
+      const result = await this.prisma.notification.updateMany({
+        where: {
+          receiver_id: userId,
+          read_at: null,
+        },
+        data: {
+          read_at: new Date(),
+        },
+      });
+
+      return {
+        success: true,
+        message: `${result.count} notifications marked as read`,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: error.message,
+      };
+    }
+  }
+
   async removeAll(userId: string) {
     try {
       // Delete all notifications for the user
