@@ -3,12 +3,14 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { NotificationRepository } from '../../../common/repository/notification/notification.repository';
 import { JobCategory } from './enums/job-category.enum';
 import { LocationService } from '../../../common/lib/Location/location.service';
+import { FirebaseNotificationService } from '../firebase-notification/firebase-notification.service';
 
 @Injectable()
 export class JobNotificationService {
   constructor(
     private prisma: PrismaService,
-    private locationService: LocationService
+    private locationService: LocationService,
+    private firebaseNotificationService: FirebaseNotificationService
   ) {}
 
   /**
@@ -104,6 +106,7 @@ export class JobNotificationService {
    */
   private async sendJobNotification(job: any, helper: any): Promise<void> {
     try {
+      // 1. Send WebSocket notification (existing system)
       await NotificationRepository.createNotification({
         sender_id: job.user_id, // Job owner
         receiver_id: helper.id, // Helper
@@ -112,9 +115,55 @@ export class JobNotificationService {
         entity_id: job.id,
       });
 
+      // 2. Send Firebase push notification (new system)
+      await this.sendFirebaseNotification(job, helper);
+
       console.log(`Notification sent to helper ${helper.id} for job ${job.id}`);
     } catch (error) {
       console.error(`Failed to send notification to helper ${helper.id}:`, error);
+    }
+  }
+
+  /**
+   * Send Firebase push notification to helper
+   */
+  private async sendFirebaseNotification(job: any, helper: any): Promise<void> {
+    try {
+      // Use the new Firebase notification service method
+      await this.firebaseNotificationService.sendJobNotification({
+        receiverId: helper.id,
+        jobId: job.id,
+        jobTitle: job.title,
+        jobPrice: job.price,
+        jobLocation: job.location,
+        senderId: job.user_id,
+        notificationType: 'new_job'
+      });
+    } catch (error) {
+      console.error(`Failed to send Firebase notification to helper ${helper.id}:`, error);
+    }
+  }
+
+  /**
+   * Remove invalid device token from user's tokens array
+   */
+  private async removeInvalidDeviceToken(userId: string, invalidToken: string): Promise<void> {
+    try {
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { device_tokens: true }
+      });
+
+      if (user?.device_tokens) {
+        const updatedTokens = user.device_tokens.filter(token => token !== invalidToken);
+        await this.prisma.user.update({
+          where: { id: userId },
+          data: { device_tokens: updatedTokens }
+        });
+        console.log(`Removed invalid device token for user ${userId}`);
+      }
+    } catch (error) {
+      console.error(`Failed to remove invalid device token for user ${userId}:`, error);
     }
   }
 
@@ -174,5 +223,84 @@ export class JobNotificationService {
         longitude: preferences.longitude,
       },
     });
+  }
+
+  /**
+   * Add device token for push notifications
+   */
+  async addDeviceToken(userId: string, deviceToken: string): Promise<void> {
+    try {
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { device_tokens: true }
+      });
+
+      if (!user) {
+        throw new Error(`User with ID ${userId} not found`);
+      }
+
+      const existingTokens = user.device_tokens || [];
+      
+      // Add token if it doesn't already exist
+      if (!existingTokens.includes(deviceToken)) {
+        const updatedTokens = [...existingTokens, deviceToken];
+        await this.prisma.user.update({
+          where: { id: userId },
+          data: { device_tokens: updatedTokens }
+        });
+        console.log(`✅ Device token added for user ${userId}`);
+      } else {
+        console.log(`Device token already exists for user ${userId}`);
+      }
+    } catch (error) {
+      console.error(`Failed to add device token for user ${userId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Remove device token
+   */
+  async removeDeviceToken(userId: string, deviceToken: string): Promise<void> {
+    try {
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { device_tokens: true }
+      });
+
+      if (!user) {
+        throw new Error(`User with ID ${userId} not found`);
+      }
+
+      const existingTokens = user.device_tokens || [];
+      const updatedTokens = existingTokens.filter(token => token !== deviceToken);
+      
+      await this.prisma.user.update({
+        where: { id: userId },
+        data: { device_tokens: updatedTokens }
+      });
+      
+      console.log(`✅ Device token removed for user ${userId}`);
+    } catch (error) {
+      console.error(`Failed to remove device token for user ${userId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get user's device tokens
+   */
+  async getUserDeviceTokens(userId: string): Promise<string[]> {
+    try {
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { device_tokens: true }
+      });
+
+      return user?.device_tokens || [];
+    } catch (error) {
+      console.error(`Failed to get device tokens for user ${userId}:`, error);
+      return [];
+    }
   }
 }

@@ -107,6 +107,9 @@ model User {
   max_job_price Decimal? // Maximum job price to get notified
   preferred_categories String[] // Categories helper wants to be notified about
   
+  // Firebase push notification tokens
+  device_tokens String[] // Array of Firebase device tokens for push notifications
+  
   // User cards
   cards UserCard[]
   @@map("users")

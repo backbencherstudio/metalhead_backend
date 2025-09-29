@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { NotificationRepository } from '../../common/repository/notification/notification.repository';
 import { NotificationGateway } from '../application/notification/notification.gateway';
+import { FirebaseNotificationService } from '../application/firebase-notification/firebase-notification.service';
 
 @Injectable()
 export class ChatNotificationService {
@@ -10,6 +11,7 @@ export class ChatNotificationService {
   constructor(
     private prisma: PrismaService,
     private notificationGateway: NotificationGateway,
+    private firebaseNotificationService: FirebaseNotificationService,
   ) {}
 
   /**
@@ -87,6 +89,15 @@ export class ChatNotificationService {
           },
           created_at: new Date(),
         },
+      });
+
+      // Send Firebase push notification
+      await this.firebaseNotificationService.sendMessageNotification({
+        receiverId,
+        senderId,
+        conversationId,
+        messageText,
+        messageType
       });
 
       this.logger.log(`Message notification sent to user ${receiverId} from ${senderId}`);

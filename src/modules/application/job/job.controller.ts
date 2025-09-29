@@ -18,6 +18,7 @@ import { FileInterceptor, FileFieldsInterceptor } from '@nestjs/platform-express
 import { memoryStorage } from 'multer';
 import { ApiBearerAuth, ApiOperation, ApiTags, ApiConsumes, ApiBody, ApiResponse } from '@nestjs/swagger';
 import { JobService } from './job.service';
+import { JobNotificationService } from './job-notification.service';
 import { CreateJobDto } from './dto/create-job.dto';
 import { UpdateJobDto } from './dto/update-job.dto';
 import { JobResponseDto } from './dto/job-response.dto';
@@ -34,7 +35,10 @@ import { v4 as uuidv4 } from 'uuid';
 @UseGuards(JwtAuthGuard)
 @Controller('jobs')
 export class JobController {
-  constructor(private readonly jobService: JobService) {}
+  constructor(
+    private readonly jobService: JobService,
+    private readonly jobNotificationService: JobNotificationService
+  ) {}
 
   @ApiOperation({ summary: 'Create a new job posting with optional photo' })
   @ApiConsumes('multipart/form-data')
@@ -437,6 +441,87 @@ export class JobController {
       extractedUserId: userId,
       timestamp: new Date().toISOString(),
     };
+  }
+
+  // ==================== FIREBASE NOTIFICATION ENDPOINTS ====================
+
+  @ApiOperation({ summary: 'Add device token for push notifications' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        deviceToken: { type: 'string', description: 'Firebase device token' }
+      },
+      required: ['deviceToken']
+    }
+  })
+  @Post('device-token')
+  async addDeviceToken(@Body() body: { deviceToken: string }, @Req() req: Request) {
+    try {
+      const userId = (req as any).user.userId || (req as any).user.id;
+      await this.jobNotificationService.addDeviceToken(userId, body.deviceToken);
+      
+      return {
+        success: true,
+        message: 'Device token added successfully'
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: error.message
+      };
+    }
+  }
+
+  @ApiOperation({ summary: 'Remove device token' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        deviceToken: { type: 'string', description: 'Firebase device token to remove' }
+      },
+      required: ['deviceToken']
+    }
+  })
+  @Delete('device-token')
+  async removeDeviceToken(@Body() body: { deviceToken: string }, @Req() req: Request) {
+    try {
+      const userId = (req as any).user.userId || (req as any).user.id;
+      await this.jobNotificationService.removeDeviceToken(userId, body.deviceToken);
+      
+      return {
+        success: true,
+        message: 'Device token removed successfully'
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: error.message
+      };
+    }
+  }
+
+  @ApiOperation({ summary: 'Get user device tokens' })
+  @Get('device-tokens')
+  async getDeviceTokens(@Req() req: Request) {
+    try {
+      const userId = (req as any).user.userId || (req as any).user.id;
+      const tokens = await this.jobNotificationService.getUserDeviceTokens(userId);
+      
+      return {
+        success: true,
+        data: {
+          userId,
+          deviceTokens: tokens,
+          count: tokens.length
+        }
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: error.message
+      };
+    }
   }
 
 }
