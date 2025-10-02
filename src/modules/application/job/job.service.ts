@@ -25,7 +25,7 @@ export class JobService {
         console.log(`🌍 Auto-geocoding location: "${jobData.location}"`);
         try {
           coordinates = await this.geocodingService.geocodeAddress(jobData.location);
-          
+
           if (coordinates) {
             jobData.latitude = coordinates.lat;
             jobData.longitude = coordinates.lng;
@@ -679,7 +679,7 @@ export class JobService {
     category?: string,
   ): Promise<{ jobs: JobResponseDto[]; total: number; page: number; limit: number; radius: number }> {
     console.log(`🔍 Getting jobs near user: ${userId}, radius: ${radiusKm}km`);
-    
+
     // Get user's location
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
@@ -710,7 +710,7 @@ export class JobService {
     // If user doesn't have coordinates, we can't do distance-based search
     if (!user.latitude || !user.longitude) {
       console.log(`⚠️ User ${userId} doesn't have coordinates, falling back to city/state search`);
-      
+
       // Fallback to city/state based search
       const whereClause: any = {
         job_status: 'posted',
@@ -842,14 +842,14 @@ export class JobService {
     // Filter jobs by distance
     const jobsWithinRadius = jobs.filter(job => {
       if (!job.latitude || !job.longitude) return false;
-      
+
       const distance = this.calculateDistance(
         user.latitude!,
         user.longitude!,
         job.latitude,
         job.longitude,
       );
-      
+
       return distance <= radiusKm;
     });
 
@@ -888,10 +888,10 @@ export class JobService {
   private mapToResponseDto(job: any): JobResponseDto {
     const accepted = job.accepted_offers && job.accepted_offers.length ? job.accepted_offers[0] : undefined;
     const hasCounterOffers = job.counter_offers && job.counter_offers.length > 0;
-    
+
     // Determine current status based on actual state
     let current_status = job.job_status; // Start with the actual job_status from database
-    
+
     // Override with calculated status only if needed
     if (accepted) {
       current_status = 'confirmed';
@@ -925,26 +925,491 @@ export class JobService {
       current_status,
       accepted_offer: accepted
         ? {
-            amount: Number(accepted.counter_offer.amount),
-            type: accepted.counter_offer.type,
-            note: accepted.counter_offer.note ?? undefined,
-            helper: {
-              id: accepted.counter_offer.helper.id,
-              name:
-                accepted.counter_offer.helper.name ??
-                [accepted.counter_offer.helper.first_name, accepted.counter_offer.helper.last_name]
-                  .filter(Boolean)
-                  .join(' '),
-              email: accepted.counter_offer.helper.email ?? '',
-              phone_number: accepted.counter_offer.helper.phone_number ?? undefined,
-            },
-          }
+          amount: Number(accepted.counter_offer.amount),
+          type: accepted.counter_offer.type,
+          note: accepted.counter_offer.note ?? undefined,
+          helper: {
+            id: accepted.counter_offer.helper.id,
+            name:
+              accepted.counter_offer.helper.name ??
+              [accepted.counter_offer.helper.first_name, accepted.counter_offer.helper.last_name]
+                .filter(Boolean)
+                .join(' '),
+            email: accepted.counter_offer.helper.email ?? '',
+            phone_number: accepted.counter_offer.helper.phone_number ?? undefined,
+          },
+        }
         : undefined,
     };
   }
 
   async updateHelperPreferences(userId: string, preferences: any): Promise<void> {
     await this.jobNotificationService.updateHelperPreferences(userId, preferences);
+  }
+
+  // Add this method to src/modules/application/job/job.service.ts before the closing brace
+
+  async getJobCountsByCategory() {
+    const categories = await this.prisma.job.groupBy({
+      by: ['category'],
+      where: {
+        job_status: 'posted',
+        deleted_at: null,
+        status: 1
+      },
+      _count: {
+        category: true
+      }
+    });
+
+    return categories.map(cat => ({
+      category: cat.category,
+      count: cat._count.category
+    }));
+  }
+
+  async getUpcomingAppointments(userId: string) {
+    const jobs = await this.prisma.job.findMany({
+      where: {
+        OR: [
+          // Jobs posted by the user
+          {
+            user_id: userId,
+            job_status: { in: ['confirmed', 'ongoing'] },
+            deleted_at: null,
+            status: 1
+          },
+          // Jobs where user is the helper (accepted offers)
+          {
+            accepted_offers: {
+              some: {
+                counter_offer: {
+                  helper_id: userId
+                }
+              }
+            },
+            job_status: { in: ['confirmed', 'ongoing'] },
+            deleted_at: null,
+            status: 1
+          }
+        ]
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            first_name: true,
+            last_name: true,
+            email: true,
+            phone_number: true,
+            avatar: true
+          }
+        },
+        accepted_offers: {
+          include: {
+            counter_offer: {
+              include: {
+                helper: {
+                  select: {
+                    id: true,
+                    name: true,
+                    first_name: true,
+                    last_name: true,
+                    email: true,
+                    phone_number: true,
+                    avatar: true
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      orderBy: { date_and_time: 'asc' }
+    });
+
+    return jobs.map(job => this.mapToResponseDto(job));
+  }
+
+  async getPastAppointments(userId: string) {
+    const jobs = await this.prisma.job.findMany({
+      where: {
+        OR: [
+          // Jobs posted by the user
+          {
+            user_id: userId,
+            job_status: { in: ['completed', 'paid'] },
+            deleted_at: null,
+            status: 1
+          },
+          // Jobs where user is the helper (accepted offers)
+          {
+            accepted_offers: {
+              some: {
+                counter_offer: {
+                  helper_id: userId
+                }
+              }
+            },
+            job_status: { in: ['completed', 'paid'] },
+            deleted_at: null,
+            status: 1
+          }
+        ]
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            first_name: true,
+            last_name: true,
+            email: true,
+            phone_number: true,
+            avatar: true
+          }
+        },
+        accepted_offers: {
+          include: {
+            counter_offer: {
+              include: {
+                helper: {
+                  select: {
+                    id: true,
+                    name: true,
+                    first_name: true,
+                    last_name: true,
+                    email: true,
+                    phone_number: true,
+                    avatar: true
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      orderBy: { updated_at: 'desc' }
+    });
+
+    return jobs.map(job => this.mapToResponseDto(job));
+  }
+
+  async getHelperUpcomingAppointments(helperId: string) {
+    const jobs = await this.prisma.job.findMany({
+      where: {
+        accepted_offers: {
+          some: {
+            counter_offer: {
+              helper_id: helperId
+            }
+          }
+        },
+        job_status: { in: ['confirmed', 'ongoing'] },
+        deleted_at: null,
+        status: 1
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            phone_number: true,
+            avatar: true
+          }
+        },
+        accepted_offers: {
+          include: {
+            counter_offer: {
+              include: {
+                helper: {
+                  select: {
+                    id: true,
+                    name: true,
+                    first_name: true,
+                    last_name: true,
+                    email: true,
+                    phone_number: true,
+                    avatar: true
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      orderBy: { date_and_time: 'asc' }
+    });
+
+    return jobs.map(job => this.mapToResponseDto(job));
+  }
+
+  async getHelperPastAppointments(helperId: string) {
+    const jobs = await this.prisma.job.findMany({
+      where: {
+        accepted_offers: {
+          some: {
+            counter_offer: {
+              helper_id: helperId
+            }
+          }
+        },
+        job_status: { in: ['completed', 'paid'] },
+        deleted_at: null,
+        status: 1
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            phone_number: true,
+            avatar: true
+          }
+        },
+        accepted_offers: {
+          include: {
+            counter_offer: {
+              include: {
+                helper: {
+                  select: {
+                    id: true,
+                    name: true,
+                    first_name: true,
+                    last_name: true,
+                    email: true,
+                    phone_number: true,
+                    avatar: true
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      orderBy: { updated_at: 'desc' }
+    });
+
+    return jobs.map(job => this.mapToResponseDto(job));
+  }
+
+  async getHistoricalEarnings(userId: string, userType: string, period: string = 'week', days: number = 7) {
+    const endDate = new Date();
+    const startDate = new Date();
+    startDate.setDate(endDate.getDate() - days);
+
+    let whereClause: any = {
+      job_status: 'completed',
+      deleted_at: null,
+      status: 1,
+      updated_at: {
+        gte: startDate,
+        lte: endDate
+      }
+    };
+
+    if (userType === 'helper') {
+      whereClause.accepted_offers = {
+        some: {
+          counter_offer: {
+            helper_id: userId
+          }
+        }
+      };
+    } else {
+      whereClause.user_id = userId;
+    }
+
+    const jobs = await this.prisma.job.findMany({
+      where: whereClause,
+      select: {
+        id: true,
+        final_price: true,
+        updated_at: true,
+        created_at: true
+      },
+      orderBy: { updated_at: 'asc' }
+    });
+
+    // Group earnings by day
+    const earningsByDay = new Map();
+    
+    // Initialize all days with 0 earnings
+    for (let i = 0; i < days; i++) {
+      const date = new Date(startDate);
+      date.setDate(startDate.getDate() + i);
+      const dateKey = date.toISOString().split('T')[0];
+      earningsByDay.set(dateKey, {
+        date: dateKey,
+        day: date.toLocaleDateString('en-US', { weekday: 'short' }),
+        earnings: 0,
+        job_count: 0
+      });
+    }
+
+    // Add actual earnings
+    jobs.forEach(job => {
+      const dateKey = job.updated_at.toISOString().split('T')[0];
+      if (earningsByDay.has(dateKey)) {
+        const dayData = earningsByDay.get(dateKey);
+        dayData.earnings += Number(job.final_price || 0);
+        dayData.job_count += 1;
+      }
+    });
+
+    return {
+      period,
+      days,
+      start_date: startDate.toISOString().split('T')[0],
+      end_date: endDate.toISOString().split('T')[0],
+      total_earnings: jobs.reduce((sum, job) => sum + Number(job.final_price || 0), 0),
+      total_jobs: jobs.length,
+      daily_breakdown: Array.from(earningsByDay.values())
+    };
+  }
+
+  async getWeeklyEarnings(userId: string, userType: string) {
+    const endDate = new Date();
+    const startDate = new Date();
+    startDate.setDate(endDate.getDate() - 7);
+
+    let whereClause: any = {
+      job_status: 'completed',
+      deleted_at: null,
+      status: 1,
+      updated_at: {
+        gte: startDate,
+        lte: endDate
+      }
+    };
+
+    if (userType === 'helper') {
+      whereClause.accepted_offers = {
+        some: {
+          counter_offer: {
+            helper_id: userId
+          }
+        }
+      };
+    } else {
+      whereClause.user_id = userId;
+    }
+
+    const jobs = await this.prisma.job.findMany({
+      where: whereClause,
+      select: {
+        id: true,
+        final_price: true,
+        updated_at: true
+      },
+      orderBy: { updated_at: 'asc' }
+    });
+
+    // Group by day of week
+    const weeklyData = {
+      Sunday: { earnings: 0, jobs: 0 },
+      Monday: { earnings: 0, jobs: 0 },
+      Tuesday: { earnings: 0, jobs: 0 },
+      Wednesday: { earnings: 0, jobs: 0 },
+      Thursday: { earnings: 0, jobs: 0 },
+      Friday: { earnings: 0, jobs: 0 },
+      Saturday: { earnings: 0, jobs: 0 }
+    };
+
+    jobs.forEach(job => {
+      const dayName = job.updated_at.toLocaleDateString('en-US', { weekday: 'long' });
+      if (weeklyData[dayName]) {
+        weeklyData[dayName].earnings += Number(job.final_price || 0);
+        weeklyData[dayName].jobs += 1;
+      }
+    });
+
+    return {
+      week_start: startDate.toISOString().split('T')[0],
+      week_end: endDate.toISOString().split('T')[0],
+      total_earnings: jobs.reduce((sum, job) => sum + Number(job.final_price || 0), 0),
+      total_jobs: jobs.length,
+      daily_breakdown: Object.entries(weeklyData).map(([day, data]) => ({
+        day: day.substring(0, 3), // Sun, Mon, Tue, etc.
+        full_day: day,
+        earnings: data.earnings,
+        job_count: data.jobs
+      }))
+    };
+  }
+
+  async getAllJobsForUser(userId: string) {
+    const jobs = await this.prisma.job.findMany({
+      where: {
+        OR: [
+          // Jobs posted by the user
+          {
+            user_id: userId,
+            deleted_at: null,
+            status: 1
+          },
+          // Jobs where user is the helper (accepted offers)
+          {
+            accepted_offers: {
+              some: {
+                counter_offer: {
+                  helper_id: userId
+                }
+              }
+            },
+            deleted_at: null,
+            status: 1
+          }
+        ]
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            first_name: true,
+            last_name: true,
+            email: true
+          }
+        },
+        accepted_offers: {
+          include: {
+            counter_offer: {
+              include: {
+                helper: {
+                  select: {
+                    id: true,
+                    name: true,
+                    first_name: true,
+                    last_name: true,
+                    email: true
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      orderBy: { created_at: 'desc' }
+    });
+
+    return jobs.map(job => ({
+      id: job.id,
+      title: job.title,
+      job_status: job.job_status,
+      user_id: job.user_id,
+      user_name: job.user?.name || `${job.user?.first_name} ${job.user?.last_name}`.trim(),
+      has_accepted_offer: job.accepted_offers?.length > 0,
+      helper_id: job.accepted_offers?.[0]?.counter_offer?.helper_id,
+      helper_name: job.accepted_offers?.[0]?.counter_offer?.helper?.name || 
+                   `${job.accepted_offers?.[0]?.counter_offer?.helper?.first_name} ${job.accepted_offers?.[0]?.counter_offer?.helper?.last_name}`.trim(),
+      created_at: job.created_at,
+      updated_at: job.updated_at,
+      date_and_time: job.date_and_time
+    }));
   }
 
 }

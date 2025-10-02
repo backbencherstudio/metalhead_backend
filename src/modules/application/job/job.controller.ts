@@ -189,6 +189,25 @@ export class JobController {
     };
   }
 
+  @ApiOperation({ summary: 'Get job counts by category' })
+  @ApiResponse({ status: 200, description: 'Job counts by category retrieved successfully' })
+  @Get('categories/with-counts')
+  async getJobCountsByCategory() {
+    try {
+      const counts = await this.jobService.getJobCountsByCategory();
+      return {
+        success: true,
+        message: 'Job counts by category retrieved successfully',
+        data: counts
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: error.message
+      };
+    }
+  }
+
   @ApiOperation({ summary: 'Get specific category details' })
   @ApiResponse({ status: 200, description: 'Category details retrieved successfully', type: CategoryResponseDto })
   @Get('categories/:category')
@@ -515,6 +534,152 @@ export class JobController {
           deviceTokens: tokens,
           count: tokens.length
         }
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: error.message
+      };
+    }
+  }
+
+  @ApiOperation({ summary: 'Get upcoming appointments for user' })
+  @ApiResponse({ status: 200, description: 'Upcoming appointments retrieved successfully' })
+  @Get('appointments/upcoming')
+  async getUpcomingAppointments(@Req() req: Request) {
+    try {
+      const userId = (req as any).user.userId || (req as any).user.id;
+      const appointments = await this.jobService.getUpcomingAppointments(userId);
+      return {
+        success: true,
+        message: 'Upcoming appointments retrieved successfully',
+        data: appointments
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: error.message
+      };
+    }
+  }
+
+  @ApiOperation({ summary: 'Get past appointments for user' })
+  @ApiResponse({ status: 200, description: 'Past appointments retrieved successfully' })
+  @Get('appointments/past')
+  async getPastAppointments(@Req() req: Request) {
+    try {
+      const userId = (req as any).user.userId || (req as any).user.id;
+      const appointments = await this.jobService.getPastAppointments(userId);
+      return {
+        success: true,
+        message: 'Past appointments retrieved successfully',
+        data: appointments
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: error.message
+      };
+    }
+  }
+
+  @ApiOperation({ summary: 'Get upcoming appointments for helper' })
+  @ApiResponse({ status: 200, description: 'Helper upcoming appointments retrieved successfully' })
+  @Get('appointments/helper/upcoming')
+  async getHelperUpcomingAppointments(@Req() req: Request) {
+    try {
+      const helperId = (req as any).user.userId || (req as any).user.id;
+      const appointments = await this.jobService.getHelperUpcomingAppointments(helperId);
+      return {
+        success: true,
+        message: 'Helper upcoming appointments retrieved successfully',
+        data: appointments
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: error.message
+      };
+    }
+  }
+
+  @ApiOperation({ summary: 'Get past appointments for helper' })
+  @ApiResponse({ status: 200, description: 'Helper past appointments retrieved successfully' })
+  @Get('appointments/helper/past')
+  async getHelperPastAppointments(@Req() req: Request) {
+    try {
+      const helperId = (req as any).user.userId || (req as any).user.id;
+      const appointments = await this.jobService.getHelperPastAppointments(helperId);
+      return {
+        success: true,
+        message: 'Helper past appointments retrieved successfully',
+        data: appointments
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: error.message
+      };
+    }
+  }
+
+  @ApiOperation({ summary: 'Get historical earnings graph data' })
+  @ApiResponse({ status: 200, description: 'Historical earnings data retrieved successfully' })
+  @Get('earnings/historical')
+  async getHistoricalEarnings(
+    @Req() req: Request,
+    @Query('period') period: string = 'week',
+    @Query('days') days: string = '7'
+  ) {
+    try {
+      const userId = (req as any).user.userId || (req as any).user.id;
+      const userType = (req as any).user.type;
+      const earningsData = await this.jobService.getHistoricalEarnings(userId, userType, period, parseInt(days));
+      return {
+        success: true,
+        message: 'Historical earnings data retrieved successfully',
+        data: earningsData
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: error.message
+      };
+    }
+  }
+
+  @ApiOperation({ summary: 'Get weekly earnings breakdown' })
+  @ApiResponse({ status: 200, description: 'Weekly earnings breakdown retrieved successfully' })
+  @Get('earnings/weekly')
+  async getWeeklyEarnings(@Req() req: Request) {
+    try {
+      const userId = (req as any).user.userId || (req as any).user.id;
+      const userType = (req as any).user.type;
+      const weeklyData = await this.jobService.getWeeklyEarnings(userId, userType);
+      return {
+        success: true,
+        message: 'Weekly earnings breakdown retrieved successfully',
+        data: weeklyData
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: error.message
+      };
+    }
+  }
+
+  @ApiOperation({ summary: 'Debug: Get all jobs for user (for troubleshooting)' })
+  @ApiResponse({ status: 200, description: 'All jobs retrieved successfully' })
+  @Get('debug/all-jobs')
+  async getAllJobsForUser(@Req() req: Request) {
+    try {
+      const userId = (req as any).user.userId || (req as any).user.id;
+      const allJobs = await this.jobService.getAllJobsForUser(userId);
+      return {
+        success: true,
+        message: 'All jobs retrieved successfully',
+        data: allJobs
       };
     } catch (error) {
       return {
