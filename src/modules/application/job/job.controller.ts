@@ -116,10 +116,13 @@ export class JobController {
       payment_type: createJobDto.payment_type,
       job_type: createJobDto.job_type,
       location: createJobDto.location,
+      latitude: parseFloat(createJobDto.latitude),
+      longitude: parseFloat(createJobDto.longitude),
       estimated_time: createJobDto.estimated_time,
       description: createJobDto.description,
       requirements: requirements,
       notes: notes,
+      urgency_type: createJobDto.urgency_type,
       urgent_note: createJobDto.urgent_note,
     };
     
@@ -137,6 +140,7 @@ export class JobController {
     @Query('priceRange') priceRange?: string,  // price range will come as a string (e.g., "100,500")
     @Query('sortBy') sortBy?: string, // sorting options
     @Query('search') search?: string, // search in title and description
+    @Query('urgency') urgency?: string, // filter by urgency: 'urgent' or 'normal'
   ) {
     // Validate category if provided
     if (category && !Object.values(JobCategory).includes(category as JobCategory)) {
@@ -158,6 +162,7 @@ export class JobController {
       parsedPriceRange,
       sortBy,
       search,
+      urgency,
     );
   }
 

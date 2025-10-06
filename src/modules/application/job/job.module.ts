@@ -4,6 +4,8 @@ import { JobService } from './job.service';
 import { JobNotificationService } from './job-notification.service';
 import { JobHistoryService } from './job-history.service';
 import { JobHistoryController } from './job-history.controller';
+import { NearbyJobsController } from './nearby-jobs.controller';
+import { NearbyJobsService } from './nearby-jobs.service';
 import { PrismaModule } from '../../../prisma/prisma.module';
 import { LocationService } from '../../../common/lib/Location/location.service';
 import { GeocodingService } from '../../../common/lib/Geocoding/geocoding.service';
@@ -11,18 +13,24 @@ import { FirebaseNotificationModule } from '../firebase-notification/firebase-no
 
 @Module({
   imports: [PrismaModule, FirebaseNotificationModule],
-  controllers: [JobController, JobHistoryController],
+  controllers: [
+    JobController, 
+    JobHistoryController,
+    NearbyJobsController
+  ],
   providers: [
     JobService, 
     JobNotificationService, 
     JobHistoryService,
+    NearbyJobsService,
     LocationService, 
     GeocodingService
   ],
   exports: [
     JobService, 
     JobNotificationService,
-    JobHistoryService
+    JobHistoryService,
+    NearbyJobsService
   ],
 })
 export class JobModule {}

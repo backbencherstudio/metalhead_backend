@@ -59,31 +59,30 @@ export class CreateJobDto {
   })
   job_type: string;
 
-  @IsNotEmpty()
+  @IsOptional()
   @IsString()
   @ApiProperty({
-    description: 'Job location',
+    description: 'Job location (optional if latitude/longitude provided)',
     example: 'New York, NY',
+    required: false,
   })
-  location: string;
+  location?: string;
 
-  @IsOptional()
+  @IsNotEmpty()
   @IsNumber()
   @ApiProperty({
-    description: 'Job location latitude (auto-generated from location if not provided)',
+    description: 'Job location latitude (from device GPS)',
     example: 40.7128,
-    required: false,
   })
-  latitude?: number;
+  latitude: number;
 
-  @IsOptional()
+  @IsNotEmpty()
   @IsNumber()
   @ApiProperty({
-    description: 'Job location longitude (auto-generated from location if not provided)',
+    description: 'Job location longitude (from device GPS)',
     example: -74.0060,
-    required: false,
   })
-  longitude?: number;
+  longitude: number;
 
   @IsOptional()
   @IsString()
@@ -128,6 +127,16 @@ export class CreateJobDto {
   notes?: CreateJobNoteDto[];
 
   // Urgent Note
+  @IsOptional()
+  @IsString()
+  @ApiProperty({
+    description: 'Urgency type for the job',
+    example: 'FIXED',
+    enum: ['FIXED', 'ANYTIME'],
+    required: false,
+  })
+  urgency_type?: string;
+
   @IsOptional()
   @IsString()
   @ApiProperty({

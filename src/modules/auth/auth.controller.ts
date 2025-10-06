@@ -70,12 +70,6 @@ export class AuthController {
           HttpStatus.UNAUTHORIZED,
         );
       }
-      if (!last_name) {
-        throw new HttpException(
-          'Last name not provided',
-          HttpStatus.UNAUTHORIZED,
-        );
-      }
       if (!email) {
         throw new HttpException('Email not provided', HttpStatus.UNAUTHORIZED);
       }

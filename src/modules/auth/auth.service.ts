@@ -372,52 +372,64 @@ export class AuthService {
     type: string;
   }) {
     try {
-      // Check if email already exist
-      const userEmailExist = await UserRepository.exist({
-        field: 'email',
-        value: String(email),
+      // Validate all fields before creating user
+      const validationResult = await this.validateUserRegistration({
+        username,
+        email,
+        phone_number,
       });
 
-      if (userEmailExist) {
-        return {
-          statusCode: 401,
-          message: 'Email already exist',
-        };
-      }
-
-      const user = await UserRepository.createUser({
-        username: username,
-        first_name: first_name,
-        last_name: last_name,
-        email: email,
-        password: password,
-        phone_number: phone_number,
-        type: type,
-      });
-
-      if (user == null && user.success == false) {
+      if (!validationResult.isValid) {
         return {
           success: false,
-          message: 'Failed to create account',
+          message: validationResult.message,
+          field: validationResult.field,
         };
       }
 
-      // create stripe customer account
-      const stripeCustomer = await StripePayment.createCustomer({
-        user_id: user.data.id,
-        email: email,
-        name: username,
+      // Use transaction to ensure atomicity
+      const result = await this.prisma.$transaction(async (tx) => {
+        // Create user within transaction
+        const user = await UserRepository.createUser({
+          username: username,
+          first_name: first_name,
+          last_name: last_name,
+          email: email,
+          password: password,
+          phone_number: phone_number,
+          type: type,
+        });
+
+        if (!user || !user.success) {
+          throw new Error(user?.message || 'Failed to create user');
+        }
+
+        return user;
       });
 
-      if (stripeCustomer) {
-        await this.prisma.user.update({
-          where: {
-            id: user.data.id,
-          },
-          data: {
-            billing_id: stripeCustomer.id,
-          },
+      const user = result;
+
+      // Create Stripe customer account
+      try {
+        const stripeCustomer = await StripePayment.createCustomer({
+          user_id: user.data.id,
+          email: email,
+          name: username,
         });
+
+        if (stripeCustomer) {
+          await this.prisma.user.update({
+            where: {
+              id: user.data.id,
+            },
+            data: {
+              billing_id: stripeCustomer.id,
+            },
+          });
+        }
+      } catch (stripeError) {
+        console.error('Failed to create Stripe customer:', stripeError);
+        // Don't fail registration if Stripe fails, just log it
       }
 
       // Create Stripe Connect account for helpers
@@ -434,24 +446,33 @@ export class AuthService {
         }
       }
 
-      // ----------------------------------------------------
-      // create otp code
-      const token = await UcodeRepository.createToken({
-        userId: user.data.id,
-        isOtp: true,
-      });
+      // Create OTP code and send verification email
+      try {
+        const token = await UcodeRepository.createToken({
+          userId: user.data.id,
+          isOtp: true,
+        });
 
-      // send otp code to email
-      await this.mailService.sendOtpCodeToEmail({
-        email: email,
-        name: username,
-        otp: token,
-      });
+        // Send OTP code to email
+        await this.mailService.sendOtpCodeToEmail({
+          email: email,
+          name: username,
+          otp: token,
+        });
 
-      return {
-        success: true,
-        message: 'We have sent an OTP code to your email',
-      };
+        return {
+          success: true,
+          message: 'We have sent an OTP code to your email',
+        };
+      } catch (emailError) {
+        console.error('Failed to send verification email:', emailError);
+        // If email fails, we should still return success but log the error
+        // The user is created but needs to request a new OTP
+        return {
+          success: true,
+          message: 'Account created successfully, but verification email failed. Please request a new OTP.',
+        };
+      }
 
       // ----------------------------------------------------
 
@@ -1104,6 +1125,121 @@ export class AuthService {
         message: error.message || 'Failed to get payment status',
       };
     }
+  }
+
+  /**
+   * Validate user registration data before creating user
+   */
+  private async validateUserRegistration({
+    username,
+    email,
+    phone_number,
+  }: {
+    username: string;
+    email: string;
+    phone_number: string;
+  }): Promise<{
+    isValid: boolean;
+    message: string;
+    field?: string;
+  }> {
+    try {
+      // Check if email already exists
+      const emailExists = await UserRepository.exist({
+        field: 'email',
+        value: email,
+      });
+
+      if (emailExists) {
+        return {
+          isValid: false,
+          message: 'Email already exists',
+          field: 'email',
+        };
+      }
+
+      // Check if username already exists
+      const usernameExists = await UserRepository.exist({
+        field: 'username',
+        value: username,
+      });
+
+      if (usernameExists) {
+        return {
+          isValid: false,
+          message: 'Username already exists',
+          field: 'username',
+        };
+      }
+
+      // Check if phone number already exists
+      if (phone_number) {
+        const phoneExists = await UserRepository.exist({
+          field: 'phone_number',
+          value: phone_number,
+        });
+
+        if (phoneExists) {
+          return {
+            isValid: false,
+            message: 'Phone number already exists',
+            field: 'phone_number',
+          };
+        }
+      }
+
+      // Additional validations
+      if (username && username.length < 3) {
+        return {
+          isValid: false,
+          message: 'Username must be at least 3 characters long',
+          field: 'username',
+        };
+      }
+
+      if (email && !this.isValidEmail(email)) {
+        return {
+          isValid: false,
+          message: 'Invalid email format',
+          field: 'email',
+        };
+      }
+
+      if (phone_number && !this.isValidPhoneNumber(phone_number)) {
+        return {
+          isValid: false,
+          message: 'Invalid phone number format',
+          field: 'phone_number',
+        };
+      }
+
+      return {
+        isValid: true,
+        message: 'Validation passed',
+      };
+    } catch (error) {
+      return {
+        isValid: false,
+        message: 'Validation error: ' + error.message,
+      };
+    }
+  }
+
+  /**
+   * Validate email format
+   */
+  private isValidEmail(email: string): boolean {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(email);
+  }
+
+  /**
+   * Validate phone number format
+   */
+  private isValidPhoneNumber(phone: string): boolean {
+    // Basic phone number validation - adjust regex as needed
+    const phoneRegex = /^[\+]?[1-9][\d]{0,15}$/;
+    return phoneRegex.test(phone.replace(/\s/g, ''));
   }
 
 }

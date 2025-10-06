@@ -15,6 +15,23 @@ export class DateHelper {
 
   // format date
   static format(date: number | string | Date) {
+    // Handle DD/MM/YYYY format
+    if (typeof date === 'string' && date.includes('/')) {
+      const parts = date.split('/');
+      if (parts.length === 3) {
+        // Check if it's DD/MM/YYYY format (day > 12)
+        const day = parseInt(parts[0]);
+        const month = parseInt(parts[1]);
+        const year = parseInt(parts[2]);
+        
+        if (day > 12 && month <= 12) {
+          // DD/MM/YYYY format
+          const d = new Date(year, month - 1, day);
+          return d.toISOString();
+        }
+      }
+    }
+    
     const d = new Date(date);
     return d.toISOString();
   }

@@ -288,6 +288,11 @@ enum MessageStatus {
   READ
 }
 
+enum UrgencyType {
+  FIXED
+  ANYTIME
+}
+
 // message is used for conversation
 model Message {
   id         String    @id @default(cuid())
@@ -468,6 +473,7 @@ model Job {
   longitude       Float? // Job location longitude
   estimated_time  String?
   description     String?            @db.Text
+  urgency_type    UrgencyType?       @default(ANYTIME) // Urgency type: FIXED or ANYTIME
   urgent_note     String?            @db.Text // Urgent note for urgent jobs
   requirements    JobRequirement[]
   notes           JobNote[] //only be enabled if user selects the job type as urgent

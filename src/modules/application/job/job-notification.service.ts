@@ -4,13 +4,15 @@ import { NotificationRepository } from '../../../common/repository/notification/
 import { JobCategory } from './enums/job-category.enum';
 import { LocationService } from '../../../common/lib/Location/location.service';
 import { FirebaseNotificationService } from '../firebase-notification/firebase-notification.service';
+import { NearbyJobsService } from './nearby-jobs.service';
 
 @Injectable()
 export class JobNotificationService {
   constructor(
     private prisma: PrismaService,
     private locationService: LocationService,
-    private firebaseNotificationService: FirebaseNotificationService
+    private firebaseNotificationService: FirebaseNotificationService,
+    private nearbyJobsService: NearbyJobsService
   ) {}
 
   /**
@@ -18,38 +20,14 @@ export class JobNotificationService {
    */
   async notifyHelpersAboutNewJob(jobId: string): Promise<void> {
     try {
-      // 1. Get the job details
-      const job = await this.prisma.job.findUnique({
-        where: { id: jobId },
-        select: {
-          id: true,
-          title: true,
-          category: true,
-          location: true,
-          latitude: true,
-          longitude: true,
-          price: true,
-          description: true,
-          user_id: true,
-        },
-      });
-
-      if (!job) {
-        console.error(`Job ${jobId} not found for notification`);
-        return;
-      }
-
-      // 2. Find helpers who should be notified
-      const eligibleHelpers = await this.findEligibleHelpers(job);
-
-      // 3. Send notifications to each helper
-      for (const helper of eligibleHelpers) {
-        await this.sendJobNotification(job, helper);
-      }
-
-      console.log(`Sent job notifications to ${eligibleHelpers.length} helpers for job ${jobId}`);
+      console.log(`🔔 Starting notification process for job ${jobId}`);
+      
+      // Use the new nearby jobs service for better location-based notifications
+      await this.nearbyJobsService.notifyHelpersAboutNewJob(jobId);
+      
+      console.log(`✅ Notification process completed for job ${jobId}`);
     } catch (error) {
-      console.error('Error notifying helpers about new job:', error);
+      console.error(`❌ Error notifying helpers about job ${jobId}:`, error);
     }
   }
 

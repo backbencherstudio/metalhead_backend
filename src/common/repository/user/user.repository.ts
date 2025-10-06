@@ -224,19 +224,6 @@ export class UserRepository {
         data['phone_number'] = phone_number;
       }
       if (email) {
-        // Check if email already exist
-        const userEmailExist = await UserRepository.exist({
-          field: 'email',
-          value: String(email),
-        });
-
-        if (userEmailExist) {
-          return {
-            success: false,
-            message: 'Email already exist',
-          };
-        }
-
         data['email'] = email;
       }
       if (password) {

@@ -18,27 +18,29 @@ export class JobService {
   async create(createJobDto: CreateJobDto, userId: string, photoPath?: string): Promise<JobResponseDto> {
     const { requirements, notes, ...jobData } = createJobDto;
 
-    // Auto-geocode the location if coordinates are not provided
-    let coordinates = null;
+    // Validate coordinates are provided (required from device GPS)
     if (!jobData.latitude || !jobData.longitude) {
-      if (jobData.location) {
-        console.log(`🌍 Auto-geocoding location: "${jobData.location}"`);
-        try {
-          coordinates = await this.geocodingService.geocodeAddress(jobData.location);
+      throw new Error('Latitude and longitude are required from device GPS');
+    }
 
-          if (coordinates) {
-            jobData.latitude = coordinates.lat;
-            jobData.longitude = coordinates.lng;
-            console.log(`✅ Geocoding successful: (${coordinates.lat}, ${coordinates.lng})`);
-          } else {
-            console.log(`❌ Geocoding failed for location: "${jobData.location}"`);
-          }
-        } catch (error) {
-          console.error(`❌ Geocoding error for location: "${jobData.location}"`, error.message);
+    console.log(`📍 Using device coordinates: (${jobData.latitude}, ${jobData.longitude})`);
+
+    // Auto-generate address from coordinates if location not provided
+    if (!jobData.location) {
+      console.log(`🌍 Auto-generating address from coordinates`);
+      try {
+        const address = await this.geocodingService.reverseGeocode(jobData.latitude, jobData.longitude);
+        if (address) {
+          jobData.location = address;
+          console.log(`✅ Address generated: "${address}"`);
+        } else {
+          console.log(`❌ Failed to generate address from coordinates`);
+          jobData.location = `Location: ${jobData.latitude}, ${jobData.longitude}`;
         }
+      } catch (error) {
+        console.error(`❌ Error generating address:`, error.message);
+        jobData.location = `Location: ${jobData.latitude}, ${jobData.longitude}`;
       }
-    } else {
-      console.log(`📍 Using provided coordinates: (${jobData.latitude}, ${jobData.longitude})`);
     }
 
     console.log(`💾 Creating job with data:`, {
@@ -50,7 +52,19 @@ export class JobService {
 
     const job = await this.prisma.job.create({
       data: {
-        ...jobData,
+        title: jobData.title,
+        category: jobData.category,
+        date_and_time: new Date(jobData.date_and_time),
+        price: jobData.price,
+        payment_type: jobData.payment_type,
+        job_type: jobData.job_type,
+        location: jobData.location,
+        latitude: jobData.latitude,
+        longitude: jobData.longitude,
+        estimated_time: jobData.estimated_time,
+        description: jobData.description,
+        urgency_type: jobData.urgency_type as any,
+        urgent_note: jobData.urgent_note,
         user_id: userId,
         photos: photoPath,
         requirements: requirements
@@ -194,6 +208,7 @@ export class JobService {
     priceRange?: { min: number, max: number },
     sortBy?: string, // added sorting logic
     search?: string, // search in title and description
+    urgency?: string, // filter by urgency: 'urgent' or 'normal'
   ): Promise<{ jobs: JobResponseDto[]; total: number; totalPages: number }> {
     const skip = (page - 1) * limit;
     const where: any = {
@@ -221,6 +236,21 @@ export class JobService {
         gte: priceRange.min,
         lte: priceRange.max,
       };
+    }
+
+    // Add urgency filtering
+    if (urgency) {
+      if (urgency === 'urgent') {
+        where.urgent_note = {
+          not: null,
+        };
+      } else if (urgency === 'normal') {
+        where.urgent_note = null;
+      } else if (urgency === 'FIXED') {
+        where.urgency_type = 'FIXED';
+      } else if (urgency === 'ANYTIME') {
+        where.urgency_type = 'ANYTIME';
+      }
     }
 
     // Add search functionality
@@ -253,6 +283,8 @@ export class JobService {
           return { location: 'desc' as const };
         case 'title':
           return { title: 'asc' as const };
+        case 'urgency':
+          return { urgent_note: 'desc' as const };
         default:
           return { created_at: 'desc' as const };
       }

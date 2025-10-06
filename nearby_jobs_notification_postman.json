@@ -1,0 +1,503 @@
+{
+  "info": {
+    "name": "Nearby Jobs Notification System - Postman Collection",
+    "description": "Complete collection for testing the nearby jobs notification system. This system automatically notifies helpers about nearby jobs based on their location and preferences.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{jwt_token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:3000",
+      "type": "string"
+    },
+    {
+      "key": "jwt_token",
+      "value": "your_jwt_token_here",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "1. Get Nearby Jobs for Helper",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/nearby-jobs?page=1&limit=10&maxDistanceKm=25&sortBy=distance",
+          "host": ["{{base_url}}"],
+          "path": ["nearby-jobs"],
+          "query": [
+            {
+              "key": "page",
+              "value": "1",
+              "description": "Page number"
+            },
+            {
+              "key": "limit",
+              "value": "10",
+              "description": "Items per page"
+            },
+            {
+              "key": "maxDistanceKm",
+              "value": "25",
+              "description": "Maximum distance in kilometers"
+            },
+            {
+              "key": "minPrice",
+              "value": "100",
+              "description": "Minimum job price (optional)"
+            },
+            {
+              "key": "maxPrice",
+              "value": "1000",
+              "description": "Maximum job price (optional)"
+            },
+            {
+              "key": "categories",
+              "value": "Technology,Photography",
+              "description": "Job categories (comma-separated, optional)"
+            },
+            {
+              "key": "sortBy",
+              "value": "distance",
+              "description": "Sort by: distance, price, date"
+            }
+          ]
+        },
+        "description": "Find jobs near the helper based on their location and preferences. This is the main endpoint for helpers to discover nearby work opportunities."
+      },
+      "response": [
+        {
+          "name": "Success Response",
+          "originalRequest": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/nearby-jobs?page=1&limit=10",
+              "host": ["{{base_url}}"],
+              "path": ["nearby-jobs"],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "10"
+                }
+              ]
+            }
+          },
+          "status": "OK",
+          "code": 200,
+          "_postman_previewlanguage": "json",
+          "header": [
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "cookie": [],
+          "body": "{\n  \"success\": true,\n  \"data\": {\n    \"jobs\": [\n      {\n        \"jobId\": \"job123\",\n        \"jobTitle\": \"Website Design Help\",\n        \"jobPrice\": 500,\n        \"jobLocation\": \"New York, NY, USA\",\n        \"jobCategory\": \"Technology\",\n        \"jobType\": \"urgent\",\n        \"distance\": 2.5,\n        \"latitude\": 40.7200,\n        \"longitude\": -74.0100,\n        \"created_at\": \"2024-01-15T10:30:00.000Z\",\n        \"date_and_time\": \"2024-01-20T10:00:00.000Z\",\n        \"user\": {\n          \"id\": \"user123\",\n          \"name\": \"John Doe\",\n          \"avatar\": \"avatar_url\"\n        }\n      }\n    ],\n    \"total\": 1,\n    \"totalPages\": 1,\n    \"currentPage\": 1\n  },\n  \"message\": \"Found 1 nearby jobs\"\n}"
+        }
+      ]
+    },
+    {
+      "name": "2. Get Helper Notification Preferences",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/nearby-jobs/preferences",
+          "host": ["{{base_url}}"],
+          "path": ["nearby-jobs", "preferences"]
+        },
+        "description": "Get the current notification preferences for a helper including distance, price range, and preferred categories."
+      },
+      "response": [
+        {
+          "name": "Success Response",
+          "originalRequest": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/nearby-jobs/preferences",
+              "host": ["{{base_url}}"],
+              "path": ["nearby-jobs", "preferences"]
+            }
+          },
+          "status": "OK",
+          "code": 200,
+          "_postman_previewlanguage": "json",
+          "header": [
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "cookie": [],
+          "body": "{\n  \"success\": true,\n  \"data\": {\n    \"maxDistanceKm\": 25,\n    \"minJobPrice\": 100,\n    \"maxJobPrice\": 1000,\n    \"preferredCategories\": [\"Technology\", \"Photography\", \"Design\"],\n    \"isActive\": true,\n    \"notificationTypes\": [\"new_job\"]\n  },\n  \"message\": \"Notification preferences retrieved successfully\"\n}"
+        }
+      ]
+    },
+    {
+      "name": "3. Update Helper Notification Preferences",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"maxDistanceKm\": 30,\n  \"minJobPrice\": 150,\n  \"maxJobPrice\": 1500,\n  \"preferredCategories\": [\"Technology\", \"Photography\", \"Design\", \"Writing\"],\n  \"isActive\": true,\n  \"notificationTypes\": [\"new_job\"]\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{base_url}}/nearby-jobs/preferences",
+          "host": ["{{base_url}}"],
+          "path": ["nearby-jobs", "preferences"]
+        },
+        "description": "Update the notification preferences for a helper including maximum distance, price range, and preferred categories."
+      },
+      "response": [
+        {
+          "name": "Success Response",
+          "originalRequest": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"maxDistanceKm\": 30,\n  \"minJobPrice\": 150,\n  \"preferredCategories\": [\"Technology\", \"Photography\"]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/nearby-jobs/preferences",
+              "host": ["{{base_url}}"],
+              "path": ["nearby-jobs", "preferences"]
+            }
+          },
+          "status": "OK",
+          "code": 200,
+          "_postman_previewlanguage": "json",
+          "header": [
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "cookie": [],
+          "body": "{\n  \"success\": true,\n  \"message\": \"Notification preferences updated successfully\"\n}"
+        }
+      ]
+    },
+    {
+      "name": "4. Get Nearby Jobs Count",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/nearby-jobs/count?maxDistanceKm=25",
+          "host": ["{{base_url}}"],
+          "path": ["nearby-jobs", "count"],
+          "query": [
+            {
+              "key": "maxDistanceKm",
+              "value": "25",
+              "description": "Maximum distance in kilometers (optional)"
+            }
+          ]
+        },
+        "description": "Get the count of nearby jobs for a helper without fetching the full job details. Useful for showing notification badges."
+      },
+      "response": [
+        {
+          "name": "Success Response",
+          "originalRequest": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/nearby-jobs/count",
+              "host": ["{{base_url}}"],
+              "path": ["nearby-jobs", "count"]
+            }
+          },
+          "status": "OK",
+          "code": 200,
+          "_postman_previewlanguage": "json",
+          "header": [
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "cookie": [],
+          "body": "{\n  \"success\": true,\n  \"data\": {\n    \"count\": 5,\n    \"maxDistance\": 25\n  },\n  \"message\": \"Found 5 nearby jobs\"\n}"
+        }
+      ]
+    },
+    {
+      "name": "5. Test Nearby Jobs Notification",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/nearby-jobs/test-notification",
+          "host": ["{{base_url}}"],
+          "path": ["nearby-jobs", "test-notification"]
+        },
+        "description": "Manually trigger a test notification to see how nearby jobs notifications work. Useful for testing the notification system."
+      },
+      "response": [
+        {
+          "name": "Success Response",
+          "originalRequest": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/nearby-jobs/test-notification",
+              "host": ["{{base_url}}"],
+              "path": ["nearby-jobs", "test-notification"]
+            }
+          },
+          "status": "OK",
+          "code": 200,
+          "_postman_previewlanguage": "json",
+          "header": [
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "cookie": [],
+          "body": "{\n  \"success\": true,\n  \"message\": \"Test notification sent successfully\",\n  \"data\": {\n    \"testJob\": {\n      \"id\": \"job123\",\n      \"title\": \"Website Design Help\",\n      \"price\": 500,\n      \"distance\": 2.5\n    }\n  }\n}"
+        }
+      ]
+    },
+    {
+      "name": "6. Get Nearby Jobs by Specific Location",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/nearby-jobs/by-location?lat=40.7128&lng=-74.0060&maxDistanceKm=25&limit=10",
+          "host": ["{{base_url}}"],
+          "path": ["nearby-jobs", "by-location"],
+          "query": [
+            {
+              "key": "lat",
+              "value": "40.7128",
+              "description": "Latitude (required)"
+            },
+            {
+              "key": "lng",
+              "value": "-74.0060",
+              "description": "Longitude (required)"
+            },
+            {
+              "key": "maxDistanceKm",
+              "value": "25",
+              "description": "Maximum distance in kilometers (optional)"
+            },
+            {
+              "key": "limit",
+              "value": "10",
+              "description": "Maximum number of jobs to return (optional)"
+            }
+          ]
+        },
+        "description": "Find jobs near a specific location (useful for exploring jobs in different areas)"
+      },
+      "response": [
+        {
+          "name": "Success Response",
+          "originalRequest": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/nearby-jobs/by-location?lat=40.7128&lng=-74.0060",
+              "host": ["{{base_url}}"],
+              "path": ["nearby-jobs", "by-location"],
+              "query": [
+                {
+                  "key": "lat",
+                  "value": "40.7128"
+                },
+                {
+                  "key": "lng",
+                  "value": "-74.0060"
+                }
+              ]
+            }
+          },
+          "status": "OK",
+          "code": 200,
+          "_postman_previewlanguage": "json",
+          "header": [
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "cookie": [],
+          "body": "{\n  \"success\": true,\n  \"data\": {\n    \"jobs\": [\n      {\n        \"jobId\": \"job123\",\n        \"jobTitle\": \"Website Design Help\",\n        \"jobPrice\": 500,\n        \"jobLocation\": \"New York, NY, USA\",\n        \"jobCategory\": \"Technology\",\n        \"jobType\": \"urgent\",\n        \"distance\": 2.5,\n        \"latitude\": 40.7200,\n        \"longitude\": -74.0100,\n        \"created_at\": \"2024-01-15T10:30:00.000Z\",\n        \"user\": {\n          \"id\": \"user123\",\n          \"name\": \"John Doe\",\n          \"avatar\": \"avatar_url\"\n        }\n      }\n    ],\n    \"searchLocation\": {\n      \"latitude\": 40.7128,\n      \"longitude\": -74.0060\n    },\n    \"maxDistance\": 25\n  },\n  \"message\": \"Found 1 jobs near the specified location\"\n}"
+        }
+      ]
+    },
+    {
+      "name": "7. Create Job with Location (Triggers Notifications)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"title\": \"Need help with website design\",\n  \"description\": \"Looking for a web designer to help with my portfolio website. Need someone with experience in React and Node.js.\",\n  \"category\": \"Technology\",\n  \"jobType\": \"urgent\",\n  \"price\": 500,\n  \"estimatedTime\": \"2-3 days\",\n  \"dateAndTime\": \"2024-01-20T10:00:00Z\",\n  \"location\": \"New York, NY, USA\",\n  \"latitude\": 40.7128,\n  \"longitude\": -74.0060,\n  \"urgentNote\": \"Need this done ASAP for client presentation\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{base_url}}/jobs",
+          "host": ["{{base_url}}"],
+          "path": ["jobs"]
+        },
+        "description": "Create a new job with location data. This will automatically trigger notifications to nearby helpers based on their preferences."
+      },
+      "response": [
+        {
+          "name": "Success Response",
+          "originalRequest": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Need help with website design\",\n  \"description\": \"Looking for a web designer\",\n  \"category\": \"Technology\",\n  \"jobType\": \"urgent\",\n  \"price\": 500,\n  \"location\": \"New York, NY, USA\",\n  \"latitude\": 40.7128,\n  \"longitude\": -74.0060\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/jobs",
+              "host": ["{{base_url}}"],
+              "path": ["jobs"]
+            }
+          },
+          "status": "Created",
+          "code": 201,
+          "_postman_previewlanguage": "json",
+          "header": [
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "cookie": [],
+          "body": "{\n  \"success\": true,\n  \"data\": {\n    \"id\": \"job456\",\n    \"title\": \"Need help with website design\",\n    \"description\": \"Looking for a web designer\",\n    \"category\": \"Technology\",\n    \"jobType\": \"urgent\",\n    \"price\": 500,\n    \"location\": \"New York, NY, USA\",\n    \"latitude\": 40.7128,\n    \"longitude\": -74.0060,\n    \"user\": {\n      \"id\": \"user456\",\n      \"name\": \"Jane Smith\",\n      \"avatar\": \"avatar_url\"\n    },\n    \"created_at\": \"2024-01-15T10:30:00.000Z\"\n  },\n  \"message\": \"Job created successfully. Notifications sent to nearby helpers.\"\n}"
+        }
+      ]
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Add any pre-request scripts here",
+          "console.log('Making request to:', pm.request.url);"
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Add any test scripts here",
+          "pm.test('Status code is 200 or 201', function () {",
+          "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+          "});",
+          "",
+          "pm.test('Response has success field', function () {",
+          "    const jsonData = pm.response.json();",
+          "    pm.expect(jsonData).to.have.property('success');",
+          "});",
+          "",
+          "pm.test('Success response is true', function () {",
+          "    const jsonData = pm.response.json();",
+          "    pm.expect(jsonData.success).to.be.true;",
+          "});"
+        ]
+      }
+    }
+  ]
+}
