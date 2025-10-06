@@ -368,7 +368,7 @@ export class AuthService {
     last_name: string;
     email: string;
     password: string;
-    phone_number: number;
+    phone_number: string;
     type: string;
   }) {
     try {

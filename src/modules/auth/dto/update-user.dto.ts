@@ -60,7 +60,7 @@ export class UpdateUserDto extends PartialType(OmitType(CreateUserDto, ['email']
     description: 'Phone number',
     example: '+91 9876543210',
   })
-  phone_number?: number;
+  phone_number?: string;
 
   @IsOptional()
   @ApiProperty({
