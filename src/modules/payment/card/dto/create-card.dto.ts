@@ -11,32 +11,12 @@ export class CreateCardDto {
   cardholder_name: string;
 
   @ApiProperty({
-    description: 'Card number (16 digits)',
-    example: '4111111111111111',
+    description: 'Stripe token ID (created on frontend or use test tokens)',
+    example: 'tok_visa',
   })
   @IsNotEmpty()
   @IsString()
-  @Matches(/^\d{16}$/, { message: 'Card number must be exactly 16 digits' })
-  card_number: string;
-
-  @ApiProperty({
-    description: 'Expiration date in MM/YY format',
-    example: '12/25',
-  })
-  @IsNotEmpty()
-  @IsString()
-  @Matches(/^(0[1-9]|1[0-2])\/\d{2}$/, { message: 'Expiration date must be in MM/YY format' })
-  expiration_date: string;
-
-  @ApiProperty({
-    description: 'CVV code (3-4 digits)',
-    example: '123',
-  })
-  @IsNotEmpty()
-  @IsString()
-  @Length(3, 4, { message: 'CVV must be 3 or 4 digits' })
-  @Matches(/^\d{3,4}$/, { message: 'CVV must contain only digits' })
-  cvv: string;
+  stripe_token: string;
 
   @ApiProperty({
     description: 'Set as default card',

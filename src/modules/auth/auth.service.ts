@@ -617,9 +617,14 @@ export class AuthService {
             token: token,
           });
 
+          // Generate temporary JWT for profile completion
+          const temporaryJwt = await this.generateTemporaryJwt(user.id);
+
           return {
             success: true,
             message: 'Email verified successfully',
+            temporary_jwt: temporaryJwt,
+            user_id: user.id,
           };
         } else {
           return {
@@ -1240,6 +1245,35 @@ export class AuthService {
     // Basic phone number validation - adjust regex as needed
     const phoneRegex = /^[\+]?[1-9][\d]{0,15}$/;
     return phoneRegex.test(phone.replace(/\s/g, ''));
+  }
+
+  /**
+   * Generate temporary JWT for profile completion
+   */
+  private async generateTemporaryJwt(userId: string): Promise<string> {
+    const payload = {
+      userId: userId,
+      type: 'temporary',
+      purpose: 'profile_completion',
+    };
+
+    return this.jwtService.sign(payload, {
+      expiresIn: '1h', // 1 hour expiry for temporary JWT
+    });
+  }
+
+  /**
+   * Generate permanent JWT after profile completion
+   */
+  async generatePermanentJwt(userId: string): Promise<string> {
+    const payload = {
+      userId: userId,
+      // No type field means it's a regular JWT
+    };
+
+    return this.jwtService.sign(payload, {
+      expiresIn: appConfig().jwt.expiry,
+    });
   }
 
 }

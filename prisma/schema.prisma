@@ -624,9 +624,9 @@ model UserCard {
 
   // Card details
   cardholder_name String
-  card_number     String // Encrypted card number (last 4 digits visible)
+  card_number     String? // Encrypted card number (last 4 digits visible) - Optional for Stripe cards
   expiration_date String // Format: MM/YY
-  cvv             String // Encrypted CVV
+  cvv             String? // Encrypted CVV - Optional for Stripe cards
   card_type       String? // Visa, MasterCard, etc.
   last_four       String // Last 4 digits for display
   

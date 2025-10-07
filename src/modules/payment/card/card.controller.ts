@@ -104,16 +104,4 @@ export class CardController {
     return this.cardService.getExpiredCards(userId);
   }
 
-  @ApiOperation({ summary: 'Debug user information from JWT' })
-  @Get('debug/user-info')
-  async debugUserInfo(@Req() req: Request): Promise<any> {
-    const user = (req as any).user;
-    console.log('JWT User object:', user);
-    
-    return {
-      jwtUser: user,
-      extractedUserId: user?.userId || user?.id,
-      message: 'Check console logs for full JWT user object'
-    };
-  }
 }

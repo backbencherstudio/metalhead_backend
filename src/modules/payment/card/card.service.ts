@@ -1,11 +1,11 @@
 import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CreateCardDto, CardResponseDto, UpdateCardDto } from './dto';
-import * as crypto from 'crypto';
+import { StripePayment } from 'src/common/lib/Payment/stripe/StripePayment';
+import stripe from 'stripe';
 
 @Injectable()
 export class CardService {
-  private readonly encryptionKey = process.env.CARD_ENCRYPTION_KEY || 'your-32-character-secret-key-here!'; // Change this in production
 
   constructor(private prisma: PrismaService) {}
 
@@ -13,34 +13,50 @@ export class CardService {
    * Add a new card for a user
    */
   async addCard(userId: string, createCardDto: CreateCardDto): Promise<CardResponseDto> {
-    // First, verify the user exists
+    // 1. Verify user exists
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, email: true },
+      select: { id: true, email: true, billing_id: true },
     });
-
+  
     if (!user) {
-      throw new NotFoundException(`User with ID ${userId} not found. Please ensure you're logged in with a valid account.`);
+      throw new NotFoundException(`User with ID ${userId} not found`);
     }
-
-    console.log(`Adding card for user: ${user.email} (${userId})`);
-
-    // Validate card number using Luhn algorithm
-    if (!this.validateCardNumber(createCardDto.card_number)) {
-      throw new BadRequestException('Invalid card number');
+  
+    // 2. Get or create Stripe customer
+    let customerId = user.billing_id;
+    if (!customerId) {
+      const customer = await StripePayment.createCustomer({
+        user_id: userId,
+        name: createCardDto.cardholder_name,
+        email: user.email,
+      });
+      customerId = customer.id;
+      
+      // Update user with customer ID
+      await this.prisma.user.update({
+        where: { id: userId },
+        data: { billing_id: customerId },
+      });
     }
-
-    // Check if card is expired
-    if (this.isCardExpired(createCardDto.expiration_date)) {
-      throw new BadRequestException('Card has already expired');
-    }
-
-    // Encrypt sensitive data
-    const encryptedCardNumber = this.encrypt(createCardDto.card_number);
-    const encryptedCvv = this.encrypt(createCardDto.cvv);
-    const lastFour = createCardDto.card_number.slice(-4);
-    const cardType = this.getCardType(createCardDto.card_number);
-
+  
+    // 3. Create payment method from token (test tokens or real tokens)
+    const paymentMethod = await StripePayment.createPaymentMethodFromToken({
+      token_id: createCardDto.stripe_token,
+      customer_id: customerId,
+      billing_details: {
+        name: createCardDto.cardholder_name,
+        email: user.email,
+      },
+    });
+  
+    // 6. Get card details from payment method
+    const card = paymentMethod.card as stripe.PaymentMethod.Card;
+    const lastFour = card.last4;
+    const cardType = card.brand;
+    const expMonth = card.exp_month;
+    const expYear = card.exp_year;
+  
     return await this.prisma.$transaction(async (tx) => {
       // If setting as default, unset other default cards
       if (createCardDto.is_default) {
@@ -49,26 +65,24 @@ export class CardService {
           data: { is_default: false },
         });
       }
-
-      // Create the new card
-      const card = await tx.userCard.create({
+  
+      // Create the new card record
+      const cardRecord = await tx.userCard.create({
         data: {
           user_id: userId,
           cardholder_name: createCardDto.cardholder_name,
-          card_number: encryptedCardNumber,
-          expiration_date: createCardDto.expiration_date,
-          cvv: encryptedCvv,
+          stripe_payment_method_id: paymentMethod.id, // Store Stripe payment method ID
           card_type: cardType,
           last_four: lastFour,
+          expiration_date: `${expMonth}/${expYear}`,
           is_default: createCardDto.is_default || false,
           is_expired: false,
-        },
+        } as any, // Type assertion until Prisma client is regenerated
       });
-
-      return this.mapToResponseDto(card);
+  
+      return this.mapToResponseDto(cardRecord);
     });
   }
-
   /**
    * Get all cards for a user
    */
@@ -230,30 +244,6 @@ export class CardService {
     return expiredCards.map(card => this.mapToResponseDto(card));
   }
 
-  /**
-   * Validate card number using Luhn algorithm
-   */
-  private validateCardNumber(cardNumber: string): boolean {
-    const digits = cardNumber.replace(/\D/g, '');
-    let sum = 0;
-    let isEven = false;
-
-    for (let i = digits.length - 1; i >= 0; i--) {
-      let digit = parseInt(digits[i]);
-
-      if (isEven) {
-        digit *= 2;
-        if (digit > 9) {
-          digit -= 9;
-        }
-      }
-
-      sum += digit;
-      isEven = !isEven;
-    }
-
-    return sum % 10 === 0;
-  }
 
   /**
    * Check if card is expired
@@ -281,39 +271,6 @@ export class CardService {
     return 'Unknown';
   }
 
-  /**
-   * Encrypt sensitive data
-   */
-  private encrypt(text: string): string {
-    const algorithm = 'aes-256-cbc';
-    const key = crypto.scryptSync(this.encryptionKey, 'salt', 32);
-    const iv = crypto.randomBytes(16);
-    const cipher = crypto.createCipheriv(algorithm, key, iv);
-    
-    let encrypted = cipher.update(text, 'utf8', 'hex');
-    encrypted += cipher.final('hex');
-    
-    // Combine IV and encrypted data
-    return iv.toString('hex') + ':' + encrypted;
-  }
-
-  /**
-   * Decrypt sensitive data
-   */
-  private decrypt(encryptedText: string): string {
-    const algorithm = 'aes-256-cbc';
-    const key = crypto.scryptSync(this.encryptionKey, 'salt', 32);
-    
-    // Split IV and encrypted data
-    const parts = encryptedText.split(':');
-    const iv = Buffer.from(parts[0], 'hex');
-    const encrypted = parts[1];
-    
-    const decipher = crypto.createDecipheriv(algorithm, key, iv);
-    let decrypted = decipher.update(encrypted, 'hex', 'utf8');
-    decrypted += decipher.final('utf8');
-    return decrypted;
-  }
 
   /**
    * Map database card to response DTO

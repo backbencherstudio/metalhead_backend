@@ -22,6 +22,7 @@ import { CreateUserDto } from './dto/create-user.dto';
 import { VerifyEmailDto } from './dto/verify-email.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { TemporaryJwtAuthGuard } from './guards/temporary-jwt-auth.guard';
 import appConfig from '../../config/app.config';
 import { AuthGuard } from '@nestjs/passport';
 
@@ -193,9 +194,9 @@ export class AuthController {
   }
 
   // update user
-  @ApiOperation({ summary: 'Update user' })
+  @ApiOperation({ summary: 'Update user (supports temporary JWT for profile completion)' })
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(TemporaryJwtAuthGuard)
   @Patch('update')
   @UseInterceptors(
     FileInterceptor('image', {
@@ -220,7 +221,20 @@ export class AuthController {
   ) {
     try {
       const user_id = req.user.userId;
+      const isTemporary = (req.user as any).isTemporary;
+      
       const response = await this.authService.updateUser(user_id, data, image);
+      
+      // If this was a temporary JWT, generate a permanent JWT
+      if (isTemporary) {
+        const permanentJwt = await this.authService.generatePermanentJwt(user_id);
+        return {
+          ...response,
+          success: true,
+          message: 'Profile updated successfully. ',
+        };
+      }
+      
       return response;
     } catch (error) {
       return {
@@ -640,6 +654,24 @@ export class AuthController {
         message: error.message,
       };
     }
+  }
+
+  // Debug endpoint to test authentication
+  @ApiOperation({ summary: 'Test authentication (for debugging)' })
+  @ApiBearerAuth()
+  @UseGuards(TemporaryJwtAuthGuard)
+  @Get('debug/auth-test')
+  async debugAuthTest(@Req() req: Request) {
+    return {
+      success: true,
+      message: 'Authentication is working!',
+      user: {
+        id: req.user.userId,
+        email: req.user.email,
+        isTemporary: (req.user as any).isTemporary,
+      },
+      timestamp: new Date().toISOString(),
+    };
   }
   
 }

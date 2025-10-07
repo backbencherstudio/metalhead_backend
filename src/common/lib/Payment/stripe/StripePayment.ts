@@ -479,4 +479,69 @@ static async checkAccountStatus(accountId: string) {
   return account;
 }
 
+// Add to StripePayment class
+static async createTokenFromCard({
+  card_number,
+  exp_month,
+  exp_year,
+  cvc
+}: {
+  card_number: string;
+  exp_month: number;
+  exp_year: number;
+  cvc: string;
+}): Promise<stripe.Token> {
+  const token = await Stripe.tokens.create({
+    card: {
+      number: card_number,
+      exp_month: exp_month,
+      exp_year: exp_year,
+      cvc: cvc,
+    },
+  } as any);
+  return token;
+}
+
+static async createPaymentMethodFromToken({
+  token_id,
+  customer_id,
+  billing_details
+}: {
+  token_id: string;
+  customer_id: string;
+  billing_details?: {
+    name?: string;
+    email?: string;
+    phone?: string;
+    address?: any;
+  };
+}): Promise<stripe.PaymentMethod> {
+  // First, retrieve the token to get card details
+  const token = await Stripe.tokens.retrieve(token_id);
+  
+  if (token.used) {
+    throw new Error('Token has already been used');
+  }
+
+  // Create payment method from token
+  const paymentMethod = await Stripe.paymentMethods.create({
+    type: 'card',
+    card: {
+      token: token_id,
+    },
+    billing_details: billing_details,
+  });
+
+  // Attach to customer
+  await Stripe.paymentMethods.attach(paymentMethod.id, {
+    customer: customer_id,
+  });
+
+  return paymentMethod;
+}
+
+static async retrieveToken(tokenId: string): Promise<stripe.Token> {
+  return Stripe.tokens.retrieve(tokenId);
+}
+
 }

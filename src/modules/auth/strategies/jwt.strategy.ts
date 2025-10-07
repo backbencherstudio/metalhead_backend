@@ -15,6 +15,15 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   async validate(payload: any) {
-    return { userId: payload.sub, email: payload.email, type: payload.type };
+    // Handle both regular JWTs (with sub) and temporary JWTs (with userId)
+    const userId = payload.sub || payload.userId;
+    
+    return { 
+      userId: userId, 
+      id: userId,
+      email: payload.email, 
+      type: payload.type,
+      isTemporary: payload.type === 'temporary'
+    };
   }
 }
