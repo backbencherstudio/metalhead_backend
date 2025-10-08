@@ -288,9 +288,14 @@ enum MessageStatus {
   READ
 }
 
-enum UrgencyType {
-  FIXED
+enum jobType {
+  URGENT
   ANYTIME
+}
+
+enum PaymentType {
+  HOURLY
+  FIXED
 }
 
 // message is used for conversation
@@ -466,15 +471,26 @@ model Job {
   date_and_time   DateTime? 
   price           Decimal? // Original price set by user
   final_price     Decimal? // Price after counter offer accepted
-  payment_type    String?
-  job_type        String?
+  payment_type    PaymentType?
+         
   location        String?
   latitude        Float? // Job location latitude
   longitude       Float? // Job location longitude
-  estimated_time  String?
   description     String?            @db.Text
-  urgency_type    UrgencyType?       @default(ANYTIME) // Urgency type: FIXED or ANYTIME
+  job_type    jobType?       @default(ANYTIME) // Urgency type: FIXED or ANYTIME
   urgent_note     String?            @db.Text // Urgent note for urgent jobs
+  
+  // Job scheduling
+  start_time      DateTime? // When job should start
+  end_time        DateTime? // When job should end
+  estimated_time  String?   // Auto-calculated from start_time and end_time
+  
+  // Time tracking for hourly jobs
+  actual_start_time DateTime? // When helper actually started the job
+  actual_end_time   DateTime? // When job was actually completed
+  actual_hours      Decimal?  // Calculated actual hours worked
+  hourly_rate       Decimal?  // Rate per hour for hourly jobs
+  estimated_hours   Decimal?  // Calculated from estimated_time
   requirements    JobRequirement[]
   notes           JobNote[] //only be enabled if user selects the job type as urgent
   photos          String?

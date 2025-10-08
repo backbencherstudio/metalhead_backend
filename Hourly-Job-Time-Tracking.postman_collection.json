@@ -1,0 +1,300 @@
+{
+  "info": {
+    "name": "Hourly Job Time Tracking",
+    "description": "Test collection for hourly job time tracking system",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:3000/api",
+      "type": "string"
+    },
+    {
+      "key": "owner_jwt_token",
+      "value": "YOUR_OWNER_JWT_TOKEN_HERE",
+      "type": "string"
+    },
+    {
+      "key": "helper_jwt_token",
+      "value": "YOUR_HELPER_JWT_TOKEN_HERE",
+      "type": "string"
+    },
+    {
+      "key": "job_id",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "1. Create Hourly Job",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{owner_jwt_token}}",
+            "type": "text"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"title\": \"Garden Cleaning\",\n  \"category\": \"GARDENING\",\n  \"date_and_time\": \"2024-01-15T10:00:00Z\",\n  \"price\": 20.00,\n  \"payment_type\": \"Hourly\",\n  \"job_type\": \"hourly\",\n  \"location\": \"123 Main St, New York\",\n  \"latitude\": 40.7128,\n  \"longitude\": -74.0060,\n  \"estimated_time\": \"2 hours\",\n  \"description\": \"Clean the garden and remove weeds\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/jobs",
+          "host": ["{{base_url}}"],
+          "path": ["jobs"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "if (pm.response.code === 201) {",
+              "    const response = pm.response.json();",
+              "    pm.collectionVariables.set('job_id', response.id);",
+              "    console.log('Job created with ID:', response.id);",
+              "    console.log('Hourly rate:', response.hourly_rate);",
+              "    console.log('Estimated hours:', response.estimated_hours);",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Submit Counter Offer",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{helper_jwt_token}}",
+            "type": "text"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"amount\": 20.00,\n  \"type\": \"hourly\",\n  \"note\": \"I can do this job for $20/hour\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/jobs/{{job_id}}/counter-offer",
+          "host": ["{{base_url}}"],
+          "path": ["jobs", "{{job_id}}", "counter-offer"]
+        }
+      }
+    },
+    {
+      "name": "3. Accept Counter Offer",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{owner_jwt_token}}",
+            "type": "text"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"counter_offer_id\": \"COUNTER_OFFER_ID_HERE\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/jobs/{{job_id}}/accept-offer",
+          "host": ["{{base_url}}"],
+          "path": ["jobs", "{{job_id}}", "accept-offer"]
+        }
+      }
+    },
+    {
+      "name": "4. Start Job (Begin Time Tracking)",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{helper_jwt_token}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/jobs/{{job_id}}/start",
+          "host": ["{{base_url}}"],
+          "path": ["jobs", "{{job_id}}", "start"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "if (pm.response.code === 200) {",
+              "    console.log('Job started - time tracking began');",
+              "    console.log('Start time recorded:', new Date().toISOString());",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Check Time Tracking (During Work)",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{owner_jwt_token}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/jobs/{{job_id}}/time-tracking",
+          "host": ["{{base_url}}"],
+          "path": ["jobs", "{{job_id}}", "time-tracking"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "if (pm.response.code === 200) {",
+              "    const response = pm.response.json();",
+              "    console.log('Job Status:', response.job_status);",
+              "    console.log('Is Tracking:', response.is_tracking);",
+              "    console.log('Current Hours:', response.current_hours);",
+              "    console.log('Start Time:', response.start_time);",
+              "    console.log('Estimated Hours:', response.estimated_hours);",
+              "    console.log('Hourly Rate:', response.hourly_rate);",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "6. Complete Job (End Time Tracking)",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{helper_jwt_token}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/jobs/{{job_id}}/complete",
+          "host": ["{{base_url}}"],
+          "path": ["jobs", "{{job_id}}", "complete"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "if (pm.response.code === 200) {",
+              "    console.log('Job completed - time tracking ended');",
+              "    console.log('End time recorded:', new Date().toISOString());",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "7. Check Final Time Tracking Results",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{owner_jwt_token}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/jobs/{{job_id}}/time-tracking",
+          "host": ["{{base_url}}"],
+          "path": ["jobs", "{{job_id}}", "time-tracking"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "if (pm.response.code === 200) {",
+              "    const response = pm.response.json();",
+              "    console.log('=== FINAL RESULTS ===');",
+              "    console.log('Job Status:', response.job_status);",
+              "    console.log('Estimated Hours:', response.estimated_hours);",
+              "    console.log('Actual Hours:', response.actual_hours);",
+              "    console.log('Hourly Rate:', response.hourly_rate);",
+              "    console.log('Original Price:', response.original_price);",
+              "    console.log('Final Price:', response.final_price);",
+              "    console.log('Time Difference:', response.time_difference);",
+              "    console.log('Price Difference:', response.price_difference);",
+              "    console.log('Start Time:', response.start_time);",
+              "    console.log('End Time:', response.end_time);",
+              "    console.log('Is Tracking:', response.is_tracking);",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "8. Test Error - Unauthorized Access",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer INVALID_JWT_TOKEN",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/jobs/{{job_id}}/time-tracking",
+          "host": ["{{base_url}}"],
+          "path": ["jobs", "{{job_id}}", "time-tracking"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "if (pm.response.code === 401) {",
+              "    console.log('✅ Unauthorized access correctly blocked');",
+              "} else {",
+              "    console.log('❌ Security issue - unauthorized access allowed');",
+              "}"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

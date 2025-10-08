@@ -50,23 +50,49 @@ export class JobService {
       title: jobData.title
     });
 
+    // Calculate estimated time from start_time and end_time
+    const startTime = new Date(jobData.start_time);
+    const endTime = new Date(jobData.end_time);
+    
+    // Validate dates
+    if (isNaN(startTime.getTime())) {
+      throw new BadRequestException('Invalid start_time format');
+    }
+    if (isNaN(endTime.getTime())) {
+      throw new BadRequestException('Invalid end_time format');
+    }
+    if (startTime >= endTime) {
+      throw new BadRequestException('start_time must be before end_time');
+    }
+    
+    const estimatedHours = this.calculateHours(startTime, endTime);
+    const estimatedTimeString = this.formatEstimatedTime(estimatedHours);
+    
+    // Use start_time as the main date_and_time for the job
+    const jobDateTime = startTime;
+    
+    
     const job = await this.prisma.job.create({
       data: {
         title: jobData.title,
         category: jobData.category,
-        date_and_time: new Date(jobData.date_and_time),
+        date_and_time: jobDateTime,
         price: jobData.price,
         payment_type: jobData.payment_type,
         job_type: jobData.job_type,
         location: jobData.location,
         latitude: jobData.latitude,
         longitude: jobData.longitude,
-        estimated_time: jobData.estimated_time,
+        start_time: startTime,
+        end_time: endTime,
+        estimated_time: estimatedTimeString,
+        estimated_hours: estimatedHours,
         description: jobData.description,
-        urgency_type: jobData.urgency_type as any,
         urgent_note: jobData.urgent_note,
         user_id: userId,
         photos: photoPath,
+        // For hourly jobs, set hourly_rate
+        hourly_rate: jobData.payment_type === 'HOURLY' ? jobData.price : null,
         requirements: requirements
           ? {
             create: requirements.map((req) => ({
@@ -196,6 +222,7 @@ export class JobService {
       },
     });
 
+    
     return this.mapToResponseDto(job);
   }
 
@@ -238,7 +265,16 @@ export class JobService {
       };
     }
 
-    // Add urgency filtering
+    // Add job type filtering
+    if (jobType) {
+      if (jobType === 'URGENT') {
+        where.job_type = 'URGENT';
+      } else if (jobType === 'ANYTIME') {
+        where.job_type = 'ANYTIME';
+      }
+    }
+
+    // Add urgency filtering (based on urgent_note)
     if (urgency) {
       if (urgency === 'urgent') {
         where.urgent_note = {
@@ -246,10 +282,6 @@ export class JobService {
         };
       } else if (urgency === 'normal') {
         where.urgent_note = null;
-      } else if (urgency === 'FIXED') {
-        where.urgency_type = 'FIXED';
-      } else if (urgency === 'ANYTIME') {
-        where.urgency_type = 'ANYTIME';
       }
     }
 
@@ -478,11 +510,25 @@ export class JobService {
     }
 
     await this.prisma.$transaction(async (tx) => {
+      const updateData: any = { 
+        job_status: 'completed' 
+      };
+      
+      // If it's an hourly job, calculate actual time and final price
+      if (job.payment_type === 'HOURLY' && job.actual_start_time) {
+        const endTime = new Date();
+        const actualHours = this.calculateHours(job.actual_start_time, endTime);
+        const hourlyRate = job.hourly_rate || job.price;
+        const finalPrice = actualHours * parseFloat(hourlyRate.toString());
+        
+        updateData.actual_end_time = endTime;
+        updateData.actual_hours = actualHours;
+        updateData.final_price = finalPrice;
+      }
+      
       await tx.job.update({
         where: { id },
-        data: {
-          job_status: 'completed',
-        },
+        data: updateData,
       });
 
       await (tx as any).jobStatusHistory?.create({
@@ -613,7 +659,20 @@ export class JobService {
     }
 
     await this.prisma.$transaction(async (tx) => {
-      await tx.job.update({ where: { id }, data: { job_status: 'ongoing' } });
+      const updateData: any = { 
+        job_status: 'ongoing' 
+      };
+      
+      // If it's an hourly job, record actual start time
+      if (job.payment_type === 'HOURLY') {
+        updateData.actual_start_time = new Date();
+      }
+      
+      await tx.job.update({ 
+        where: { id }, 
+        data: updateData 
+      });
+      
       await (tx as any).jobStatusHistory?.create({
         data: { job_id: id, status: 'started', occurred_at: new Date() },
       });
@@ -933,6 +992,7 @@ export class JobService {
       current_status = 'posted';
     }
 
+    
     return {
       id: job.id,
       title: job.title,
@@ -1442,6 +1502,126 @@ export class JobService {
       updated_at: job.updated_at,
       date_and_time: job.date_and_time
     }));
+  }
+
+  // Time tracking helper methods for hourly jobs
+  private calculateHours(startTime: Date, endTime: Date): number {
+    const diffMs = endTime.getTime() - startTime.getTime();
+    const diffHours = diffMs / (1000 * 60 * 60);
+    return Math.round(diffHours * 100) / 100; // Round to 2 decimal places
+  }
+
+
+  private validateHourlyJob(job: any): void {
+    if (job.payment_type === 'HOURLY') {
+      if (!job.hourly_rate && !job.price) {
+        throw new BadRequestException('Hourly rate must be specified for hourly jobs');
+      }
+    }
+  }
+
+  private formatEstimatedTime(hours: number): string {
+    if (hours < 1) {
+      const minutes = Math.round(hours * 60);
+      return `${minutes} minutes`;
+    } else if (hours === 1) {
+      return '1 hour';
+    } else if (hours < 24) {
+      // Convert decimal hours to hours and minutes
+      const wholeHours = Math.floor(hours);
+      const decimalMinutes = (hours - wholeHours) * 60;
+      const roundedMinutes = Math.round(decimalMinutes);
+      
+      if (roundedMinutes === 0) {
+        return `${wholeHours} hours`;
+      } else if (wholeHours === 0) {
+        return `${roundedMinutes} minutes`;
+      } else {
+        return `${wholeHours} hour${wholeHours > 1 ? 's' : ''} and ${roundedMinutes} minutes`;
+      }
+    } else {
+      // For 24+ hours, show days and hours
+      const days = Math.floor(hours / 24);
+      const remainingHours = hours % 24;
+      const wholeRemainingHours = Math.floor(remainingHours);
+      const decimalMinutes = (remainingHours - wholeRemainingHours) * 60;
+      const roundedMinutes = Math.round(decimalMinutes);
+      
+      if (wholeRemainingHours === 0 && roundedMinutes === 0) {
+        return `${days} day${days > 1 ? 's' : ''}`;
+      } else if (wholeRemainingHours === 0) {
+        return `${days} day${days > 1 ? 's' : ''} and ${roundedMinutes} minutes`;
+      } else if (roundedMinutes === 0) {
+        return `${days} day${days > 1 ? 's' : ''} and ${wholeRemainingHours} hour${wholeRemainingHours > 1 ? 's' : ''}`;
+      } else {
+        return `${days} day${days > 1 ? 's' : ''}, ${wholeRemainingHours} hour${wholeRemainingHours > 1 ? 's' : ''} and ${roundedMinutes} minutes`;
+      }
+    }
+  }
+
+  async getTimeTracking(jobId: string, userId: string): Promise<any> {
+    const job = await this.prisma.job.findFirst({
+      where: { 
+        id: jobId, 
+        status: 1, 
+        deleted_at: null 
+      },
+      include: {
+        accepted_offers: {
+          include: {
+            counter_offer: {
+              include: {
+                helper: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!job) {
+      throw new NotFoundException('Job not found');
+    }
+
+    // Check if user is job owner or helper
+    const isJobOwner = job.user_id === userId;
+    const isHelper = job.accepted_offers.some(
+      offer => offer.counter_offer.helper_id === userId
+    );
+
+    if (!isJobOwner && !isHelper) {
+      throw new ForbiddenException('Only job participants can view time tracking');
+    }
+
+    // Calculate current time if job is ongoing
+    let currentHours = null;
+    if (job.job_status === 'ongoing' && job.actual_start_time) {
+      currentHours = this.calculateHours(job.actual_start_time, new Date());
+    }
+
+    return {
+      job_id: job.id,
+      job_type: job.job_type,
+      job_status: job.job_status,
+      estimated_time: job.estimated_time,
+      estimated_hours: job.estimated_hours,
+      hourly_rate: job.hourly_rate,
+      original_price: job.price,
+      final_price: job.final_price,
+      start_time: job.start_time,
+      end_time: job.end_time,
+      actual_start_time: job.actual_start_time,
+      actual_end_time: job.actual_end_time,
+      actual_hours: job.actual_hours,
+      current_hours: currentHours,
+      is_tracking: job.job_status === 'ongoing' && job.actual_start_time,
+      time_difference: job.actual_hours && job.estimated_hours 
+        ? parseFloat(job.actual_hours.toString()) - parseFloat(job.estimated_hours.toString())
+        : null,
+      price_difference: job.final_price && job.price 
+        ? parseFloat(job.final_price.toString()) - parseFloat(job.price.toString())
+        : null,
+    };
   }
 
 }

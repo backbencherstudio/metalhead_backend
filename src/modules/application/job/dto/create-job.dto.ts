@@ -4,6 +4,8 @@ import { Type } from 'class-transformer';
 import { CreateJobRequirementDto } from './create-job-requirement.dto';
 import { CreateJobNoteDto } from './create-job-note.dto';
 import { JobCategory } from '../enums/job-category.enum';
+import { PaymentType } from '../enums/payment-type.enum';
+import { JobType } from '../enums/job-type.enum';
 
 export class CreateJobDto {
   // Job Summary
@@ -25,13 +27,6 @@ export class CreateJobDto {
   })
   category: JobCategory;
 
-  @IsNotEmpty()
-  @IsDateString()
-  @ApiProperty({
-    description: 'Preferred date and time',
-    example: '2024-01-15T10:00:00Z',
-  })
-  date_and_time: string;
 
   @IsNotEmpty()
   @IsNumber()
@@ -42,22 +37,24 @@ export class CreateJobDto {
   price: number;
 
   @IsNotEmpty()
-  @IsString()
+  @IsEnum(PaymentType)
   @ApiProperty({
     description: 'Payment type',
-    example: 'Fixed Price',
-    enum: ['Fixed Price', 'Hourly', 'Per Project'],
+    example: PaymentType.FIXED,
+    enum: PaymentType,
+    enumName: 'PaymentType',
   })
-  payment_type: string;
+  payment_type: PaymentType;
 
   @IsNotEmpty()
-  @IsString()
+  @IsEnum(JobType)
   @ApiProperty({
     description: 'Job type',
-    example: 'Remote',
-    enum: ['Remote', 'On-site', 'Hybrid'],
+    example: JobType.URGENT,
+    enum: JobType,
+    enumName: 'JobType',
   })
-  job_type: string;
+  job_type: JobType;
 
   @IsOptional()
   @IsString()
@@ -84,14 +81,21 @@ export class CreateJobDto {
   })
   longitude: number;
 
-  @IsOptional()
-  @IsString()
+  @IsNotEmpty()
+  @IsDateString()
   @ApiProperty({
-    description: 'Estimated time to complete',
-    example: '2 weeks',
-    required: false,
+    description: 'Job start time',
+    example: '2024-01-15T10:00:00Z',
   })
-  estimated_time?: string;
+  start_time: string;
+
+  @IsNotEmpty()
+  @IsDateString()
+  @ApiProperty({
+    description: 'Job end time',
+    example: '2024-01-15T12:00:00Z',
+  })
+  end_time: string;
 
   // Job Description
   @IsNotEmpty()
@@ -127,16 +131,6 @@ export class CreateJobDto {
   notes?: CreateJobNoteDto[];
 
   // Urgent Note
-  @IsOptional()
-  @IsString()
-  @ApiProperty({
-    description: 'Urgency type for the job',
-    example: 'FIXED',
-    enum: ['FIXED', 'ANYTIME'],
-    required: false,
-  })
-  urgency_type?: string;
-
   @IsOptional()
   @IsString()
   @ApiProperty({

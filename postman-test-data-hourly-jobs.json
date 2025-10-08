@@ -1,0 +1,285 @@
+{
+  "test_scenarios": {
+    "scenario_1_garden_cleaning": {
+      "description": "Garden cleaning job that takes longer than estimated (2 hours estimated, 3 hours actual)",
+      "steps": {
+        "1_create_job": {
+          "method": "POST",
+          "url": "{{base_url}}/jobs",
+          "headers": {
+            "Authorization": "Bearer {{owner_jwt_token}}",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "title": "Garden Cleaning Service",
+            "category": "GARDENING",
+            "date_and_time": "2024-01-15T10:00:00Z",
+            "price": 20.00,
+            "payment_type": "Hourly",
+            "job_type": "hourly",
+            "location": "123 Main Street, New York, NY 10001",
+            "latitude": 40.7128,
+            "longitude": -74.0060,
+            "estimated_time": "2 hours",
+            "description": "Clean the garden, remove weeds, trim bushes, and dispose of garden waste. The garden is medium-sized with some overgrown areas."
+          }
+        },
+        "2_submit_counter_offer": {
+          "method": "POST",
+          "url": "{{base_url}}/jobs/{{job_id}}/counter-offer",
+          "headers": {
+            "Authorization": "Bearer {{helper_jwt_token}}",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "amount": 20.00,
+            "type": "hourly",
+            "note": "I can complete this garden cleaning job for $20/hour. I have experience with garden maintenance and will bring my own tools."
+          }
+        },
+        "3_accept_offer": {
+          "method": "POST",
+          "url": "{{base_url}}/jobs/{{job_id}}/accept-offer",
+          "headers": {
+            "Authorization": "Bearer {{owner_jwt_token}}",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "counter_offer_id": "{{counter_offer_id}}"
+          }
+        },
+        "4_start_job": {
+          "method": "PATCH",
+          "url": "{{base_url}}/jobs/{{job_id}}/start",
+          "headers": {
+            "Authorization": "Bearer {{helper_jwt_token}}"
+          }
+        },
+        "5_check_time_tracking_during": {
+          "method": "GET",
+          "url": "{{base_url}}/jobs/{{job_id}}/time-tracking",
+          "headers": {
+            "Authorization": "Bearer {{owner_jwt_token}}"
+          }
+        },
+        "6_complete_job": {
+          "method": "PATCH",
+          "url": "{{base_url}}/jobs/{{job_id}}/complete",
+          "headers": {
+            "Authorization": "Bearer {{helper_jwt_token}}"
+          }
+        },
+        "7_check_final_results": {
+          "method": "GET",
+          "url": "{{base_url}}/jobs/{{job_id}}/time-tracking",
+          "headers": {
+            "Authorization": "Bearer {{owner_jwt_token}}"
+          }
+        }
+      },
+      "expected_results": {
+        "estimated_hours": 2.0,
+        "hourly_rate": 20.00,
+        "estimated_cost": 40.00,
+        "actual_hours": 3.0,
+        "final_cost": 60.00,
+        "overage": 20.00
+      }
+    },
+    "scenario_2_quick_cleaning": {
+      "description": "Quick cleaning job that takes less time than estimated (2 hours estimated, 1.5 hours actual)",
+      "steps": {
+        "1_create_job": {
+          "method": "POST",
+          "url": "{{base_url}}/jobs",
+          "headers": {
+            "Authorization": "Bearer {{owner_jwt_token}}",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "title": "Quick House Cleaning",
+            "category": "CLEANING",
+            "date_and_time": "2024-01-15T14:00:00Z",
+            "price": 25.00,
+            "payment_type": "Hourly",
+            "job_type": "hourly",
+            "location": "456 Oak Avenue, Brooklyn, NY 11201",
+            "latitude": 40.6782,
+            "longitude": -73.9442,
+            "estimated_time": "2 hours",
+            "description": "Basic house cleaning - vacuum, mop, dust, and clean bathrooms. Small apartment, should be quick."
+          }
+        },
+        "2_submit_counter_offer": {
+          "method": "POST",
+          "url": "{{base_url}}/jobs/{{job_id}}/counter-offer",
+          "headers": {
+            "Authorization": "Bearer {{helper_jwt_token}}",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "amount": 25.00,
+            "type": "hourly",
+            "note": "I can do this cleaning job for $25/hour. I'm efficient and will bring all necessary supplies."
+          }
+        },
+        "3_accept_offer": {
+          "method": "POST",
+          "url": "{{base_url}}/jobs/{{job_id}}/accept-offer",
+          "headers": {
+            "Authorization": "Bearer {{owner_jwt_token}}",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "counter_offer_id": "{{counter_offer_id}}"
+          }
+        },
+        "4_start_job": {
+          "method": "PATCH",
+          "url": "{{base_url}}/jobs/{{job_id}}/start",
+          "headers": {
+            "Authorization": "Bearer {{helper_jwt_token}}"
+          }
+        },
+        "5_complete_job": {
+          "method": "PATCH",
+          "url": "{{base_url}}/jobs/{{job_id}}/complete",
+          "headers": {
+            "Authorization": "Bearer {{helper_jwt_token}}"
+          }
+        },
+        "6_check_final_results": {
+          "method": "GET",
+          "url": "{{base_url}}/jobs/{{job_id}}/time-tracking",
+          "headers": {
+            "Authorization": "Bearer {{owner_jwt_token}}"
+          }
+        }
+      },
+      "expected_results": {
+        "estimated_hours": 2.0,
+        "hourly_rate": 25.00,
+        "estimated_cost": 50.00,
+        "actual_hours": 1.5,
+        "final_cost": 37.50,
+        "savings": 12.50
+      }
+    },
+    "scenario_3_precise_task": {
+      "description": "Precise task that takes exactly the estimated time (1 hour estimated, 1 hour actual)",
+      "steps": {
+        "1_create_job": {
+          "method": "POST",
+          "url": "{{base_url}}/jobs",
+          "headers": {
+            "Authorization": "Bearer {{owner_jwt_token}}",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "title": "Precise Data Entry Task",
+            "category": "TECHNOLOGY",
+            "date_and_time": "2024-01-15T16:00:00Z",
+            "price": 30.00,
+            "payment_type": "Hourly",
+            "job_type": "hourly",
+            "location": "789 Tech Street, Manhattan, NY 10002",
+            "latitude": 40.7589,
+            "longitude": -73.9851,
+            "estimated_time": "1 hour",
+            "description": "Enter customer data from 50 forms into our database. Simple data entry task with clear instructions."
+          }
+        },
+        "2_submit_counter_offer": {
+          "method": "POST",
+          "url": "{{base_url}}/jobs/{{job_id}}/counter-offer",
+          "headers": {
+            "Authorization": "Bearer {{helper_jwt_token}}",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "amount": 30.00,
+            "type": "hourly",
+            "note": "I can complete this data entry task for $30/hour. I'm experienced with data entry and will be precise."
+          }
+        },
+        "3_accept_offer": {
+          "method": "POST",
+          "url": "{{base_url}}/jobs/{{job_id}}/accept-offer",
+          "headers": {
+            "Authorization": "Bearer {{owner_jwt_token}}",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "counter_offer_id": "{{counter_offer_id}}"
+          }
+        },
+        "4_start_job": {
+          "method": "PATCH",
+          "url": "{{base_url}}/jobs/{{job_id}}/start",
+          "headers": {
+            "Authorization": "Bearer {{helper_jwt_token}}"
+          }
+        },
+        "5_complete_job": {
+          "method": "PATCH",
+          "url": "{{base_url}}/jobs/{{job_id}}/complete",
+          "headers": {
+            "Authorization": "Bearer {{helper_jwt_token}}"
+          }
+        },
+        "6_check_final_results": {
+          "method": "GET",
+          "url": "{{base_url}}/jobs/{{job_id}}/time-tracking",
+          "headers": {
+            "Authorization": "Bearer {{owner_jwt_token}}"
+          }
+        }
+      },
+      "expected_results": {
+        "estimated_hours": 1.0,
+        "hourly_rate": 30.00,
+        "estimated_cost": 30.00,
+        "actual_hours": 1.0,
+        "final_cost": 30.00,
+        "difference": 0.00
+      }
+    }
+  },
+  "test_users": {
+    "job_owner": {
+      "email": "jobowner@test.com",
+      "password": "password123",
+      "first_name": "John",
+      "last_name": "Doe",
+      "phone_number": "+1234567890"
+    },
+    "helper": {
+      "email": "helper@test.com",
+      "password": "password123",
+      "first_name": "Jane",
+      "last_name": "Smith",
+      "phone_number": "+1234567891"
+    }
+  },
+  "environment_variables": {
+    "base_url": "http://localhost:3000/api",
+    "owner_jwt_token": "REPLACE_WITH_ACTUAL_JWT",
+    "helper_jwt_token": "REPLACE_WITH_ACTUAL_JWT",
+    "job_id": "WILL_BE_SET_AUTOMATICALLY",
+    "counter_offer_id": "WILL_BE_SET_AUTOMATICALLY"
+  },
+  "quick_test_commands": {
+    "create_test_job": {
+      "curl": "curl -X POST http://localhost:3000/api/jobs -H \"Authorization: Bearer YOUR_JWT\" -H \"Content-Type: application/json\" -d '{\"title\": \"Test Hourly Job\", \"category\": \"GARDENING\", \"date_and_time\": \"2024-01-15T10:00:00Z\", \"price\": 20.00, \"payment_type\": \"Hourly\", \"job_type\": \"hourly\", \"location\": \"Test Location\", \"latitude\": 40.7128, \"longitude\": -74.0060, \"estimated_time\": \"2 hours\", \"description\": \"Test job for time tracking\"}'"
+    },
+    "check_time_tracking": {
+      "curl": "curl -X GET http://localhost:3000/api/jobs/JOB_ID/time-tracking -H \"Authorization: Bearer YOUR_JWT\""
+    },
+    "start_job": {
+      "curl": "curl -X PATCH http://localhost:3000/api/jobs/JOB_ID/start -H \"Authorization: Bearer YOUR_JWT\""
+    },
+    "complete_job": {
+      "curl": "curl -X PATCH http://localhost:3000/api/jobs/JOB_ID/complete -H \"Authorization: Bearer YOUR_JWT\""
+    }
+  }
+}

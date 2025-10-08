@@ -111,18 +111,17 @@ export class JobController {
     const jobData: CreateJobDto = {
       title: createJobDto.title,
       category: createJobDto.category,
-      date_and_time: createJobDto.date_and_time,
       price: parseFloat(createJobDto.price),
       payment_type: createJobDto.payment_type,
       job_type: createJobDto.job_type,
       location: createJobDto.location,
       latitude: parseFloat(createJobDto.latitude),
       longitude: parseFloat(createJobDto.longitude),
-      estimated_time: createJobDto.estimated_time,
+      start_time: createJobDto.start_time,
+      end_time: createJobDto.end_time,
       description: createJobDto.description,
       requirements: requirements,
       notes: notes,
-      urgency_type: createJobDto.urgency_type,
       urgent_note: createJobDto.urgent_note,
     };
     
@@ -391,6 +390,13 @@ export class JobController {
   async autoCompleteJob(@Param('id') id: string): Promise<{ message: string }> {
     await this.jobService.autoCompleteJob(id);
     return { message: 'Job auto-completed and payment released successfully' };
+  }
+
+  @ApiOperation({ summary: 'Get time tracking information for hourly jobs' })
+  @Get(':id/time-tracking')
+  async getTimeTracking(@Param('id') id: string, @Req() req: Request): Promise<any> {
+    const userId = (req as any).user.userId || (req as any).user.id;
+    return this.jobService.getTimeTracking(id, userId);
   }
 
   @ApiOperation({ summary: 'Get job status timeline' })
