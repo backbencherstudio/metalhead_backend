@@ -65,7 +65,7 @@ export class JobHistoryService {
     where.latitude = { not: null };
     where.longitude = { not: null };
 
-    const jobs = await this.getJobsWithPagination(where, filters, false);
+    const jobs = await this.getJobsWithPagination(where, filters);
     
     // Calculate distances and filter by maxDistanceKm
     const jobsWithDistance = jobs.map(job => ({
@@ -103,7 +103,7 @@ export class JobHistoryService {
     const where = this.buildWhereClause(filters);
 
     const [jobs, total] = await Promise.all([
-      this.getJobsWithPagination(where, filters, true, 'rating'),
+      this.getJobsWithPagination(where, filters),
       this.prisma.job.count({ where })
     ]);
 
@@ -188,7 +188,6 @@ export class JobHistoryService {
   private async getJobsWithPagination(
     where: any, 
     filters: JobHistoryFilters, 
-    includeUserRating: boolean = false,
     sortByField?: string
   ) {
     const page = filters.page || 1;
@@ -207,7 +206,6 @@ export class JobHistoryService {
           username: true,
           email: true,
           avatar: true,
-          rating: includeUserRating
         }
       },
       counter_offers: {
@@ -251,9 +249,6 @@ export class JobHistoryService {
   }
 
   private buildOrderBy(sortBy?: SortBy, sortByField?: string): any {
-    if (sortByField === 'rating') {
-      return { user: { rating: 'desc' } };
-    }
 
     switch (sortBy) {
       case SortBy.DATE_NEWEST:
@@ -264,8 +259,6 @@ export class JobHistoryService {
         return { price: 'asc' };
       case SortBy.PRICE_HIGH_LOW:
         return { price: 'desc' };
-      case SortBy.RATING:
-        return { user: { rating: 'desc' } };
       case SortBy.NEAREST:
         // For nearest, we'll sort by distance after calculation
         return { created_at: 'desc' };
@@ -321,7 +314,6 @@ export class JobHistoryService {
         name: job.user.name,
         username: job.user.username,
         avatar: job.user.avatar ? SojebStorage.url(job.user.avatar) : null,
-        rating: job.user.rating || 0
       },
       accepted_offers: accepted ? [{
         amount: Number(accepted.counter_offer.amount),

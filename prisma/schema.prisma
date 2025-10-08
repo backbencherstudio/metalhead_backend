@@ -491,6 +491,13 @@ model Job {
   actual_hours      Decimal?  // Calculated actual hours worked
   hourly_rate       Decimal?  // Rate per hour for hourly jobs
   estimated_hours   Decimal?  // Calculated from estimated_time
+  
+  // Extra time request system
+  extra_time_requested    Decimal?  // Extra time requested by helper (in hours)
+  extra_time_approved     Boolean?  // Whether client approved the extra time
+  extra_time_requested_at DateTime? // When extra time was requested
+  extra_time_approved_at  DateTime? // When extra time was approved/rejected
+  total_approved_hours    Decimal?  // Original estimated + approved extra time
   requirements    JobRequirement[]
   notes           JobNote[] //only be enabled if user selects the job type as urgent
   photos          String?

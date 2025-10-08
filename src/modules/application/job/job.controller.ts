@@ -13,6 +13,7 @@ import {
   UploadedFiles,
   Req,
   BadRequestException,
+  Put,
 } from '@nestjs/common';
 import { FileInterceptor, FileFieldsInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
@@ -22,6 +23,8 @@ import { JobNotificationService } from './job-notification.service';
 import { CreateJobDto } from './dto/create-job.dto';
 import { UpdateJobDto } from './dto/update-job.dto';
 import { JobResponseDto } from './dto/job-response.dto';
+import { RequestExtraTimeDto } from './dto/request-extra-time.dto';
+import { ApproveExtraTimeDto } from './dto/approve-extra-time.dto';
 import { UpdateHelperPreferencesDto } from './dto/update-helper-preferences.dto';
 import { CategoriesListResponseDto, CategoryResponseDto } from './dto/category-response.dto';
 import { JobCategory, JOB_CATEGORY_LABELS, JOB_CATEGORY_DESCRIPTIONS } from './enums/job-category.enum';
@@ -369,12 +372,11 @@ export class JobController {
     return { message: 'Job marked as started successfully' };
   }
 
-  @ApiOperation({ summary: 'Mark job as completed (Helper only)' })
+  @ApiOperation({ summary: 'Mark job as completed (Helper only) - Returns time tracking data for hourly jobs' })
   @Patch(':id/complete')
-  async completeJob(@Param('id') id: string, @Req() req: Request): Promise<{ message: string }> {
+  async completeJob(@Param('id') id: string, @Req() req: Request): Promise<any> {
     const userId = (req as any).user.userId || (req as any).user.id;
-    await this.jobService.completeJob(id, userId);
-    return { message: 'Job marked as completed successfully' };
+    return await this.jobService.completeJob(id, userId);
   }
 
   @ApiOperation({ summary: 'Mark job as finished and release payment (User only)' })
@@ -698,6 +700,56 @@ export class JobController {
         message: error.message
       };
     }
+  }
+
+  // Extra Time Request System Endpoints
+  @Post(':id/request-extra-time')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Helper requests extra time for ongoing job' })
+  @ApiResponse({ status: 200, description: 'Extra time request submitted successfully' })
+  @ApiResponse({ status: 400, description: 'Bad request - invalid data or job not eligible' })
+  @ApiResponse({ status: 403, description: 'Forbidden - only assigned helpers can request' })
+  @ApiResponse({ status: 404, description: 'Job not found' })
+  async requestExtraTime(
+    @Param('id') jobId: string,
+    @Body() requestDto: RequestExtraTimeDto,
+    @Req() req: Request,
+  ) {
+    const userId = (req.user as any).id;
+    return this.jobService.requestExtraTime(jobId, userId, requestDto);
+  }
+
+  @Put(':id/approve-extra-time')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Client approves or rejects extra time request' })
+  @ApiResponse({ status: 200, description: 'Extra time request approved/rejected successfully' })
+  @ApiResponse({ status: 400, description: 'Bad request - no pending request found' })
+  @ApiResponse({ status: 403, description: 'Forbidden - only job owner can approve' })
+  @ApiResponse({ status: 404, description: 'Job not found' })
+  async approveExtraTime(
+    @Param('id') jobId: string,
+    @Body() approvalDto: ApproveExtraTimeDto,
+    @Req() req: Request,
+  ) {
+    const userId = (req.user as any).id;
+    return this.jobService.approveExtraTime(jobId, userId, approvalDto);
+  }
+
+  @Get(':id/extra-time-status')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Get extra time request status for a job' })
+  @ApiResponse({ status: 200, description: 'Extra time status retrieved successfully' })
+  @ApiResponse({ status: 403, description: 'Forbidden - only job participants can view' })
+  @ApiResponse({ status: 404, description: 'Job not found' })
+  async getExtraTimeStatus(
+    @Param('id') jobId: string,
+    @Req() req: Request,
+  ) {
+    const userId = (req.user as any).id;
+    return this.jobService.getExtraTimeStatus(jobId, userId);
   }
 
 }

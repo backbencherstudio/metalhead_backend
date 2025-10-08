@@ -454,7 +454,7 @@ export class JobService {
 
 
 
-  async completeJob(id: string, userId: string): Promise<void> {
+  async completeJob(id: string, userId: string): Promise<any> {
     const job = await this.prisma.job.findFirst({
       where: {
         id,
@@ -519,7 +519,24 @@ export class JobService {
         const endTime = new Date();
         const actualHours = this.calculateHours(job.actual_start_time, endTime);
         const hourlyRate = job.hourly_rate || job.price;
-        const finalPrice = actualHours * parseFloat(hourlyRate.toString());
+        
+        // Calculate final price based on approved hours vs actual hours
+        let finalPrice;
+        let approvedHours = job.estimated_hours ? parseFloat(job.estimated_hours.toString()) : 0;
+        
+        // If extra time was approved, use total approved hours as the base
+        if (job.extra_time_approved && job.total_approved_hours) {
+          approvedHours = parseFloat(job.total_approved_hours.toString());
+        }
+        
+        // Calculate final price: guaranteed minimum + overtime only
+        if (actualHours <= approvedHours) {
+          // Within or under estimated time, charge for estimated hours (guaranteed minimum)
+          finalPrice = approvedHours * parseFloat(hourlyRate.toString());
+        } else {
+          // Overtime beyond estimated time, charge for actual hours worked
+          finalPrice = actualHours * parseFloat(hourlyRate.toString());
+        }
         
         updateData.actual_end_time = endTime;
         updateData.actual_hours = actualHours;
@@ -539,6 +556,17 @@ export class JobService {
         },
       });
     });
+
+    // Return time tracking data for hourly jobs
+    if (job.payment_type === 'HOURLY') {
+      return await this.getTimeTracking(id, userId);
+    }
+
+    // For non-hourly jobs, return simple success message
+    return {
+      message: 'Job marked as completed successfully',
+      job_status: 'completed'
+    };
   }
 
   async finishJob(id: string, userId: string): Promise<{ success: boolean; message: string }> {
@@ -1621,6 +1649,199 @@ export class JobService {
       price_difference: job.final_price && job.price 
         ? parseFloat(job.final_price.toString()) - parseFloat(job.price.toString())
         : null,
+    };
+  }
+
+  // Extra Time Request System
+  async requestExtraTime(jobId: string, helperId: string, requestDto: any): Promise<any> {
+    // Find the job and verify helper is assigned
+    const job = await this.prisma.job.findFirst({
+      where: { 
+        id: jobId, 
+        status: 1, 
+        deleted_at: null,
+        job_status: 'ongoing'
+      },
+      include: {
+        accepted_offers: {
+          include: {
+            counter_offer: {
+              include: {
+                helper: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!job) {
+      throw new NotFoundException('Job not found or not in ongoing status');
+    }
+
+    // Check if helper is assigned to this job
+    const isHelperAssigned = job.accepted_offers.some(
+      offer => offer.counter_offer.helper_id === helperId
+    );
+
+    if (!isHelperAssigned) {
+      throw new ForbiddenException('Only assigned helpers can request extra time');
+    }
+
+    // Check if job is hourly
+    if (job.payment_type !== 'HOURLY') {
+      throw new BadRequestException('Extra time can only be requested for hourly jobs');
+    }
+
+    // Check if there's already a pending request
+    if (job.extra_time_requested && job.extra_time_approved === null) {
+      throw new BadRequestException('There is already a pending extra time request');
+    }
+
+    // Calculate estimated extra cost
+    const extraCost = job.hourly_rate ? 
+      parseFloat(job.hourly_rate.toString()) * requestDto.extra_hours : 0;
+
+    // Update job with extra time request
+    const updatedJob = await this.prisma.job.update({
+      where: { id: jobId },
+      data: {
+        extra_time_requested: requestDto.extra_hours,
+        extra_time_approved: null, // Pending approval
+        extra_time_requested_at: new Date(),
+        extra_time_approved_at: null,
+      },
+    });
+
+    // TODO: Send notification to client about extra time request
+
+    return {
+      success: true,
+      message: 'Extra time request submitted successfully',
+      job_id: jobId,
+      extra_hours_requested: requestDto.extra_hours,
+      estimated_extra_cost: extraCost,
+      reason: requestDto.reason,
+      status: 'pending_approval'
+    };
+  }
+
+  async approveExtraTime(jobId: string, clientId: string, approvalDto: any): Promise<any> {
+    // Find the job and verify client owns it
+    const job = await this.prisma.job.findFirst({
+      where: { 
+        id: jobId, 
+        user_id: clientId,
+        status: 1, 
+        deleted_at: null,
+        job_status: 'ongoing'
+      },
+    });
+
+    if (!job) {
+      throw new NotFoundException('Job not found or you do not have permission to approve');
+    }
+
+    // Check if there's a pending request
+    if (!job.extra_time_requested || job.extra_time_approved !== null) {
+      throw new BadRequestException('No pending extra time request found');
+    }
+
+    let updateData: any = {
+      extra_time_approved: approvalDto.approved,
+      extra_time_approved_at: new Date(),
+    };
+
+    // If approved, calculate total approved hours
+    if (approvalDto.approved) {
+      const originalHours = job.estimated_hours ? parseFloat(job.estimated_hours.toString()) : 0;
+      const extraHours = job.extra_time_requested ? parseFloat(job.extra_time_requested.toString()) : 0;
+      updateData.total_approved_hours = originalHours + extraHours;
+    }
+
+    // Update job with approval decision
+    const updatedJob = await this.prisma.job.update({
+      where: { id: jobId },
+      data: updateData,
+    });
+
+    // TODO: Send notification to helper about approval decision
+
+    const totalApprovedHours = updateData.total_approved_hours ? parseFloat(updateData.total_approved_hours.toString()) : 0;
+
+    return {
+      success: true,
+      message: approvalDto.approved ? 
+        'Extra time request approved' : 
+        'Extra time request rejected',
+      job_id: jobId,
+      approved: approvalDto.approved,
+      extra_hours: approvalDto.approved ? job.extra_time_requested : 0,
+      total_approved_hours: updateData.total_approved_hours,
+      total_approved_hours_formatted: totalApprovedHours > 0 ? this.formatEstimatedTime(totalApprovedHours) : null,
+      message_to_helper: approvalDto.message
+    };
+  }
+
+  async getExtraTimeStatus(jobId: string, userId: string): Promise<any> {
+    const job = await this.prisma.job.findFirst({
+      where: { 
+        id: jobId, 
+        status: 1, 
+        deleted_at: null 
+      },
+      include: {
+        accepted_offers: {
+          include: {
+            counter_offer: {
+              include: {
+                helper: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!job) {
+      throw new NotFoundException('Job not found');
+    }
+
+    // Check if user is job owner or assigned helper
+    const isJobOwner = job.user_id === userId;
+    const isHelper = job.accepted_offers.some(
+      offer => offer.counter_offer.helper_id === userId
+    );
+
+    if (!isJobOwner && !isHelper) {
+      throw new ForbiddenException('Only job participants can view extra time status');
+    }
+
+    const estimatedHours = job.estimated_hours ? parseFloat(job.estimated_hours.toString()) : 0;
+    const extraHours = job.extra_time_requested ? parseFloat(job.extra_time_requested.toString()) : 0;
+    const hourlyRate = job.hourly_rate ? parseFloat(job.hourly_rate.toString()) : 0;
+    const extraCost = extraHours * hourlyRate;
+    const totalApprovedHours = job.total_approved_hours ? parseFloat(job.total_approved_hours.toString()) : 0;
+
+    return {
+      job_id: job.id,
+      title: job.title,
+      job_status: job.job_status,
+      payment_type: job.payment_type,
+      estimated_hours: estimatedHours,
+      hourly_rate: hourlyRate,
+      original_price: job.price,
+      extra_time_requested: job.extra_time_requested,
+      extra_time_approved: job.extra_time_approved,
+      total_approved_hours: totalApprovedHours,
+      total_approved_hours_formatted: totalApprovedHours > 0 ? this.formatEstimatedTime(totalApprovedHours) : null,
+      extra_time_requested_at: job.extra_time_requested_at,
+      extra_time_approved_at: job.extra_time_approved_at,
+      estimated_extra_cost: extraCost,
+      can_request_extra_time: isHelper && job.job_status === 'ongoing' && 
+        job.payment_type === 'HOURLY' && job.extra_time_approved === null,
+      can_approve_extra_time: isJobOwner && job.job_status === 'ongoing' && 
+        job.extra_time_requested && job.extra_time_approved === null,
     };
   }
 

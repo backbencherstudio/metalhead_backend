@@ -4,7 +4,6 @@ import { Transform } from 'class-transformer';
 
 export enum SortBy {
   NEAREST = 'nearest',
-  RATING = 'rating',
   PRICE_LOW_HIGH = 'price_low_high',
   PRICE_HIGH_LOW = 'price_high_low',
   DATE_NEWEST = 'date_newest',
