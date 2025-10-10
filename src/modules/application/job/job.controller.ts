@@ -60,13 +60,31 @@ export class JobController {
         description: { type: 'string' },
         requirements: { type: 'string' },
         notes: { type: 'string' },
-        file: { type: 'string', format: 'binary' },
+        files: { 
+          type: 'array', 
+          items: { type: 'string', format: 'binary' },
+          description: 'Multiple image files (up to 10 files, 10MB each)'
+        },
+        photoes: { 
+          type: 'array', 
+          items: { type: 'string', format: 'binary' },
+          description: 'Alternative field name for multiple image files'
+        },
+        photos: { 
+          type: 'array', 
+          items: { type: 'string', format: 'binary' },
+          description: 'Alternative field name for multiple image files'
+        },
       },
     },
   })
   @Post()
   @UseInterceptors(
-    FileInterceptor('file', {
+    FileFieldsInterceptor([
+      { name: 'files', maxCount: 10 },
+      { name: 'photoes', maxCount: 10 },
+      { name: 'photos', maxCount: 10 }
+    ], {
       storage: memoryStorage(),
       limits: { fileSize: 10 * 1024 * 1024 }, 
       fileFilter: (req, file, cb) => cb(null, true),
@@ -74,12 +92,10 @@ export class JobController {
   )
   async create(
     @Body() createJobDto: any,
-    @UploadedFile() file: Express.Multer.File,
+    @UploadedFiles() files: Record<string, Express.Multer.File[]>,
     @Req() req: Request,
   ): Promise<JobResponseDto> {
     const userId = (req as any).user.userId || (req as any).user.id;
-    console.log('JWT User Object:', (req as any).user);
-    console.log('Extracted User ID:', userId);
     
     // Parse JSON strings for requirements and notes
     let requirements = [];
@@ -102,13 +118,33 @@ export class JobController {
     }
     
     // Handle file upload if provided
-    let photoPath = null;
-    if (file) {
-      const fileExtension = file.originalname.split('.').pop();
-      const uniqueFileName = `job-photos/${uuidv4()}.${fileExtension}`;
-      await SojebStorage.put(uniqueFileName, file.buffer);
-      photoPath = uniqueFileName;
+    let photoPaths: string[] = [];
+    
+    // Handle multiple files from various field names
+    const fileFields = ['files', 'photoes', 'photos'];
+    
+    for (const fieldName of fileFields) {
+      if (files?.[fieldName] && files[fieldName].length > 0) {
+        console.log(`Processing ${files[fieldName].length} files from field: ${fieldName}`);
+        for (const file of files[fieldName]) {
+          const fileExtension = file.originalname.split('.').pop();
+          const uniqueFileName = `job-photos/${uuidv4()}.${fileExtension}`;
+          await SojebStorage.put(uniqueFileName, file.buffer);
+          photoPaths.push(uniqueFileName);
+        }
+      }
     }
+    
+    // Handle single files from other fields (fallback)
+    const singleFile = files?.file?.[0] || files?.image?.[0] || files?.photo?.[0];
+    if (singleFile) {
+      const fileExtension = singleFile.originalname.split('.').pop();
+      const uniqueFileName = `job-photos/${uuidv4()}.${fileExtension}`;
+      await SojebStorage.put(uniqueFileName, singleFile.buffer);
+      photoPaths.push(uniqueFileName);
+    }
+    
+    console.log(`Total photos processed: ${photoPaths.length}`);
     
     // Create the job data object
     const jobData: CreateJobDto = {
@@ -128,7 +164,7 @@ export class JobController {
       urgent_note: createJobDto.urgent_note,
     };
     
-    return this.jobService.create(jobData, userId, photoPath);
+    return this.jobService.create(jobData, userId, photoPaths);
   }
 
   @ApiOperation({ summary: 'Get all jobs with pagination and filters' })
@@ -158,7 +194,7 @@ export class JobController {
     return this.jobService.findAll(
       parseInt(page),
       parseInt(limit),
-      category,
+      category as JobCategory,
       location,
       jobType,
       parsedPriceRange,
@@ -257,7 +293,7 @@ export class JobController {
     const result = await this.jobService.findAll(
       parseInt(page),
       parseInt(limit),
-      category,
+      category as JobCategory,
       location,
       jobType,
       parsedPriceRange,
@@ -423,9 +459,6 @@ export class JobController {
   ): Promise<{ message: string }> {
     try {
       const userId = (req as any).user.userId || (req as any).user.id;
-      
-      console.log('JWT User Object:', (req as any).user);
-      console.log('Extracted User ID:', userId);
       
       if (!userId) {
         throw new Error('User ID not found in request');

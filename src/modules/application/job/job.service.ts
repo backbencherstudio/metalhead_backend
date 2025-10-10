@@ -6,6 +6,7 @@ import { JobResponseDto } from './dto/job-response.dto';
 import { SojebStorage } from '../../../common/lib/Disk/SojebStorage';
 import { JobNotificationService } from './job-notification.service';
 import { GeocodingService } from '../../../common/lib/Geocoding/geocoding.service';
+import { JobCategory } from './enums/job-category.enum';
 
 @Injectable()
 export class JobService {
@@ -15,40 +16,29 @@ export class JobService {
     private geocodingService: GeocodingService
   ) { }
 
-  async create(createJobDto: CreateJobDto, userId: string, photoPath?: string): Promise<JobResponseDto> {
+  async create(createJobDto: CreateJobDto, userId: string, photoPaths?: string[]): Promise<JobResponseDto> {
     const { requirements, notes, ...jobData } = createJobDto;
 
     // Validate coordinates are provided (required from device GPS)
     if (!jobData.latitude || !jobData.longitude) {
       throw new Error('Latitude and longitude are required from device GPS');
     }
-
-    console.log(`📍 Using device coordinates: (${jobData.latitude}, ${jobData.longitude})`);
+    
 
     // Auto-generate address from coordinates if location not provided
     if (!jobData.location) {
-      console.log(`🌍 Auto-generating address from coordinates`);
       try {
         const address = await this.geocodingService.reverseGeocode(jobData.latitude, jobData.longitude);
         if (address) {
           jobData.location = address;
-          console.log(`✅ Address generated: "${address}"`);
         } else {
-          console.log(`❌ Failed to generate address from coordinates`);
           jobData.location = `Location: ${jobData.latitude}, ${jobData.longitude}`;
         }
       } catch (error) {
-        console.error(`❌ Error generating address:`, error.message);
         jobData.location = `Location: ${jobData.latitude}, ${jobData.longitude}`;
       }
     }
 
-    console.log(`💾 Creating job with data:`, {
-      location: jobData.location,
-      latitude: jobData.latitude,
-      longitude: jobData.longitude,
-      title: jobData.title
-    });
 
     // Calculate estimated time from start_time and end_time
     const startTime = new Date(jobData.start_time);
@@ -90,7 +80,7 @@ export class JobService {
         description: jobData.description,
         urgent_note: jobData.urgent_note,
         user_id: userId,
-        photos: photoPath,
+        photos: photoPaths && photoPaths.length > 0 ? JSON.stringify(photoPaths) : null,
         // For hourly jobs, set hourly_rate
         hourly_rate: jobData.payment_type === 'HOURLY' ? jobData.price : null,
         requirements: requirements
@@ -124,12 +114,6 @@ export class JobService {
       },
     });
 
-    console.log(`✅ Job created successfully:`, {
-      id: job.id,
-      location: job.location,
-      latitude: job.latitude,
-      longitude: job.longitude
-    });
 
     // record posted history
     await (this.prisma as any).jobStatusHistory?.create({
@@ -141,9 +125,13 @@ export class JobService {
     });
 
     // Notify helpers about the new job (async, don't wait)
-    this.jobNotificationService.notifyHelpersAboutNewJob(job.id).catch(error => {
-      console.error('Failed to notify helpers about new job:', error);
-    });
+    this.jobNotificationService.notifyHelpersAboutNewJob(job.id)
+      .then(() => {
+        console.log(`Notification process initiated successfully for job ${job.id}`);
+      })
+      .catch(error => {
+        console.error('Failed to notify helpers about new job:', error);
+      });
 
     return this.mapToResponseDto(job);
   }
@@ -229,7 +217,7 @@ export class JobService {
   async findAll(
     page: number = 1,
     limit: number = 10,
-    category?: string,
+    category?: JobCategory,
     location?: string,
     jobType?: string,
     priceRange?: { min: number, max: number },
@@ -484,16 +472,6 @@ export class JobService {
       offer => offer.counter_offer.helper_id === userId
     );
 
-    console.log('Complete Job Debug:', {
-      userId,
-      jobUserId: job.user_id,
-      isJobOwner,
-      isHelper,
-      acceptedOffers: job.accepted_offers.map(offer => ({
-        counterOfferId: offer.counter_offer_id,
-        helperId: offer.counter_offer?.helper_id
-      }))
-    });
 
     if (!isJobOwner && !isHelper) {
       throw new ForbiddenException('Only job participants can mark job as completed');
@@ -652,7 +630,6 @@ export class JobService {
     });
 
     // TODO: Add escrow payment release logic here
-    console.log(`Auto-payment released for job ${id} to helper ${job.accepted_offers[0].counter_offer.helper_id}`);
   }
 
   async startJob(id: string, userId: string): Promise<void> {
@@ -795,9 +772,8 @@ export class JobService {
     radiusKm: number = 20,
     page: number = 1,
     limit: number = 10,
-    category?: string,
+    category?: JobCategory,
   ): Promise<{ jobs: JobResponseDto[]; total: number; page: number; limit: number; radius: number }> {
-    console.log(`🔍 Getting jobs near user: ${userId}, radius: ${radiusKm}km`);
 
     // Get user's location
     const user = await this.prisma.user.findUnique({
@@ -812,14 +788,6 @@ export class JobService {
       },
     });
 
-    console.log(`👤 User found:`, {
-      id: user?.id,
-      latitude: user?.latitude,
-      longitude: user?.longitude,
-      city: user?.city,
-      state: user?.state,
-      type: user?.type
-    });
 
     if (!user) {
       console.error(`❌ User not found: ${userId}`);
@@ -828,7 +796,6 @@ export class JobService {
 
     // If user doesn't have coordinates, we can't do distance-based search
     if (!user.latitude || !user.longitude) {
-      console.log(`⚠️ User ${userId} doesn't have coordinates, falling back to city/state search`);
 
       // Fallback to city/state based search
       const whereClause: any = {
@@ -1037,7 +1004,7 @@ export class JobService {
       requirements: job.requirements || [],
       notes: job.notes || [],
       urgent_note: job.urgent_note,
-      photos: job.photos ? SojebStorage.url(job.photos) : null,
+      photos: job.photos ? JSON.parse(job.photos).map((photo: string) => SojebStorage.url(photo)) : [],
       user_id: job.user_id,
       created_at: job.created_at,
       updated_at: job.updated_at,

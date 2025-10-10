@@ -175,56 +175,6 @@ export class NearbyJobsController {
     }
   }
 
-  @ApiOperation({ 
-    summary: 'Test nearby jobs notification (Admin/Helper)',
-    description: 'Manually trigger a test notification to see how nearby jobs notifications work. Useful for testing the notification system.'
-  })
-  @Post('test-notification')
-  async testNotification(@Req() req: Request) {
-    try {
-      const helperId = (req as any).user.userId || (req as any).user.id;
-      
-      if (!helperId) {
-        return {
-          success: false,
-          message: 'Helper ID not found in request',
-        };
-      }
-
-      // Get a sample nearby job for testing
-      const nearbyJobs = await this.nearbyJobsService.findNearbyJobsForHelper(helperId, { limit: 1 });
-
-      if (nearbyJobs.length === 0) {
-        return {
-          success: false,
-          message: 'No nearby jobs found to test notification',
-        };
-      }
-
-      const testJob = nearbyJobs[0];
-
-      // Send test notification
-      await this.nearbyJobsService.notifyHelpersAboutNewJob(testJob.jobId);
-
-      return {
-        success: true,
-        message: 'Test notification sent successfully',
-        data: {
-          testJob: {
-            id: testJob.jobId,
-            title: testJob.jobTitle,
-            price: testJob.jobPrice,
-            distance: testJob.distance,
-          },
-        },
-      };
-    } catch (error) {
-      return {
-        success: false,
-        message: error.message,
-      };
-    }
-  }
 
   @ApiOperation({ 
     summary: 'Get nearby jobs count',

@@ -109,8 +109,8 @@ export class JobResponseDto {
   @ApiProperty({ required: false })
   urgent_note?: string;
 
-  @ApiProperty()
-  photos: string;
+  @ApiProperty({ type: [String] })
+  photos: string[];
 
   @ApiProperty()
   user_id: string;

@@ -298,6 +298,30 @@ enum PaymentType {
   FIXED
 }
 
+enum JobCategory {
+  CLEANING
+  PLUMBING
+  ELECTRICAL
+  HANDYMAN
+  PAINTING
+  GARDENING
+  MOVING
+  DELIVERY
+  PET_CARE
+  TUTORING
+  TECHNOLOGY
+  PHOTOGRAPHY
+  EVENT_PLANNING
+  BEAUTY_WELLNESS
+  FITNESS_TRAINING
+  HOME_SECURITY
+  CARPENTRY
+  ROOFING
+  HVAC
+  LANDSCAPING
+  OTHER
+}
+
 // message is used for conversation
 model Message {
   id         String    @id @default(cuid())
@@ -467,7 +491,7 @@ model Job {
   status          Int?               @default(1) @db.SmallInt
   job_status      String?            @default("posted") // posted, counter_offer, confirmed, ongoing, completed, paid
   title           String?
-  category        String?
+  category        JobCategory?
   date_and_time   DateTime? 
   price           Decimal? // Original price set by user
   final_price     Decimal? // Price after counter offer accepted

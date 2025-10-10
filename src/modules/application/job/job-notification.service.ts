@@ -20,14 +20,11 @@ export class JobNotificationService {
    */
   async notifyHelpersAboutNewJob(jobId: string): Promise<void> {
     try {
-      console.log(`🔔 Starting notification process for job ${jobId}`);
-      
       // Use the new nearby jobs service for better location-based notifications
       await this.nearbyJobsService.notifyHelpersAboutNewJob(jobId);
-      
-      console.log(`✅ Notification process completed for job ${jobId}`);
+      console.log(`Notification process completed successfully for job ${jobId}`);
     } catch (error) {
-      console.error(`❌ Error notifying helpers about job ${jobId}:`, error);
+      console.error(`Error notifying helpers about job ${jobId}:`, error);
     }
   }
 
@@ -96,7 +93,7 @@ export class JobNotificationService {
       // 2. Send Firebase push notification (new system)
       await this.sendFirebaseNotification(job, helper);
 
-      console.log(`Notification sent to helper ${helper.id} for job ${job.id}`);
+      console.log(`Notification sent successfully to helper ${helper.id} for job ${job.id}`);
     } catch (error) {
       console.error(`Failed to send notification to helper ${helper.id}:`, error);
     }
@@ -138,7 +135,6 @@ export class JobNotificationService {
           where: { id: userId },
           data: { device_tokens: updatedTokens }
         });
-        console.log(`Removed invalid device token for user ${userId}`);
       }
     } catch (error) {
       console.error(`Failed to remove invalid device token for user ${userId}:`, error);
@@ -226,7 +222,7 @@ export class JobNotificationService {
           where: { id: userId },
           data: { device_tokens: updatedTokens }
         });
-        console.log(`✅ Device token added for user ${userId}`);
+        console.log(`Device token added successfully for user ${userId}`);
       } else {
         console.log(`Device token already exists for user ${userId}`);
       }
@@ -258,7 +254,7 @@ export class JobNotificationService {
         data: { device_tokens: updatedTokens }
       });
       
-      console.log(`✅ Device token removed for user ${userId}`);
+      console.log(`Device token removed successfully for user ${userId}`);
     } catch (error) {
       console.error(`Failed to remove device token for user ${userId}:`, error);
       throw error;
