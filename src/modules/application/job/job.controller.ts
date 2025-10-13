@@ -49,13 +49,17 @@ export class JobController {
         description: { type: 'string' },
         requirements: { type: 'string' },
         notes: { type: 'string' },
-        file: { type: 'string', format: 'binary' },
+        photoes: { type: 'string', format: 'binary' },
       },
     },
   })
   @Post()
   @UseInterceptors(
-    FileInterceptor('file', {
+    FileFieldsInterceptor([
+      { name: 'photoes', maxCount: 10 },
+      { name: 'file', maxCount: 1 },
+      { name: 'photos', maxCount: 10 }
+    ], {
       storage: memoryStorage(),
       limits: { fileSize: 10 * 1024 * 1024 }, 
       fileFilter: (req, file, cb) => cb(null, true),
@@ -63,10 +67,15 @@ export class JobController {
   )
   async create(
     @Body() createJobDto: any,
-    @UploadedFile() file: Express.Multer.File,
+    @UploadedFiles() files: Record<string, Express.Multer.File[]>,
     @Req() req: Request,
   ): Promise<JobResponseDto> {
-    const userId = (req as any).user.id;
+    const userId = (req as any).user.userId;
+    
+    // Verify user exists
+    if (!userId) {
+      throw new Error('User ID not found in request');
+    }
     
     // Parse JSON strings for requirements and notes
     let requirements = [];
@@ -89,13 +98,34 @@ export class JobController {
     }
     
     // Handle file upload if provided
-    let photoPath = null;
-    if (file) {
+    let photoPaths = [];
+    
+    // Handle multiple file field names and ensure we get all files
+    const allFiles = [];
+    
+    // Check for photoes field (primary)
+    if (files?.photoes && Array.isArray(files.photoes)) {
+      allFiles.push(...files.photoes);
+    }
+    
+    // Check for photos field (alternative)
+    if (files?.photos && Array.isArray(files.photos)) {
+      allFiles.push(...files.photos);
+    }
+    
+    // Check for file field (fallback)
+    if (files?.file && Array.isArray(files.file)) {
+      allFiles.push(...files.file);
+    }
+    
+    for (const file of allFiles) {
       const fileExtension = file.originalname.split('.').pop();
       const uniqueFileName = `job-photos/${uuidv4()}.${fileExtension}`;
       await SojebStorage.put(uniqueFileName, file.buffer);
-      photoPath = uniqueFileName;
+      photoPaths.push(uniqueFileName);
     }
+    // Store photos as JSON string in database
+    const photoPath = photoPaths.length > 0 ? JSON.stringify(photoPaths) : null;
     
     // Create the job data object
     const jobData: CreateJobDto = {
@@ -140,7 +170,7 @@ export class JobController {
     @Query('limit') limit: string = '10',
     @Req() req: Request,
   ) {
-    const userId = (req as any).user.id;
+    const userId = (req as any).user.userId;
     return this.jobService.findByUser(userId, parseInt(page), parseInt(limit));
   }
 
@@ -167,7 +197,7 @@ export class JobController {
         description: { type: 'string' },
         requirements: { type: 'string' },
         notes: { type: 'string' },
-        file: { type: 'string', format: 'binary' },
+        photoes: { type: 'string', format: 'binary' },
       },
     },
   })
@@ -193,7 +223,7 @@ export class JobController {
     @UploadedFiles() files: Record<string, Express.Multer.File[]>,
     @Req() req: Request,
   ): Promise<JobResponseDto> {
-    const userId = (req as any).user.id;
+    const userId = (req as any).user.userId;
 
     let requirements = [];
     let notes = [];
@@ -205,13 +235,17 @@ export class JobController {
     }
 
     let photoPath: string | undefined;
-    const fileCandidate =
-      files?.file?.[0] || files?.File?.[0] || files?.image?.[0] || files?.photo?.[0];
-    if (fileCandidate) {
-      const fileExtension = fileCandidate.originalname.split('.').pop();
-      const uniqueFileName = `job-photos/${uuidv4()}.${fileExtension}`;
-      await SojebStorage.put(uniqueFileName, fileCandidate.buffer);
-      photoPath = uniqueFileName;
+    const uploadedFiles = files?.photoes || files?.file || files?.File || files?.image || files?.photo || [];
+    
+    if (uploadedFiles.length > 0) {
+      const photoPaths = [];
+      for (const file of uploadedFiles) {
+        const fileExtension = file.originalname.split('.').pop();
+        const uniqueFileName = `job-photos/${uuidv4()}.${fileExtension}`;
+        await SojebStorage.put(uniqueFileName, file.buffer);
+        photoPaths.push(uniqueFileName);
+      }
+      photoPath = JSON.stringify(photoPaths);
     }
 
     const dto: UpdateJobDto = {
@@ -236,7 +270,7 @@ export class JobController {
   @ApiOperation({ summary: 'Delete a job posting' })
   @Delete(':id')
   async remove(@Param('id') id: string, @Req() req: Request): Promise<{ message: string }> {
-    const userId = (req as any).user.id;
+    const userId = (req as any).user.userId;
     await this.jobService.remove(id, userId);
     return { message: 'Job deleted successfully' };
   }

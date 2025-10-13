@@ -366,7 +366,7 @@ export class AuthService {
     last_name: string;
     email: string;
     password: string;
-    phone_number:number;
+    phone_number:string;
     type: string;
   }) {
     try {
@@ -939,5 +939,66 @@ export class AuthService {
     }
   }
   // --------- end 2FA ---------
+
+  async convertRole(userId: string, newRole: string) {
+    try {
+      // Get current user details
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true, type: true, email: true, username: true }
+      });
+
+      if (!user) {
+        return {
+          success: false,
+          message: 'User not found',
+        };
+      }
+
+      // Validate that user can only convert between 'user' and 'helper' roles
+      const allowedRoles = ['user', 'helper'];
+      if (!allowedRoles.includes(user.type) || !allowedRoles.includes(newRole)) {
+        return {
+          success: false,
+          message: 'Invalid role conversion. Only users and helpers can convert roles between user and helper.',
+        };
+      }
+
+      // Check if user is already the requested role
+      if (user.type === newRole) {
+        return {
+          success: false,
+          message: `User is already a ${newRole}`,
+        };
+      }
+
+      // Update user role
+      const updatedUser = await this.prisma.user.update({
+        where: { id: userId },
+        data: { type: newRole },
+        select: {
+          id: true,
+          username: true,
+          email: true,
+          type: true,
+          updated_at: true
+        }
+      });
+
+      return {
+        success: true,
+        message: `Successfully converted role from ${user.type} to ${newRole}`,
+        data: {
+          user: updatedUser
+        }
+      };
+
+    } catch (error) {
+      return {
+        success: false,
+        message: error.message || 'Failed to convert role',
+      };
+    }
+  }
   
 }

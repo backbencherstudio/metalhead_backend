@@ -21,6 +21,7 @@ import { LocalAuthGuard } from './guards/local-auth.guard';
 import { CreateUserDto } from './dto/create-user.dto';
 import { VerifyEmailDto } from './dto/verify-email.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
+import { ConvertRoleDto } from './dto/convert-role.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import appConfig from '../../config/app.config';
 import { AuthGuard } from '@nestjs/passport';
@@ -578,6 +579,24 @@ export class AuthController {
     }
   }
   // --------- end 2FA ---------
+
+  @ApiOperation({ summary: 'Convert user role between user and helper' })
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Post('convert-role')
+  async convertRole(@Req() req: Request, @Body() data: ConvertRoleDto) {
+    try {
+      const user_id = req.user.userId;
+      const newRole = data.newRole;
+
+      return await this.authService.convertRole(user_id, newRole);
+    } catch (error) {
+      return {
+        success: false,
+        message: error.message || 'Failed to convert role',
+      };
+    }
+  }
   
 }
 

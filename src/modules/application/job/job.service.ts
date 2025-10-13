@@ -10,6 +10,21 @@ export class JobService {
   constructor(private prisma: PrismaService) {}
 
   async create(createJobDto: CreateJobDto, userId: string, photoPath?: string): Promise<JobResponseDto> {
+    // Validate user ID format
+    if (!userId || typeof userId !== 'string' || userId.trim() === '') {
+      throw new Error('Invalid user ID provided');
+    }
+    
+    // Verify user exists before creating job
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true }
+    });
+    
+    if (!user) {
+      throw new Error(`User with ID ${userId} not found in database`);
+    }
+    
     const { requirements, notes, ...jobData } = createJobDto;
 
     const job = await this.prisma.job.create({
@@ -282,6 +297,20 @@ export class JobService {
   }
 
 
+  private parsePhotosUrls(photosJson: string): string[] {
+    try {
+      const photoPaths = JSON.parse(photosJson);
+      if (Array.isArray(photoPaths)) {
+        return photoPaths.map(path => SojebStorage.url(path));
+      }
+      // Fallback for single photo (backward compatibility)
+      return [SojebStorage.url(photosJson)];
+    } catch (error) {
+      // If it's not JSON, treat as single photo path
+      return [SojebStorage.url(photosJson)];
+    }
+  }
+
   private mapToResponseDto(job: any): JobResponseDto {
     return {
       id: job.id,
@@ -296,7 +325,7 @@ export class JobService {
       description: job.description,
       requirements: job.requirements || [],
       notes: job.notes || [],
-      photos: job.photos ? SojebStorage.url(job.photos) : null,
+      photos: job.photos ? this.parsePhotosUrls(job.photos) : null,
       user_id: job.user_id,
       created_at: job.created_at,
       updated_at: job.updated_at,

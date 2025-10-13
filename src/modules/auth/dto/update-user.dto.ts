@@ -45,13 +45,13 @@ export class UpdateUserDto extends PartialType(CreateUserDto) {
   })
   zip_code: string;
 
-  @IsPhoneNumber()
+ 
   @IsOptional()
   @ApiProperty({
     description: 'Phone number',
     example: '+91 9876543210',
   })
-  phone_number?: number;
+  phone_number?: string;
 
   @IsOptional()
   @ApiProperty({

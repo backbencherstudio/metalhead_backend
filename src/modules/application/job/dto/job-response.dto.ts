@@ -100,8 +100,8 @@ export class JobResponseDto {
   @ApiProperty({ type: [JobNoteResponseDto] })
   notes: JobNoteResponseDto[];
 
-  @ApiProperty()
-  photos: string;
+  @ApiProperty({ type: [String] })
+  photos: string[];
 
   @ApiProperty()
   user_id: string;

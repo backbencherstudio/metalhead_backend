@@ -25,10 +25,10 @@ export class CreateUserDto {
   password: string;
 
 
-  @IsPhoneNumber()
+  
   @IsNotEmpty()  
   @ApiProperty({ description: 'Phone number of the user' })
-  phone_number: number;
+  phone_number: string;
 
   @IsOptional()
   @IsEnum(Role)

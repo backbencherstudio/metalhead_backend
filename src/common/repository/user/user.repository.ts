@@ -204,7 +204,7 @@ export class UserRepository {
     last_name?: string;
     email: string;
     password: string;
-    phone_number?: number;
+    phone_number?: string;
     role_id?: string;
     type?: string;
   }) {
