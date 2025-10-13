@@ -16,7 +16,7 @@ export class JobService {
     private geocodingService: GeocodingService
   ) { }
 
-  async create(createJobDto: CreateJobDto, userId: string, photoPaths?: string[]): Promise<JobResponseDto> {
+  async create(createJobDto: CreateJobDto, userId: string, photoPaths?: string[]): Promise<{ success: boolean; message: string; data: JobResponseDto }> {
     const { requirements, notes, ...jobData } = createJobDto;
 
     // Validate coordinates are provided (required from device GPS)
@@ -133,7 +133,11 @@ export class JobService {
         console.error('Failed to notify helpers about new job:', error);
       });
 
-    return this.mapToResponseDto(job);
+    return {
+      success: true,
+      message: 'Job created successfully',
+      data: this.mapToResponseDto(job)
+    };
   }
 
   async update(

@@ -94,7 +94,7 @@ export class JobController {
     @Body() createJobDto: any,
     @UploadedFiles() files: Record<string, Express.Multer.File[]>,
     @Req() req: Request,
-  ): Promise<JobResponseDto> {
+  ): Promise<{ success: boolean; message: string; data: JobResponseDto }> {
     const userId = (req as any).user.userId || (req as any).user.id;
     
     // Parse JSON strings for requirements and notes
