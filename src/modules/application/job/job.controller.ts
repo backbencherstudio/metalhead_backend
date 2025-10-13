@@ -149,10 +149,10 @@ export class JobController {
     // Create the job data object
     const jobData: CreateJobDto = {
       title: createJobDto.title,
-      category: createJobDto.category,
+      category: createJobDto.category?.toUpperCase() as any, // Convert to uppercase for enum
       price: parseFloat(createJobDto.price),
-      payment_type: createJobDto.payment_type,
-      job_type: createJobDto.job_type,
+      payment_type: createJobDto.payment_type?.toUpperCase() as any, // Convert to uppercase for enum
+      job_type: createJobDto.job_type?.toUpperCase() as any, // Convert to uppercase for enum
       location: createJobDto.location,
       latitude: parseFloat(createJobDto.latitude),
       longitude: parseFloat(createJobDto.longitude),
