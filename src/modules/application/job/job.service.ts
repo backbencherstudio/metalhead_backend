@@ -3,6 +3,7 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { CreateJobDto } from './dto/create-job.dto';
 import { UpdateJobDto } from './dto/update-job.dto';
 import { JobResponseDto } from './dto/job-response.dto';
+import { JobCreateResponseDto } from './dto/job-create-response.dto';
 import { SojebStorage } from '../../../common/lib/Disk/SojebStorage';
 import { JobNotificationService } from './job-notification.service';
 import { GeocodingService } from '../../../common/lib/Geocoding/geocoding.service';
@@ -16,7 +17,7 @@ export class JobService {
     private geocodingService: GeocodingService
   ) { }
 
-  async create(createJobDto: CreateJobDto, userId: string, photoPaths?: string[]): Promise<{ success: boolean; message: string; data: JobResponseDto }> {
+  async create(createJobDto: CreateJobDto, userId: string, photoPaths?: string[]): Promise<JobCreateResponseDto> {
     const { requirements, notes, ...jobData } = createJobDto;
 
     // Validate coordinates are provided (required from device GPS)
@@ -60,6 +61,7 @@ export class JobService {
     
     // Use start_time as the main date_and_time for the job
     const jobDateTime = startTime;
+    
     
     
     const job = await this.prisma.job.create({
@@ -133,10 +135,13 @@ export class JobService {
         console.error('Failed to notify helpers about new job:', error);
       });
 
+    const responseData = this.mapToResponseDto(job);
+    
+    
     return {
       success: true,
       message: 'Job created successfully',
-      data: this.mapToResponseDto(job)
+      data: responseData
     };
   }
 
@@ -991,7 +996,7 @@ export class JobService {
       current_status = 'posted';
     }
 
-    
+
     return {
       id: job.id,
       title: job.title,

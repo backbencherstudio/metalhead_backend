@@ -23,6 +23,7 @@ import { JobNotificationService } from './job-notification.service';
 import { CreateJobDto } from './dto/create-job.dto';
 import { UpdateJobDto } from './dto/update-job.dto';
 import { JobResponseDto } from './dto/job-response.dto';
+import { JobCreateResponseDto } from './dto/job-create-response.dto';
 import { RequestExtraTimeDto } from './dto/request-extra-time.dto';
 import { ApproveExtraTimeDto } from './dto/approve-extra-time.dto';
 import { UpdateHelperPreferencesDto } from './dto/update-helper-preferences.dto';
@@ -44,6 +45,7 @@ export class JobController {
   ) {}
 
   @ApiOperation({ summary: 'Create a new job posting with optional photo' })
+  @ApiResponse({ status: 201, description: 'Job created successfully', type: JobCreateResponseDto })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
     schema: {
@@ -94,8 +96,16 @@ export class JobController {
     @Body() createJobDto: any,
     @UploadedFiles() files: Record<string, Express.Multer.File[]>,
     @Req() req: Request,
-  ): Promise<{ success: boolean; message: string; data: JobResponseDto }> {
+  ): Promise<JobCreateResponseDto> {
     const userId = (req as any).user.userId || (req as any).user.id;
+    
+    // Debug: Log the entire request body
+    console.log('DEBUG - Full request body:', JSON.stringify(createJobDto, null, 2));
+    
+    // Debug: Log the received requirements
+    console.log('DEBUG - Received requirements:', createJobDto.requirements);
+    console.log('DEBUG - Requirements type:', typeof createJobDto.requirements);
+    console.log('DEBUG - Requirements isArray:', Array.isArray(createJobDto.requirements));
     
     // Parse JSON strings for requirements and notes
     let requirements = [];
@@ -103,16 +113,51 @@ export class JobController {
     
     if (createJobDto.requirements) {
       try {
-        requirements = JSON.parse(createJobDto.requirements);
+        if (typeof createJobDto.requirements === 'string') {
+          console.log('DEBUG - Parsing requirements string:', createJobDto.requirements);
+          
+          // Fix malformed JSON by adding missing commas
+          let cleanedJson = createJobDto.requirements
+            .replace(/}\s*{/g, '},{') // Add commas between objects
+            .replace(/}\s*\]/g, '}]') // Fix last object
+            .replace(/\[\s*{/g, '[{') // Fix first object
+            .replace(/\n/g, '') // Remove newlines
+            .replace(/\r/g, ''); // Remove carriage returns
+          
+          console.log('DEBUG - Cleaned JSON:', cleanedJson);
+          requirements = JSON.parse(cleanedJson);
+          console.log('DEBUG - Parsed requirements:', requirements);
+        } else if (Array.isArray(createJobDto.requirements)) {
+          console.log('DEBUG - Using requirements array directly:', createJobDto.requirements);
+          requirements = createJobDto.requirements;
+        }
       } catch (e) {
+        console.error('DEBUG - Error parsing requirements:', e);
+        console.log('DEBUG - Requirements parse error, using empty array');
         requirements = [];
       }
     }
     
+    console.log('DEBUG - Final requirements array:', requirements);
+    console.log('DEBUG - Final requirements length:', requirements.length);
+    
     if (createJobDto.notes) {
       try {
-        notes = JSON.parse(createJobDto.notes);
+        if (typeof createJobDto.notes === 'string') {
+          // Fix malformed JSON by adding missing commas
+          let cleanedJson = createJobDto.notes
+            .replace(/}\s*{/g, '},{') // Add commas between objects
+            .replace(/}\s*\]/g, '}]') // Fix last object
+            .replace(/\[\s*{/g, '[{') // Fix first object
+            .replace(/\n/g, '') // Remove newlines
+            .replace(/\r/g, ''); // Remove carriage returns
+          
+          notes = JSON.parse(cleanedJson);
+        } else if (Array.isArray(createJobDto.notes)) {
+          notes = createJobDto.notes;
+        }
       } catch (e) {
+        console.error('DEBUG - Error parsing notes:', e);
         notes = [];
       }
     }
@@ -146,16 +191,85 @@ export class JobController {
     
     console.log(`Total photos processed: ${photoPaths.length}`);
     
+    // Validate and convert job_type
+    let jobType = createJobDto.job_type?.toUpperCase();
+    if (jobType === 'NORMAL' || jobType === 'REGULAR') {
+      jobType = 'ANYTIME'; // Convert NORMAL/REGULAR to ANYTIME
+    }
+    if (jobType !== 'URGENT' && jobType !== 'ANYTIME') {
+      jobType = 'ANYTIME'; // Default to ANYTIME for invalid values
+    }
+
+    // Debug: Log the received price value and type
+    console.log('DEBUG - Received price:', createJobDto.price);
+    console.log('DEBUG - Price type:', typeof createJobDto.price);
+    console.log('DEBUG - Price isNaN:', isNaN(createJobDto.price));
+    
+    // Validate and convert price - handle different input types from Flutter
+    let price: number;
+    if (typeof createJobDto.price === 'string') {
+      // Remove any currency symbols or commas
+      const cleanPrice = createJobDto.price.replace(/[$,]/g, '');
+      price = parseFloat(cleanPrice);
+      console.log('DEBUG - Cleaned price string:', cleanPrice);
+      console.log('DEBUG - Parsed price:', price);
+    } else if (typeof createJobDto.price === 'number') {
+      price = createJobDto.price;
+      console.log('DEBUG - Using number directly:', price);
+    } else {
+      price = parseFloat(createJobDto.price);
+      console.log('DEBUG - Fallback parseFloat result:', price);
+    }
+    
+    console.log('DEBUG - Final price value:', price);
+    console.log('DEBUG - Final price isNaN:', isNaN(price));
+    console.log('DEBUG - Final price <= 0:', price <= 0);
+    
+    if (isNaN(price) || price <= 0) {
+      throw new BadRequestException(`Price must be a valid positive number. Received: "${createJobDto.price}" (type: ${typeof createJobDto.price})`);
+    }
+
+    // Debug: Log the received coordinate values
+    console.log('DEBUG - Received latitude:', createJobDto.latitude, 'type:', typeof createJobDto.latitude);
+    console.log('DEBUG - Received longitude:', createJobDto.longitude, 'type:', typeof createJobDto.longitude);
+    
+    // Validate coordinates - handle different input types from Flutter
+    let latitude: number;
+    let longitude: number;
+    
+    if (typeof createJobDto.latitude === 'string') {
+      latitude = parseFloat(createJobDto.latitude);
+    } else if (typeof createJobDto.latitude === 'number') {
+      latitude = createJobDto.latitude;
+    } else {
+      latitude = parseFloat(createJobDto.latitude);
+    }
+    
+    if (typeof createJobDto.longitude === 'string') {
+      longitude = parseFloat(createJobDto.longitude);
+    } else if (typeof createJobDto.longitude === 'number') {
+      longitude = createJobDto.longitude;
+    } else {
+      longitude = parseFloat(createJobDto.longitude);
+    }
+    
+    console.log('DEBUG - Final latitude:', latitude, 'isNaN:', isNaN(latitude));
+    console.log('DEBUG - Final longitude:', longitude, 'isNaN:', isNaN(longitude));
+    
+    if (isNaN(latitude) || isNaN(longitude)) {
+      throw new BadRequestException(`Latitude and longitude must be valid numbers. Received: lat="${createJobDto.latitude}" (type: ${typeof createJobDto.latitude}), lng="${createJobDto.longitude}" (type: ${typeof createJobDto.longitude})`);
+    }
+
     // Create the job data object
     const jobData: CreateJobDto = {
       title: createJobDto.title,
       category: createJobDto.category?.toUpperCase() as any, // Convert to uppercase for enum
-      price: parseFloat(createJobDto.price),
+      price: price,
       payment_type: createJobDto.payment_type?.toUpperCase() as any, // Convert to uppercase for enum
-      job_type: createJobDto.job_type?.toUpperCase() as any, // Convert to uppercase for enum
+      job_type: jobType as any, // Use validated job_type
       location: createJobDto.location,
-      latitude: parseFloat(createJobDto.latitude),
-      longitude: parseFloat(createJobDto.longitude),
+      latitude: latitude,
+      longitude: longitude,
       start_time: createJobDto.start_time,
       end_time: createJobDto.end_time,
       description: createJobDto.description,
@@ -163,6 +277,13 @@ export class JobController {
       notes: notes,
       urgent_note: createJobDto.urgent_note,
     };
+    
+    // Debug: Log the final job data being sent to service
+    console.log('DEBUG - Final job data being sent to service:');
+    console.log('DEBUG - Requirements in jobData:', jobData.requirements);
+    console.log('DEBUG - Requirements type in jobData:', typeof jobData.requirements);
+    console.log('DEBUG - Requirements length in jobData:', Array.isArray(jobData.requirements) ? jobData.requirements.length : 'not an array');
+    console.log('DEBUG - Full jobData object:', JSON.stringify(jobData, null, 2));
     
     return this.jobService.create(jobData, userId, photoPaths);
   }
