@@ -24,6 +24,9 @@ import { CreateJobDto } from './dto/create-job.dto';
 import { UpdateJobDto } from './dto/update-job.dto';
 import { JobResponseDto } from './dto/job-response.dto';
 import { JobCreateResponseDto } from './dto/job-create-response.dto';
+import { JobListResponseDto } from './dto/job-list-response.dto';
+import { JobSingleResponseDto } from './dto/job-single-response.dto';
+import { EnumMapper } from './utils/enum-mapper.util';
 import { RequestExtraTimeDto } from './dto/request-extra-time.dto';
 import { ApproveExtraTimeDto } from './dto/approve-extra-time.dto';
 import { UpdateHelperPreferencesDto } from './dto/update-helper-preferences.dto';
@@ -99,13 +102,6 @@ export class JobController {
   ): Promise<JobCreateResponseDto> {
     const userId = (req as any).user.userId || (req as any).user.id;
     
-    // Debug: Log the entire request body
-    console.log('DEBUG - Full request body:', JSON.stringify(createJobDto, null, 2));
-    
-    // Debug: Log the received requirements
-    console.log('DEBUG - Received requirements:', createJobDto.requirements);
-    console.log('DEBUG - Requirements type:', typeof createJobDto.requirements);
-    console.log('DEBUG - Requirements isArray:', Array.isArray(createJobDto.requirements));
     
     // Parse JSON strings for requirements and notes
     let requirements = [];
@@ -191,14 +187,7 @@ export class JobController {
     
     console.log(`Total photos processed: ${photoPaths.length}`);
     
-    // Validate and convert job_type
-    let jobType = createJobDto.job_type?.toUpperCase();
-    if (jobType === 'NORMAL' || jobType === 'REGULAR') {
-      jobType = 'ANYTIME'; // Convert NORMAL/REGULAR to ANYTIME
-    }
-    if (jobType !== 'URGENT' && jobType !== 'ANYTIME') {
-      jobType = 'ANYTIME'; // Default to ANYTIME for invalid values
-    }
+    // Job type validation is now handled by EnumMapper.mapJobType()
 
     // Debug: Log the received price value and type
     console.log('DEBUG - Received price:', createJobDto.price);
@@ -260,13 +249,19 @@ export class JobController {
       throw new BadRequestException(`Latitude and longitude must be valid numbers. Received: lat="${createJobDto.latitude}" (type: ${typeof createJobDto.latitude}), lng="${createJobDto.longitude}" (type: ${typeof createJobDto.longitude})`);
     }
 
+    // Map all enums using the comprehensive mapping system
+    const category = EnumMapper.mapCategory(createJobDto.category);
+    const paymentType = EnumMapper.mapPaymentType(createJobDto.payment_type);
+    const jobType = EnumMapper.mapJobType(createJobDto.job_type);
+
+
     // Create the job data object
     const jobData: CreateJobDto = {
       title: createJobDto.title,
-      category: createJobDto.category?.toUpperCase() as any, // Convert to uppercase for enum
+      category: category as any, // Use mapped category
       price: price,
-      payment_type: createJobDto.payment_type?.toUpperCase() as any, // Convert to uppercase for enum
-      job_type: jobType as any, // Use validated job_type
+      payment_type: paymentType as any, // Use mapped payment type
+      job_type: jobType as any, // Use mapped job type
       location: createJobDto.location,
       latitude: latitude,
       longitude: longitude,
@@ -289,6 +284,7 @@ export class JobController {
   }
 
   @ApiOperation({ summary: 'Get all jobs with pagination and filters' })
+  @ApiResponse({ status: 200, description: 'Jobs retrieved successfully', type: JobListResponseDto })
   @Get()
   async findAll(
     @Query('page') page: string = '1',
@@ -300,7 +296,7 @@ export class JobController {
     @Query('sortBy') sortBy?: string, // sorting options
     @Query('search') search?: string, // search in title and description
     @Query('urgency') urgency?: string, // filter by urgency: 'urgent' or 'normal'
-  ) {
+  ): Promise<JobListResponseDto> {
     // Validate category if provided
     if (category && !Object.values(JobCategory).includes(category as JobCategory)) {
       throw new BadRequestException(`Invalid category: ${category}. Valid categories are: ${Object.values(JobCategory).join(', ')}`);
@@ -312,7 +308,7 @@ export class JobController {
       parsedPriceRange = { min, max };
     }
 
-    return this.jobService.findAll(
+    const result = await this.jobService.findAll(
       parseInt(page),
       parseInt(limit),
       category as JobCategory,
@@ -323,18 +319,43 @@ export class JobController {
       search,
       urgency,
     );
+
+    return {
+      success: true,
+      message: `Found ${result.jobs.length} jobs`,
+      data: {
+        jobs: result.jobs,
+        total: result.total,
+        totalPages: result.totalPages,
+        currentPage: parseInt(page),
+        limit: parseInt(limit),
+      },
+    };
   }
 
 
   @ApiOperation({ summary: 'Get jobs posted by the current user' })
+  @ApiResponse({ status: 200, description: 'User jobs retrieved successfully', type: JobListResponseDto })
   @Get('my-jobs')
   async findMyJobs(
     @Query('page') page: string = '1',
     @Query('limit') limit: string = '10',
     @Req() req: Request,
-  ) {
+  ): Promise<JobListResponseDto> {
     const userId = (req as any).user.userId || (req as any).user.id;
-    return this.jobService.findByUser(userId, parseInt(page), parseInt(limit));
+    const result = await this.jobService.findByUser(userId, parseInt(page), parseInt(limit));
+    
+    return {
+      success: true,
+      message: `Found ${result.jobs.length} of your jobs`,
+      data: {
+        jobs: result.jobs,
+        total: result.total,
+        totalPages: result.totalPages,
+        currentPage: parseInt(page),
+        limit: parseInt(limit),
+      },
+    };
   }
 
   @ApiOperation({ summary: 'Get all available job categories' })
@@ -432,9 +453,16 @@ export class JobController {
   }
 
   @ApiOperation({ summary: 'Get a specific job by ID' })
+  @ApiResponse({ status: 200, description: 'Job retrieved successfully', type: JobSingleResponseDto })
   @Get(':id')
-  async findOne(@Param('id') id: string): Promise<JobResponseDto> {
-    return this.jobService.findOne(id);
+  async findOne(@Param('id') id: string): Promise<JobSingleResponseDto> {
+    const job = await this.jobService.findOne(id);
+    
+    return {
+      success: true,
+      message: 'Job retrieved successfully',
+      data: job,
+    };
   }
 
   @ApiOperation({ summary: 'Update a job posting (supports image replace)' })
