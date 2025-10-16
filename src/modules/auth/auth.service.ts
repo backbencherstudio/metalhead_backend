@@ -255,7 +255,13 @@ export class AuthService {
   async login({ email, userId }) {
     try {
       const user = await UserRepository.getUserDetails(userId);
-      const payload = { email: email, sub: userId, type: user.type };
+      const fullName = `${user.first_name || ''} ${user.last_name || ''}`.trim() || user.name || 'User';
+      const payload = { 
+        email: email, 
+        sub: userId, 
+        type: user.type,
+        name: fullName
+      };
 
       const accessToken = this.jwtService.sign(payload, { expiresIn: '1h' });
       const refreshToken = this.jwtService.sign(payload, { expiresIn: '7d' });
@@ -312,7 +318,12 @@ export class AuthService {
         };
       }
 
-      const payload = { email: userDetails.email, sub: userDetails.id };
+      const fullName = `${userDetails.first_name || ''} ${userDetails.last_name || ''}`.trim() || userDetails.name || 'User';
+      const payload = { 
+        email: userDetails.email, 
+        sub: userDetails.id,
+        name: fullName
+      };
       const accessToken = this.jwtService.sign(payload, { expiresIn: '1h' });
 
       return {
@@ -1251,9 +1262,16 @@ export class AuthService {
    * Generate temporary JWT for profile completion
    */
   private async generateTemporaryJwt(userId: string): Promise<string> {
+    // Get user details to include name in JWT
+    const user = await UserRepository.getUserDetails(userId);
+    const fullName = `${user.first_name || ''} ${user.last_name || ''}`.trim() || user.name || 'User';
+    
     const payload = {
       userId: userId,
+      sub: userId,
+      email: user.email,
       type: 'temporary',
+      name: fullName,
       purpose: 'profile_completion',
     };
 
@@ -1266,9 +1284,16 @@ export class AuthService {
    * Generate permanent JWT after profile completion
    */
   async generatePermanentJwt(userId: string): Promise<string> {
+    // Get user details to include name in JWT
+    const user = await UserRepository.getUserDetails(userId);
+    const fullName = `${user.first_name || ''} ${user.last_name || ''}`.trim() || user.name || 'User';
+    
     const payload = {
       userId: userId,
-      // No type field means it's a regular JWT
+      sub: userId,
+      email: user.email,
+      type: user.type,
+      name: fullName
     };
 
     return this.jwtService.sign(payload, {

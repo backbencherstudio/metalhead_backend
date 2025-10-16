@@ -20,25 +20,41 @@ export class JobService {
   async create(createJobDto: CreateJobDto, userId: string, photoPaths?: string[]): Promise<JobCreateResponseDto> {
     const { requirements, notes, ...jobData } = createJobDto;
 
-    // Validate coordinates are provided (required from device GPS)
-    if (!jobData.latitude || !jobData.longitude) {
-      throw new Error('Latitude and longitude are required from device GPS');
-    }
-    
+    // Handle location data with smart fallback logic
+    let latitude: number;
+    let longitude: number;
+    let location: string;
 
-    // Auto-generate address from coordinates if location not provided
-    if (!jobData.location) {
+    // Priority 1: Use device GPS coordinates if provided
+    if (jobData.latitude && jobData.longitude) {
+      latitude = jobData.latitude;
+      longitude = jobData.longitude;
+      location = jobData.location || `Location: ${latitude}, ${longitude}`;
+    }
+    // Priority 2: Use geocoding if user provided address but no GPS
+    else if (jobData.location && !jobData.latitude && !jobData.longitude) {
       try {
-        const address = await this.geocodingService.reverseGeocode(jobData.latitude, jobData.longitude);
-        if (address) {
-          jobData.location = address;
+        const coordinates = await this.geocodingService.geocodeAddress(jobData.location);
+        if (coordinates) {
+          latitude = coordinates.lat;
+          longitude = coordinates.lng;
+          location = jobData.location;
         } else {
-          jobData.location = `Location: ${jobData.latitude}, ${jobData.longitude}`;
+          throw new Error('Could not geocode the provided address');
         }
       } catch (error) {
-        jobData.location = `Location: ${jobData.latitude}, ${jobData.longitude}`;
+        throw new Error(`Geocoding failed: ${error.message}. Please provide GPS coordinates or a valid address.`);
       }
     }
+    // Priority 3: Neither GPS nor address provided
+    else {
+      throw new Error('Either GPS coordinates (latitude, longitude) or a valid address (location) must be provided');
+    }
+
+    // Update jobData with resolved values
+    jobData.latitude = latitude;
+    jobData.longitude = longitude;
+    jobData.location = location;
 
 
     // Calculate estimated time from start_time and end_time
@@ -224,26 +240,28 @@ export class JobService {
   }
 
   async findAll(
-    page: number = 1,
-    limit: number = 10,
     category?: JobCategory,
     location?: string,
-    jobType?: string,
+    jobType?: string, // URGENT or ANYTIME
+    paymentType?: string, // HOURLY or FIXED
+    jobStatus?: string, // posted, counter_offer, confirmed, ongoing, completed, paid
     priceRange?: { min: number, max: number },
+    dateRange?: { start: Date, end: Date },
     sortBy?: string, // added sorting logic
     search?: string, // search in title and description
     urgency?: string, // filter by urgency: 'urgent' or 'normal'
-  ): Promise<{ jobs: JobResponseDto[]; total: number; totalPages: number }> {
-    const skip = (page - 1) * limit;
+  ): Promise<{ jobs: JobResponseDto[]; total: number }> {
     const where: any = {
       status: 1,
       deleted_at: null,
     };
 
+    // Category filter
     if (category) {
       where.category = category;
     }
 
+    // Location filter
     if (location) {
       where.location = {
         contains: location,
@@ -251,10 +269,22 @@ export class JobService {
       };
     }
 
+    // Job type filter (URGENT or ANYTIME)
     if (jobType) {
       where.job_type = jobType;
     }
 
+    // Payment type filter (HOURLY or FIXED)
+    if (paymentType) {
+      where.payment_type = paymentType;
+    }
+
+    // Job status filter
+    if (jobStatus) {
+      where.job_status = jobStatus;
+    }
+
+    // Price range filter
     if (priceRange) {
       where.price = {
         gte: priceRange.min,
@@ -262,13 +292,12 @@ export class JobService {
       };
     }
 
-    // Add job type filtering
-    if (jobType) {
-      if (jobType === 'URGENT') {
-        where.job_type = 'URGENT';
-      } else if (jobType === 'ANYTIME') {
-        where.job_type = 'ANYTIME';
-      }
+    // Date range filter
+    if (dateRange) {
+      where.date_and_time = {
+        gte: dateRange.start,
+        lte: dateRange.end,
+      };
     }
 
     // Add urgency filtering (based on urgent_note)
@@ -323,8 +352,6 @@ export class JobService {
     const [jobs, total] = await Promise.all([
       this.prisma.job.findMany({
         where,
-        skip,
-        take: limit,
         orderBy,
         include: {
           requirements: true,
@@ -342,13 +369,9 @@ export class JobService {
       this.prisma.job.count({ where }),
     ]);
 
-
-    const totalPages = Math.ceil(total / limit);
-
     return {
       jobs: jobs.map((job) => this.mapToResponseDto(job)),
       total,
-      totalPages,
     };
   }
 
@@ -411,9 +434,7 @@ export class JobService {
     return this.mapToResponseDto(job);
   }
 
-  async findByUser(userId: string, page: number = 1, limit: number = 10) {
-    const skip = (page - 1) * limit;
-
+  async findByUser(userId: string) {
     const [jobs, total] = await Promise.all([
       this.prisma.job.findMany({
         where: {
@@ -421,8 +442,6 @@ export class JobService {
           status: 1,
           deleted_at: null,
         },
-        skip,
-        take: limit,
         orderBy: {
           created_at: 'desc',
         },
@@ -440,12 +459,9 @@ export class JobService {
       }),
     ]);
 
-    const totalPages = Math.ceil(total / limit);
-
     return {
       jobs: jobs.map((job) => this.mapToResponseDto(job)),
       total,
-      totalPages,
     };
   }
 
@@ -743,6 +759,10 @@ export class JobService {
     return result;
   }
 
+  async testGeocoding(address: string): Promise<{ lat: number; lng: number } | null> {
+    return await this.geocodingService.geocodeAddress(address);
+  }
+
   async remove(id: string, userId: string): Promise<void> {
     const existingJob = await this.prisma.job.findFirst({
       where: {
@@ -767,9 +787,6 @@ export class JobService {
   }
 
 
-  async testGeocoding(address: string): Promise<{ lat: number; lng: number } | null> {
-    return await this.geocodingService.geocodeAddress(address);
-  }
 
 
   /**
@@ -779,10 +796,8 @@ export class JobService {
   async getJobsNearUser(
     userId: string,
     radiusKm: number = 20,
-    page: number = 1,
-    limit: number = 10,
     category?: JobCategory,
-  ): Promise<{ jobs: JobResponseDto[]; total: number; page: number; limit: number; radius: number }> {
+  ): Promise<{ jobs: JobResponseDto[]; total: number; radius: number }> {
 
     // Get user's location
     const user = await this.prisma.user.findUnique({
@@ -867,8 +882,6 @@ export class JobService {
             },
           },
           orderBy: { created_at: 'desc' },
-          skip: (page - 1) * limit,
-          take: limit,
         }),
         this.prisma.job.count({ where: whereClause }),
       ]);
@@ -876,8 +889,6 @@ export class JobService {
       return {
         jobs: jobs.map(job => this.mapToResponseDto(job)),
         total,
-        page,
-        limit,
         radius: radiusKm,
       };
     }
@@ -948,15 +959,12 @@ export class JobService {
       return distance <= radiusKm;
     });
 
-    // Apply pagination
+    // Return all jobs within radius (no pagination)
     const total = jobsWithinRadius.length;
-    const paginatedJobs = jobsWithinRadius.slice((page - 1) * limit, page * limit);
 
     return {
-      jobs: paginatedJobs.map(job => this.mapToResponseDto(job)),
+      jobs: jobsWithinRadius.map(job => this.mapToResponseDto(job)),
       total,
-      page,
-      limit,
       radius: radiusKm,
     };
   }
@@ -978,6 +986,21 @@ export class JobService {
 
   private degreesToRadians(degrees: number): number {
     return degrees * (Math.PI / 180);
+  }
+
+  private parsePhotos(photos: string): string[] {
+    try {
+      // Try to parse as JSON array first
+      const parsed = JSON.parse(photos);
+      if (Array.isArray(parsed)) {
+        return parsed.map((photo: string) => SojebStorage.url(photo));
+      }
+      // If it's not an array, treat as single photo
+      return [SojebStorage.url(parsed)];
+    } catch (error) {
+      // If JSON parsing fails, treat as single photo path
+      return [SojebStorage.url(photos)];
+    }
   }
 
   private mapToResponseDto(job: any): JobResponseDto {
@@ -1013,7 +1036,7 @@ export class JobService {
       requirements: job.requirements || [],
       notes: job.notes || [],
       urgent_note: job.urgent_note,
-      photos: job.photos ? JSON.parse(job.photos).map((photo: string) => SojebStorage.url(photo)) : [],
+      photos: job.photos ? this.parsePhotos(job.photos) : [],
       user_id: job.user_id,
       created_at: job.created_at,
       updated_at: job.updated_at,
@@ -1126,6 +1149,122 @@ export class JobService {
     });
 
     return jobs.map(job => this.mapToResponseDto(job));
+  }
+
+  async getLatestAppointment(userId: string) {
+    const job = await this.prisma.job.findFirst({
+      where: {
+        OR: [
+          // Jobs posted by the user
+          {
+            user_id: userId,
+            job_status: { in: ['confirmed', 'ongoing'] },
+            deleted_at: null,
+            status: 1
+          },
+          // Jobs where user is the helper (accepted offers)
+          {
+            accepted_offers: {
+              some: {
+                counter_offer: {
+                  helper_id: userId
+                }
+              }
+            },
+            job_status: { in: ['confirmed', 'ongoing'] },
+            deleted_at: null,
+            status: 1
+          }
+        ]
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            first_name: true,
+            last_name: true,
+            email: true,
+            phone_number: true,
+            avatar: true
+          }
+        },
+        accepted_offers: {
+          include: {
+            counter_offer: {
+              include: {
+                helper: {
+                  select: {
+                    id: true,
+                    name: true,
+                    first_name: true,
+                    last_name: true,
+                    email: true,
+                    phone_number: true,
+                    avatar: true
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      orderBy: { date_and_time: 'asc' }
+    });
+
+    return job ? this.mapToResponseDto(job) : null;
+  }
+
+  async getLatestJob(helperId: string) {
+    const job = await this.prisma.job.findFirst({
+      where: {
+        accepted_offers: {
+          some: {
+            counter_offer: {
+              helper_id: helperId
+            }
+          }
+        },
+        job_status: { in: ['confirmed', 'ongoing'] },
+        deleted_at: null,
+        status: 1
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            first_name: true,
+            last_name: true,
+            email: true,
+            phone_number: true,
+            avatar: true
+          }
+        },
+        accepted_offers: {
+          include: {
+            counter_offer: {
+              include: {
+                helper: {
+                  select: {
+                    id: true,
+                    name: true,
+                    first_name: true,
+                    last_name: true,
+                    email: true,
+                    phone_number: true,
+                    avatar: true
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      orderBy: { date_and_time: 'asc' }
+    });
+
+    return job ? this.mapToResponseDto(job) : null;
   }
 
   async getPastAppointments(userId: string) {

@@ -31,6 +31,7 @@ import { RequestExtraTimeDto } from './dto/request-extra-time.dto';
 import { ApproveExtraTimeDto } from './dto/approve-extra-time.dto';
 import { UpdateHelperPreferencesDto } from './dto/update-helper-preferences.dto';
 import { CategoriesListResponseDto, CategoryResponseDto } from './dto/category-response.dto';
+import { LatestJobResponseDto } from './dto/latest-job-response.dto';
 import { JobCategory, JOB_CATEGORY_LABELS, JOB_CATEGORY_DESCRIPTIONS } from './enums/job-category.enum';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { Request } from 'express';
@@ -283,17 +284,18 @@ export class JobController {
     return this.jobService.create(jobData, userId, photoPaths);
   }
 
-  @ApiOperation({ summary: 'Get all jobs with pagination and filters' })
+  @ApiOperation({ summary: 'Get all jobs with comprehensive filters (no pagination - Flutter handles pagination)' })
   @ApiResponse({ status: 200, description: 'Jobs retrieved successfully', type: JobListResponseDto })
   @Get()
   async findAll(
-    @Query('page') page: string = '1',
-    @Query('limit') limit: string = '10',
     @Query('category') category?: string,
     @Query('location') location?: string,
-    @Query('jobType') jobType?: string,
+    @Query('jobType') jobType?: string, // URGENT or ANYTIME
+    @Query('paymentType') paymentType?: string, // HOURLY or FIXED
+    @Query('jobStatus') jobStatus?: string, // posted, counter_offer, confirmed, ongoing, completed, paid
     @Query('priceRange') priceRange?: string,  // price range will come as a string (e.g., "100,500")
-    @Query('sortBy') sortBy?: string, // sorting options
+    @Query('dateRange') dateRange?: string, // date range as "startDate,endDate" (e.g., "2024-01-01,2024-12-31")
+    @Query('sortBy') sortBy?: string, // sorting options: price_asc, price_desc, location, title, urgency, created_at
     @Query('search') search?: string, // search in title and description
     @Query('urgency') urgency?: string, // filter by urgency: 'urgent' or 'normal'
   ): Promise<JobListResponseDto> {
@@ -308,13 +310,23 @@ export class JobController {
       parsedPriceRange = { min, max };
     }
 
+    let parsedDateRange = null;
+    if (dateRange) {
+      const [startDate, endDate] = dateRange.split(',');
+      parsedDateRange = { 
+        start: new Date(startDate), 
+        end: new Date(endDate) 
+      };
+    }
+
     const result = await this.jobService.findAll(
-      parseInt(page),
-      parseInt(limit),
       category as JobCategory,
       location,
       jobType,
+      paymentType,
+      jobStatus,
       parsedPriceRange,
+      parsedDateRange,
       sortBy,
       search,
       urgency,
@@ -326,24 +338,19 @@ export class JobController {
       data: {
         jobs: result.jobs,
         total: result.total,
-        totalPages: result.totalPages,
-        currentPage: parseInt(page),
-        limit: parseInt(limit),
       },
     };
   }
 
 
-  @ApiOperation({ summary: 'Get jobs posted by the current user' })
+  @ApiOperation({ summary: 'Get jobs posted by the current user (no pagination - Flutter handles pagination)' })
   @ApiResponse({ status: 200, description: 'User jobs retrieved successfully', type: JobListResponseDto })
   @Get('my-jobs')
   async findMyJobs(
-    @Query('page') page: string = '1',
-    @Query('limit') limit: string = '10',
     @Req() req: Request,
   ): Promise<JobListResponseDto> {
     const userId = (req as any).user.userId || (req as any).user.id;
-    const result = await this.jobService.findByUser(userId, parseInt(page), parseInt(limit));
+    const result = await this.jobService.findByUser(userId);
     
     return {
       success: true,
@@ -351,10 +358,54 @@ export class JobController {
       data: {
         jobs: result.jobs,
         total: result.total,
-        totalPages: result.totalPages,
-        currentPage: parseInt(page),
-        limit: parseInt(limit),
       },
+    };
+  }
+
+  @ApiOperation({ summary: 'Get latest upcoming appointment for user' })
+  @ApiResponse({ status: 200, description: 'Latest appointment retrieved successfully', type: LatestJobResponseDto })
+  @Get('latest-appointment')
+  async getLatestAppointment(@Req() req: Request): Promise<LatestJobResponseDto> {
+    const userId = (req as any).user.userId || (req as any).user.id;
+    const latestJob = await this.jobService.getLatestAppointment(userId);
+    
+    return {
+      success: true,
+      message: latestJob ? 'Latest appointment retrieved successfully' : 'No upcoming appointments',
+      data: latestJob,
+    };
+  }
+
+  @ApiOperation({ summary: 'Get latest upcoming job for helper' })
+  @ApiResponse({ status: 200, description: 'Latest job retrieved successfully', type: LatestJobResponseDto })
+  @Get('latest-job')
+  async getLatestJob(@Req() req: Request): Promise<LatestJobResponseDto> {
+    const helperId = (req as any).user.userId || (req as any).user.id;
+    const latestJob = await this.jobService.getLatestJob(helperId);
+    
+    return {
+      success: true,
+      message: latestJob ? 'Latest job retrieved successfully' : 'No upcoming jobs',
+      data: latestJob,
+    };
+  }
+
+  @ApiOperation({ summary: 'Debug JWT payload - shows current user info from token' })
+  @ApiResponse({ status: 200, description: 'JWT payload decoded successfully' })
+  @Get('debug-jwt')
+  async debugJwt(@Req() req: Request) {
+    const user = (req as any).user;
+    return {
+      success: true,
+      message: 'JWT payload decoded successfully',
+      data: {
+        userId: user.userId || user.id,
+        name: user.name,
+        email: user.email,
+        type: user.type,
+        isTemporary: user.isTemporary,
+        fullUserObject: user
+      }
     };
   }
 
@@ -409,17 +460,20 @@ export class JobController {
     };
   }
 
-  @ApiOperation({ summary: 'Get jobs by specific category' })
+  @ApiOperation({ summary: 'Get jobs by specific category with comprehensive filters (no pagination - Flutter handles pagination)' })
   @ApiResponse({ status: 200, description: 'Jobs filtered by category', type: [JobResponseDto] })
   @Get('by-category/:category')
   async getJobsByCategory(
     @Param('category') category: string,
-    @Query('page') page: string = '1',
-    @Query('limit') limit: string = '10',
     @Query('location') location?: string,
-    @Query('jobType') jobType?: string,
+    @Query('jobType') jobType?: string, // URGENT or ANYTIME
+    @Query('paymentType') paymentType?: string, // HOURLY or FIXED
+    @Query('jobStatus') jobStatus?: string, // posted, counter_offer, confirmed, ongoing, completed, paid
     @Query('priceRange') priceRange?: string,
+    @Query('dateRange') dateRange?: string,
     @Query('sortBy') sortBy?: string,
+    @Query('search') search?: string,
+    @Query('urgency') urgency?: string,
   ) {
     // Validate category
     if (!Object.values(JobCategory).includes(category as JobCategory)) {
@@ -432,14 +486,26 @@ export class JobController {
       parsedPriceRange = { min, max };
     }
 
+    let parsedDateRange = null;
+    if (dateRange) {
+      const [startDate, endDate] = dateRange.split(',');
+      parsedDateRange = { 
+        start: new Date(startDate), 
+        end: new Date(endDate) 
+      };
+    }
+
     const result = await this.jobService.findAll(
-      parseInt(page),
-      parseInt(limit),
       category as JobCategory,
       location,
       jobType,
+      paymentType,
+      jobStatus,
       parsedPriceRange,
+      parsedDateRange,
       sortBy,
+      search,
+      urgency,
     );
 
     return {
@@ -644,7 +710,6 @@ export class JobController {
       };
     }
   }
-
 
   @ApiOperation({ summary: 'Debug: Get current user info' })
   @Get('debug/user-info')
