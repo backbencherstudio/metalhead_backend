@@ -21,6 +21,7 @@ import { LocalAuthGuard } from './guards/local-auth.guard';
 import { CreateUserDto } from './dto/create-user.dto';
 import { VerifyEmailDto } from './dto/verify-email.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
+import { ConvertRoleDto } from './dto/convert-role.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { TemporaryJwtAuthGuard } from './guards/temporary-jwt-auth.guard';
 import appConfig from '../../config/app.config';

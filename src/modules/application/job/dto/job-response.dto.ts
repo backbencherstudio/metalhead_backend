@@ -108,7 +108,6 @@ export class JobResponseDto {
 
   @ApiProperty({ required: false })
   urgent_note?: string;
-
   @ApiProperty({ type: [String] })
   photos: string[];
 

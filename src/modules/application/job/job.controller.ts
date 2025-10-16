@@ -103,7 +103,6 @@ export class JobController {
   ): Promise<JobCreateResponseDto> {
     const userId = (req as any).user.userId || (req as any).user.id;
     
-    
     // Parse JSON strings for requirements and notes
     let requirements = [];
     let notes = [];
@@ -176,6 +175,8 @@ export class JobController {
         }
       }
     }
+    // Store photos as JSON string in database
+    const photoPath = photoPaths.length > 0 ? JSON.stringify(photoPaths) : null;
     
     // Handle single files from other fields (fallback)
     const singleFile = files?.file?.[0] || files?.image?.[0] || files?.photo?.[0];
@@ -548,7 +549,7 @@ export class JobController {
         description: { type: 'string' },
         requirements: { type: 'string' },
         notes: { type: 'string' },
-        file: { type: 'string', format: 'binary' },
+        photoes: { type: 'string', format: 'binary' },
       },
     },
   })
@@ -586,13 +587,17 @@ export class JobController {
     }
 
     let photoPath: string | undefined;
-    const fileCandidate =
-      files?.file?.[0] || files?.File?.[0] || files?.image?.[0] || files?.photo?.[0];
-    if (fileCandidate) {
-      const fileExtension = fileCandidate.originalname.split('.').pop();
-      const uniqueFileName = `job-photos/${uuidv4()}.${fileExtension}`;
-      await SojebStorage.put(uniqueFileName, fileCandidate.buffer);
-      photoPath = uniqueFileName;
+    const uploadedFiles = files?.photoes || files?.file || files?.File || files?.image || files?.photo || [];
+    
+    if (uploadedFiles.length > 0) {
+      const photoPaths = [];
+      for (const file of uploadedFiles) {
+        const fileExtension = file.originalname.split('.').pop();
+        const uniqueFileName = `job-photos/${uuidv4()}.${fileExtension}`;
+        await SojebStorage.put(uniqueFileName, file.buffer);
+        photoPaths.push(uniqueFileName);
+      }
+      photoPath = JSON.stringify(photoPaths);
     }
 
     const dto: UpdateJobDto = {

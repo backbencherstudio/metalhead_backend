@@ -1300,5 +1300,4 @@ export class AuthService {
       expiresIn: appConfig().jwt.expiry,
     });
   }
-
 }

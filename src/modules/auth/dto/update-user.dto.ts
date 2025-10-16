@@ -54,7 +54,7 @@ export class UpdateUserDto extends PartialType(OmitType(CreateUserDto, ['email']
   })
   zip_code: string;
 
-  @IsPhoneNumber()
+ 
   @IsOptional()
   @ApiProperty({
     description: 'Phone number',
