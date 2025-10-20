@@ -74,7 +74,10 @@ export class JobResponseDto {
   category: string;
 
   @ApiProperty()
-  date_and_time: Date;
+  start_time: Date;
+
+  @ApiProperty()
+  end_time: Date;
 
   @ApiProperty()
   price: number;

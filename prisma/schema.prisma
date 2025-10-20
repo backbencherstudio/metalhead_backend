@@ -87,7 +87,7 @@ model User {
   jobs                 Job[]
 
   helper_offers    CounterOffer[]  @relation("UserHelperOffers")
-  accepted_offers  AcceptedOffer[] @relation("UserAcceptedOffers")
+  assigned_jobs    Job[]           @relation("AssignedHelper")
   reviewer_reviews Review[]        @relation("ReviewerReviews")
   reviewee_reviews Review[]        @relation("RevieweeReviews")
 
@@ -528,10 +528,17 @@ model Job {
   user_id         String?
   user            User?              @relation(fields: [user_id], references: [id])
   counter_offers  CounterOffer[]     @relation("JobCounterOffers")
-  accepted_offers AcceptedOffer[]    @relation("JobAcceptedOffers")
+  
+  // For counter offer acceptance
+  accepted_counter_offer_id String?  // ID of the accepted counter offer
+  accepted_counter_offer    CounterOffer? @relation("AcceptedCounterOffer", fields: [accepted_counter_offer_id], references: [id])
+  
+  // For direct job acceptance (optional)
+  assigned_helper_id String?  // Direct helper assignment
+  assigned_helper    User?    @relation("AssignedHelper", fields: [assigned_helper_id], references: [id])
+  
   reviews         Review[]
   status_history  JobStatusHistory[]
-
 
   @@map("jobs")
 }
@@ -583,26 +590,12 @@ model CounterOffer {
   helper_id String
   helper    User   @relation("UserHelperOffers", fields: [helper_id], references: [id])
 
-  acceptedOffer AcceptedOffer?
+  // Relation for accepted counter offers
+  accepted_by_jobs Job[] @relation("AcceptedCounterOffer")
 
   @@map("counter_offers")
 }
 
-model AcceptedOffer {
-  id         String   @id @default(cuid())
-  created_at DateTime @default(now())
-
-  counter_offer_id String       @unique
-  counter_offer    CounterOffer @relation(fields: [counter_offer_id], references: [id], onDelete: Cascade)
-
-  job_id String
-  job    Job    @relation("JobAcceptedOffers", fields: [job_id], references: [id])
-
-  user_id String
-  user    User   @relation("UserAcceptedOffers", fields: [user_id], references: [id])
-
-  @@map("accepted_offers")
-}
 
 model Review {
   id         String    @id @default(cuid())

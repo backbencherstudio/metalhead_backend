@@ -84,7 +84,6 @@ export class JobService {
       data: {
         title: jobData.title,
         category: jobData.category,
-        date_and_time: jobDateTime,
         price: jobData.price,
         payment_type: jobData.payment_type,
         job_type: jobData.job_type,
@@ -823,7 +822,8 @@ export class JobService {
       id: job.id,
       title: job.title,
       category: job.category,
-      date_and_time: job.date_and_time,
+      start_time: job.start_time,
+      end_time: job.end_time,
       price: job.price,
       payment_type: job.payment_type,
       job_type: job.job_type,

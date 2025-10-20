@@ -62,7 +62,7 @@ export class JobController {
         payment_type: { type: 'string' },
         job_type: { type: 'string' },
         location: { type: 'string' },
-        estimated_time: { type: 'string' },
+        estimated_time: { type: 'number' },
         description: { type: 'string' },
         requirements: { type: 'string' },
         notes: { type: 'string' },
@@ -275,12 +275,7 @@ export class JobController {
       urgent_note: createJobDto.urgent_note,
     };
     
-    // Debug: Log the final job data being sent to service
-    console.log('DEBUG - Final job data being sent to service:');
-    console.log('DEBUG - Requirements in jobData:', jobData.requirements);
-    console.log('DEBUG - Requirements type in jobData:', typeof jobData.requirements);
-    console.log('DEBUG - Requirements length in jobData:', Array.isArray(jobData.requirements) ? jobData.requirements.length : 'not an array');
-    console.log('DEBUG - Full jobData object:', JSON.stringify(jobData, null, 2));
+    
     
     return this.jobService.create(jobData, userId, photoPaths);
   }
@@ -391,24 +386,6 @@ export class JobController {
     };
   }
 
-  @ApiOperation({ summary: 'Debug JWT payload - shows current user info from token' })
-  @ApiResponse({ status: 200, description: 'JWT payload decoded successfully' })
-  @Get('debug-jwt')
-  async debugJwt(@Req() req: Request) {
-    const user = (req as any).user;
-    return {
-      success: true,
-      message: 'JWT payload decoded successfully',
-      data: {
-        userId: user.userId || user.id,
-        name: user.name,
-        email: user.email,
-        type: user.type,
-        isTemporary: user.isTemporary,
-        fullUserObject: user
-      }
-    };
-  }
 
   @ApiOperation({ summary: 'Get all available job categories' })
   @ApiResponse({ status: 200, description: 'Categories retrieved successfully', type: CategoriesListResponseDto })
@@ -545,7 +522,7 @@ export class JobController {
         payment_type: { type: 'string' },
         job_type: { type: 'string' },
         location: { type: 'string' },
-        estimated_time: { type: 'string' },
+        estimated_time: { type: 'number' },
         description: { type: 'string' },
         requirements: { type: 'string' },
         notes: { type: 'string' },
@@ -608,7 +585,6 @@ export class JobController {
       payment_type: updateJobDto?.payment_type,
       job_type: updateJobDto?.job_type,
       location: updateJobDto?.location,
-      estimated_time: updateJobDto?.estimated_time,
       description: updateJobDto?.description,
       requirements: requirements.length ? requirements : undefined,
       notes: notes.length ? notes : undefined,
