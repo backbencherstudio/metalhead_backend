@@ -40,36 +40,45 @@ export class DashboardService {
     ] = await Promise.all([
       this.prisma.job.count({
         where: {
-          accepted_offers: {
-            some: {
-              counter_offer: {
+          OR: [
+            {
+              accepted_counter_offer: {
                 helper_id: helperId,
               },
             },
-          },
+            {
+              assigned_helper_id: helperId,
+            },
+          ],
         },
       }),
       this.prisma.job.count({
         where: {
-          accepted_offers: {
-            some: {
-              counter_offer: {
+          OR: [
+            {
+              accepted_counter_offer: {
                 helper_id: helperId,
               },
             },
-          },
+            {
+              assigned_helper_id: helperId,
+            },
+          ],
           job_status: { in: ['confirmed', 'ongoing'] },
         },
       }),
       this.prisma.job.count({
         where: {
-          accepted_offers: {
-            some: {
-              counter_offer: {
+          OR: [
+            {
+              accepted_counter_offer: {
                 helper_id: helperId,
               },
             },
-          },
+            {
+              assigned_helper_id: helperId,
+            },
+          ],
           job_status: 'completed',
         },
       }),
@@ -159,15 +168,12 @@ export class DashboardService {
     const job = await this.prisma.job.findUnique({
       where: { id: jobId },
       include: {
-        accepted_offers: {
+        accepted_counter_offer: {
           include: {
-            counter_offer: {
-              include: {
-                helper: true,
-              },
-            },
+            helper: true,
           },
         },
+        assigned_helper: true,
       },
     });
 
@@ -177,9 +183,7 @@ export class DashboardService {
 
     // Determine user role
     const isOwner = job.user_id === userId;
-    const isHelper = job.accepted_offers.some(
-      offer => offer.counter_offer.helper_id === userId
-    );
+    const isHelper = job.accepted_counter_offer?.helper_id === userId || job.assigned_helper_id === userId;
 
     if (!isOwner && !isHelper) {
       throw new NotFoundException('You are not authorized to view this job');
@@ -202,26 +206,26 @@ export class DashboardService {
   private async getHelperRecentJobs(helperId: string, limit: number): Promise<JobSummaryDto[]> {
     const jobs = await this.prisma.job.findMany({
       where: {
-        accepted_offers: {
-          some: {
-            counter_offer: {
+        OR: [
+          {
+            accepted_counter_offer: {
               helper_id: helperId,
             },
           },
-        },
+          {
+            assigned_helper_id: helperId,
+          },
+        ],
       },
       orderBy: { created_at: 'desc' },
       take: limit,
       include: {
-        accepted_offers: {
+        accepted_counter_offer: {
           include: {
-            counter_offer: {
-              include: {
-                helper: true,
-              },
-            },
+            helper: true,
           },
         },
+        assigned_helper: true,
       },
     });
 
@@ -231,26 +235,26 @@ export class DashboardService {
   private async getHelperActiveJobs(helperId: string): Promise<JobSummaryDto[]> {
     const jobs = await this.prisma.job.findMany({
       where: {
-        accepted_offers: {
-          some: {
-            counter_offer: {
+        OR: [
+          {
+            accepted_counter_offer: {
               helper_id: helperId,
             },
           },
-        },
+          {
+            assigned_helper_id: helperId,
+          },
+        ],
         job_status: { in: ['confirmed', 'ongoing'] },
       },
       orderBy: { created_at: 'desc' },
       include: {
-        accepted_offers: {
+        accepted_counter_offer: {
           include: {
-            counter_offer: {
-              include: {
-                helper: true,
-              },
-            },
+            helper: true,
           },
         },
+        assigned_helper: true,
       },
     });
 
@@ -263,15 +267,12 @@ export class DashboardService {
       orderBy: { created_at: 'desc' },
       take: limit,
       include: {
-        accepted_offers: {
+        accepted_counter_offer: {
           include: {
-            counter_offer: {
-              include: {
-                helper: true,
-              },
-            },
+            helper: true,
           },
         },
+        assigned_helper: true,
       },
     });
 
@@ -286,15 +287,12 @@ export class DashboardService {
       },
       orderBy: { created_at: 'desc' },
       include: {
-        accepted_offers: {
+        accepted_counter_offer: {
           include: {
-            counter_offer: {
-              include: {
-                helper: true,
-              },
-            },
+            helper: true,
           },
         },
+        assigned_helper: true,
       },
     });
 
@@ -304,13 +302,16 @@ export class DashboardService {
   private async calculateHelperEarnings(helperId: string): Promise<{ total: number; pending: number }> {
     const completedJobs = await this.prisma.job.findMany({
       where: {
-        accepted_offers: {
-          some: {
-            counter_offer: {
+        OR: [
+          {
+            accepted_counter_offer: {
               helper_id: helperId,
             },
           },
-        },
+          {
+            assigned_helper_id: helperId,
+          },
+        ],
         job_status: 'completed',
       },
       select: {
@@ -344,7 +345,7 @@ export class DashboardService {
   }
 
   private mapToJobSummary(job: any, userRole: 'owner' | 'helper'): JobSummaryDto {
-    const acceptedOffer = job.accepted_offers?.[0];
+    const acceptedOffer = job.accepted_counter_offer || (job.assigned_helper_id ? { helper: job.assigned_helper } : null);
     
     return {
       id: job.id,

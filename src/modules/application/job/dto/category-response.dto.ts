@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { JobCategory } from '../enums/job-category.enum';
+import { JobCategory } from '@prisma/client';
 
 export class CategoryResponseDto {
   @ApiProperty({

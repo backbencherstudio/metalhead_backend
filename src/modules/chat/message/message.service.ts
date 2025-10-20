@@ -77,15 +77,29 @@ export class MessageService {
           OR: [
             {
               user_id: ownerId,
-              accepted_offers: {
-                some: { counter_offer: { helper_id: otherId } },
-              },
+              OR: [
+                {
+                  accepted_counter_offer: {
+                    helper_id: otherId,
+                  },
+                },
+                {
+                  assigned_helper_id: otherId,
+                },
+              ],
             },
             {
               user_id: otherId,
-              accepted_offers: {
-                some: { counter_offer: { helper_id: ownerId } },
-              },
+              OR: [
+                {
+                  accepted_counter_offer: {
+                    helper_id: ownerId,
+                  },
+                },
+                {
+                  assigned_helper_id: ownerId,
+                },
+              ],
             },
           ],
         },
@@ -398,15 +412,29 @@ export class MessageService {
           OR: [
             {
               user_id: ownerId,
-              accepted_offers: {
-                some: { counter_offer: { helper_id: otherId } },
-              },
+              OR: [
+                {
+                  accepted_counter_offer: {
+                    helper_id: otherId,
+                  },
+                },
+                {
+                  assigned_helper_id: otherId,
+                },
+              ],
             },
             {
               user_id: otherId,
-              accepted_offers: {
-                some: { counter_offer: { helper_id: ownerId } },
-              },
+              OR: [
+                {
+                  accepted_counter_offer: {
+                    helper_id: ownerId,
+                  },
+                },
+                {
+                  assigned_helper_id: ownerId,
+                },
+              ],
             },
           ],
         },

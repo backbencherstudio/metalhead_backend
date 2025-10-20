@@ -1,6 +1,5 @@
+import { JobService } from './../job/job.service';
 import { AcceptCounterOfferDto } from './dtos/accept-counter-offer.dto';
-
-// src/modules/application/counter-offer/counter-offer.service.ts
 import { ForbiddenException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CreateCounterOfferDto } from '../counter-offer/dtos/create-counter-offer.dto';
@@ -11,7 +10,8 @@ import { CounterOfferNotificationService } from './counter-offer-notification.se
 export class CounterOfferService {
   constructor(
     private prisma: PrismaService,
-    private counterOfferNotificationService: CounterOfferNotificationService
+    private counterOfferNotificationService: CounterOfferNotificationService,
+    readonly jobService: JobService
   ) {}
 
 async createCounterOffer(createCounterOfferDto: CreateCounterOfferDto, userId: string){
@@ -76,9 +76,11 @@ await this.prisma.counterOffer.deleteMany({
   },
 });
 
+const modifiedUpdatedjob=this.jobService.mapToResponseDto(updatedJob);
+
 return{
   message:'Counter offer accepted successfully',
-  updatedJob,
+  modifiedUpdatedjob,
 }
 }
 
@@ -112,9 +114,11 @@ async helperAcceptsJob(helperId: string, jobId: string) {
     }
   });
 
+  const modifiedUpdatedjob=this.jobService.mapToResponseDto(updatedJob);
+
   return {
     message: 'Job accepted successfully',
-    job: updatedJob,
+    job: modifiedUpdatedjob,
   };
 }
 }

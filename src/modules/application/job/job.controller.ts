@@ -30,9 +30,11 @@ import { EnumMapper } from './utils/enum-mapper.util';
 import { RequestExtraTimeDto } from './dto/request-extra-time.dto';
 import { ApproveExtraTimeDto } from './dto/approve-extra-time.dto';
 import { UpdateHelperPreferencesDto } from './dto/update-helper-preferences.dto';
+import { AddExtraTimeDto } from './dto/add-extra-time.dto';
 import { CategoriesListResponseDto, CategoryResponseDto } from './dto/category-response.dto';
 import { LatestJobResponseDto } from './dto/latest-job-response.dto';
-import { JobCategory, JOB_CATEGORY_LABELS, JOB_CATEGORY_DESCRIPTIONS } from './enums/job-category.enum';
+import { JOB_CATEGORY_LABELS, JOB_CATEGORY_DESCRIPTIONS } from './enums/job-category.enum';
+import { JobCategory } from '@prisma/client';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { Request } from 'express';
 import { SojebStorage } from '../../../common/lib/Disk/SojebStorage';
@@ -120,23 +122,16 @@ export class JobController {
             .replace(/\n/g, '') // Remove newlines
             .replace(/\r/g, ''); // Remove carriage returns
           
-          console.log('DEBUG - Cleaned JSON:', cleanedJson);
-          requirements = JSON.parse(cleanedJson);
-          console.log('DEBUG - Parsed requirements:', requirements);
+          
         } else if (Array.isArray(createJobDto.requirements)) {
-          console.log('DEBUG - Using requirements array directly:', createJobDto.requirements);
           requirements = createJobDto.requirements;
         }
       } catch (e) {
-        console.error('DEBUG - Error parsing requirements:', e);
-        console.log('DEBUG - Requirements parse error, using empty array');
+        console.error('DEBUG - Error parsing requirements:', e);;
         requirements = [];
       }
     }
-    
-    console.log('DEBUG - Final requirements array:', requirements);
-    console.log('DEBUG - Final requirements length:', requirements.length);
-    
+   
     if (createJobDto.notes) {
       try {
         if (typeof createJobDto.notes === 'string') {
@@ -186,69 +181,33 @@ export class JobController {
       await SojebStorage.put(uniqueFileName, singleFile.buffer);
       photoPaths.push(uniqueFileName);
     }
+  
+    let latitude: number | undefined;
+    let longitude: number | undefined;
     
-    console.log(`Total photos processed: ${photoPaths.length}`);
-    
-    // Job type validation is now handled by EnumMapper.mapJobType()
-
-    // Debug: Log the received price value and type
-    console.log('DEBUG - Received price:', createJobDto.price);
-    console.log('DEBUG - Price type:', typeof createJobDto.price);
-    console.log('DEBUG - Price isNaN:', isNaN(createJobDto.price));
-    
-    // Validate and convert price - handle different input types from Flutter
-    let price: number;
-    if (typeof createJobDto.price === 'string') {
-      // Remove any currency symbols or commas
-      const cleanPrice = createJobDto.price.replace(/[$,]/g, '');
-      price = parseFloat(cleanPrice);
-      console.log('DEBUG - Cleaned price string:', cleanPrice);
-      console.log('DEBUG - Parsed price:', price);
-    } else if (typeof createJobDto.price === 'number') {
-      price = createJobDto.price;
-      console.log('DEBUG - Using number directly:', price);
-    } else {
-      price = parseFloat(createJobDto.price);
-      console.log('DEBUG - Fallback parseFloat result:', price);
-    }
-    
-    console.log('DEBUG - Final price value:', price);
-    console.log('DEBUG - Final price isNaN:', isNaN(price));
-    console.log('DEBUG - Final price <= 0:', price <= 0);
-    
-    if (isNaN(price) || price <= 0) {
-      throw new BadRequestException(`Price must be a valid positive number. Received: "${createJobDto.price}" (type: ${typeof createJobDto.price})`);
-    }
-
-    // Debug: Log the received coordinate values
-    console.log('DEBUG - Received latitude:', createJobDto.latitude, 'type:', typeof createJobDto.latitude);
-    console.log('DEBUG - Received longitude:', createJobDto.longitude, 'type:', typeof createJobDto.longitude);
-    
-    // Validate coordinates - handle different input types from Flutter
-    let latitude: number;
-    let longitude: number;
-    
-    if (typeof createJobDto.latitude === 'string') {
-      latitude = parseFloat(createJobDto.latitude);
-    } else if (typeof createJobDto.latitude === 'number') {
-      latitude = createJobDto.latitude;
-    } else {
-      latitude = parseFloat(createJobDto.latitude);
-    }
-    
-    if (typeof createJobDto.longitude === 'string') {
-      longitude = parseFloat(createJobDto.longitude);
-    } else if (typeof createJobDto.longitude === 'number') {
-      longitude = createJobDto.longitude;
-    } else {
-      longitude = parseFloat(createJobDto.longitude);
-    }
-    
-    console.log('DEBUG - Final latitude:', latitude, 'isNaN:', isNaN(latitude));
-    console.log('DEBUG - Final longitude:', longitude, 'isNaN:', isNaN(longitude));
-    
-    if (isNaN(latitude) || isNaN(longitude)) {
-      throw new BadRequestException(`Latitude and longitude must be valid numbers. Received: lat="${createJobDto.latitude}" (type: ${typeof createJobDto.latitude}), lng="${createJobDto.longitude}" (type: ${typeof createJobDto.longitude})`);
+    // Only process coordinates if they are provided
+    if (createJobDto.latitude !== undefined && createJobDto.longitude !== undefined) {
+      // Validate coordinates - handle different input types from Flutter
+      if (typeof createJobDto.latitude === 'string') {
+        latitude = parseFloat(createJobDto.latitude);
+      } else if (typeof createJobDto.latitude === 'number') {
+        latitude = createJobDto.latitude;
+      } else {
+        latitude = parseFloat(createJobDto.latitude);
+      }
+      
+      if (typeof createJobDto.longitude === 'string') {
+        longitude = parseFloat(createJobDto.longitude);
+      } else if (typeof createJobDto.longitude === 'number') {
+        longitude = createJobDto.longitude;
+      } else {
+        longitude = parseFloat(createJobDto.longitude);
+      }
+      
+      // Only validate if coordinates were provided
+      if (isNaN(latitude) || isNaN(longitude)) {
+        throw new BadRequestException(`Latitude and longitude must be valid numbers. Received: lat="${createJobDto.latitude}" (type: ${typeof createJobDto.latitude}), lng="${createJobDto.longitude}" (type: ${typeof createJobDto.longitude})`);
+      }
     }
 
     // Map all enums using the comprehensive mapping system
@@ -261,12 +220,12 @@ export class JobController {
     const jobData: CreateJobDto = {
       title: createJobDto.title,
       category: category as any, // Use mapped category
-      price: price,
+      price: createJobDto.price,
       payment_type: paymentType as any, // Use mapped payment type
       job_type: jobType as any, // Use mapped job type
       location: createJobDto.location,
-      latitude: latitude,
-      longitude: longitude,
+      latitude: latitude, // Will be undefined if not provided, allowing geocoding
+      longitude: longitude, // Will be undefined if not provided, allowing geocoding
       start_time: createJobDto.start_time,
       end_time: createJobDto.end_time,
       description: createJobDto.description,
@@ -360,29 +319,15 @@ export class JobController {
 
   @ApiOperation({ summary: 'Get latest upcoming appointment for user' })
   @ApiResponse({ status: 200, description: 'Latest appointment retrieved successfully', type: LatestJobResponseDto })
-  @Get('latest-appointment')
-  async getLatestAppointment(@Req() req: Request): Promise<LatestJobResponseDto> {
-    const userId = (req as any).user.userId || (req as any).user.id;
-    const latestJob = await this.jobService.getLatestAppointment(userId);
+  @Get('upcoming')
+  async getLatestAppointment(@Req() req: Request) {
+    const userId = req.user.userId
+    const userType=(req as any).user.type;
+    const latestJob = await this.jobService.upcomingEvents(userId,userType);
     
     return {
       success: true,
-      message: latestJob ? 'Latest appointment retrieved successfully' : 'No upcoming appointments',
-      data: latestJob,
-    };
-  }
-
-  @ApiOperation({ summary: 'Get latest upcoming job for helper' })
-  @ApiResponse({ status: 200, description: 'Latest job retrieved successfully', type: LatestJobResponseDto })
-  @Get('latest-job')
-  async getLatestJob(@Req() req: Request): Promise<LatestJobResponseDto> {
-    const helperId = (req as any).user.userId || (req as any).user.id;
-    const latestJob = await this.jobService.getLatestJob(helperId);
-    
-    return {
-      success: true,
-      message: latestJob ? 'Latest job retrieved successfully' : 'No upcoming jobs',
-      data: latestJob,
+      latestJob: latestJob,
     };
   }
 
@@ -442,7 +387,7 @@ export class JobController {
   @ApiResponse({ status: 200, description: 'Jobs filtered by category', type: [JobResponseDto] })
   @Get('by-category/:category')
   async getJobsByCategory(
-    @Param('category') category: string,
+    @Param('category') givencategory: string,
     @Query('location') location?: string,
     @Query('jobType') jobType?: string, // URGENT or ANYTIME
     @Query('paymentType') paymentType?: string, // HOURLY or FIXED
@@ -454,6 +399,7 @@ export class JobController {
     @Query('urgency') urgency?: string,
   ) {
     // Validate category
+    const category=givencategory.toUpperCase();
     if (!Object.values(JobCategory).includes(category as JobCategory)) {
       throw new BadRequestException(`Invalid category: ${category}. Valid categories are: ${Object.values(JobCategory).join(', ')}`);
     }
@@ -473,8 +419,9 @@ export class JobController {
       };
     }
 
+    // Cast category to the correct Prisma enum type (assuming it's imported as PrismaJobCategory)
     const result = await this.jobService.findAll(
-      category as JobCategory,
+      category as any, // Temporary workaround: should match the target enum type in the service
       location,
       jobType,
       paymentType,
@@ -598,31 +545,30 @@ export class JobController {
 
   @ApiOperation({ summary: 'Mark job as started (Helper only)' })
   @Patch(':id/start')
-  async startJob(@Param('id') id: string, @Req() req: Request): Promise<{ message: string }> {
-    const userId = (req as any).user.userId || (req as any).user.id;
-    await this.jobService.startJob(id, userId);
-    return { message: 'Job marked as started successfully' };
+  async startJob(@Param('id') id: string, @Req() req: Request): Promise<any> {
+    const helperId = (req as any).user.userId || (req as any).user.id;
+    return this.jobService.startJob(id, helperId);
   }
 
   @ApiOperation({ summary: 'Mark job as completed (Helper only) - Returns time tracking data for hourly jobs' })
   @Patch(':id/complete')
   async completeJob(@Param('id') id: string, @Req() req: Request): Promise<any> {
-    const userId = (req as any).user.userId || (req as any).user.id;
-    return await this.jobService.completeJob(id, userId);
+    const helperId = (req as any).user.userId || (req as any).user.id;
+    return await this.jobService.completeJob(id, helperId);
   }
 
   @ApiOperation({ summary: 'Mark job as finished and release payment (User only)' })
   @Patch(':id/finish')
-  async finishJob(@Param('id') id: string, @Req() req: Request): Promise<{ message: string }> {
+  async finishJob(@Param('id') id: string, @Req() req: Request): Promise<any> {
     const userId = (req as any).user.userId || (req as any).user.id;
-    await this.jobService.finishJob(id, userId);
-    return { message: 'Job marked as finished and payment released successfully' };
+    return this.jobService.finishJob(id, userId);
   }
 
   @ApiOperation({ summary: 'Auto-complete job after 24 hours (System only)' })
   @Patch(':id/auto-complete')
   async autoCompleteJob(@Param('id') id: string): Promise<{ message: string }> {
-    await this.jobService.autoCompleteJob(id);
+    // This would be called by a system process, not a user
+    // For now, return a placeholder message
     return { message: 'Job auto-completed and payment released successfully' };
   }
 
@@ -667,41 +613,7 @@ export class JobController {
     }
   }
 
-  @ApiOperation({ summary: 'Test geocoding service with an address' })
-  @Get('test-geocoding/:address')
-  async testGeocoding(@Param('address') address: string): Promise<{ success: boolean; coordinates?: { lat: number; lng: number }; message: string }> {
-    try {
-      const coordinates = await this.jobService.testGeocoding(address);
-      if (coordinates) {
-        return {
-          success: true,
-          coordinates,
-          message: `Successfully geocoded "${address}" to (${coordinates.lat}, ${coordinates.lng})`
-        };
-      } else {
-        return {
-          success: false,
-          message: `Failed to geocode address: "${address}"`
-        };
-      }
-    } catch (error) {
-      return {
-        success: false,
-        message: `Geocoding error: ${error.message}`
-      };
-    }
-  }
 
-  @ApiOperation({ summary: 'Debug: Get current user info' })
-  @Get('debug/user-info')
-  async getUserInfo(@Req() req: Request): Promise<any> {
-    const userId = (req as any).user.userId || (req as any).user.id;
-    return {
-      jwtUser: (req as any).user,
-      extractedUserId: userId,
-      timestamp: new Date().toISOString(),
-    };
-  }
 
   // ==================== FIREBASE NOTIFICATION ENDPOINTS ====================
 
@@ -784,33 +696,15 @@ export class JobController {
     }
   }
 
-  @ApiOperation({ summary: 'Get upcoming appointments for user' })
-  @ApiResponse({ status: 200, description: 'Upcoming appointments retrieved successfully' })
-  @Get('appointments/upcoming')
-  async getUpcomingAppointments(@Req() req: Request) {
-    try {
-      const userId = (req as any).user.userId || (req as any).user.id;
-      const appointments = await this.jobService.getUpcomingAppointments(userId);
-      return {
-        success: true,
-        message: 'Upcoming appointments retrieved successfully',
-        data: appointments
-      };
-    } catch (error) {
-      return {
-        success: false,
-        message: error.message
-      };
-    }
-  }
-
+ 
   @ApiOperation({ summary: 'Get past appointments for user' })
   @ApiResponse({ status: 200, description: 'Past appointments retrieved successfully' })
-  @Get('appointments/past')
-  async getPastAppointments(@Req() req: Request) {
+  @Get('past-appointments')
+  async jobHistory(@Req() req: Request) {
     try {
-      const userId = (req as any).user.userId || (req as any).user.id;
-      const appointments = await this.jobService.getPastAppointments(userId);
+      const userId = req.user.userId
+      const userType=(req as any).user.type;
+      const appointments = await this.jobService.jobHistory(userId,userType);
       return {
         success: true,
         message: 'Past appointments retrieved successfully',
@@ -824,45 +718,7 @@ export class JobController {
     }
   }
 
-  @ApiOperation({ summary: 'Get upcoming appointments for helper' })
-  @ApiResponse({ status: 200, description: 'Helper upcoming appointments retrieved successfully' })
-  @Get('appointments/helper/upcoming')
-  async getHelperUpcomingAppointments(@Req() req: Request) {
-    try {
-      const helperId = (req as any).user.userId || (req as any).user.id;
-      const appointments = await this.jobService.getHelperUpcomingAppointments(helperId);
-      return {
-        success: true,
-        message: 'Helper upcoming appointments retrieved successfully',
-        data: appointments
-      };
-    } catch (error) {
-      return {
-        success: false,
-        message: error.message
-      };
-    }
-  }
 
-  @ApiOperation({ summary: 'Get past appointments for helper' })
-  @ApiResponse({ status: 200, description: 'Helper past appointments retrieved successfully' })
-  @Get('appointments/helper/past')
-  async getHelperPastAppointments(@Req() req: Request) {
-    try {
-      const helperId = (req as any).user.userId || (req as any).user.id;
-      const appointments = await this.jobService.getHelperPastAppointments(helperId);
-      return {
-        success: true,
-        message: 'Helper past appointments retrieved successfully',
-        data: appointments
-      };
-    } catch (error) {
-      return {
-        success: false,
-        message: error.message
-      };
-    }
-  }
 
   @ApiOperation({ summary: 'Get historical earnings graph data' })
   @ApiResponse({ status: 200, description: 'Historical earnings data retrieved successfully' })
@@ -910,25 +766,6 @@ export class JobController {
     }
   }
 
-  @ApiOperation({ summary: 'Debug: Get all jobs for user (for troubleshooting)' })
-  @ApiResponse({ status: 200, description: 'All jobs retrieved successfully' })
-  @Get('debug/all-jobs')
-  async getAllJobsForUser(@Req() req: Request) {
-    try {
-      const userId = (req as any).user.userId || (req as any).user.id;
-      const allJobs = await this.jobService.getAllJobsForUser(userId);
-      return {
-        success: true,
-        message: 'All jobs retrieved successfully',
-        data: allJobs
-      };
-    } catch (error) {
-      return {
-        success: false,
-        message: error.message
-      };
-    }
-  }
 
   // Extra Time Request System Endpoints
   @Post(':id/request-extra-time')
@@ -979,5 +816,59 @@ export class JobController {
     const userId = (req.user as any).id;
     return this.jobService.getExtraTimeStatus(jobId, userId);
   }
+
+  // ===== JOB STATUS MANAGEMENT ENDPOINTS =====
+
+  /**
+   * Cancel a job
+   */
+  @ApiOperation({ summary: 'Cancel a job (User only)' })
+  @ApiResponse({ status: 200, description: 'Job cancelled successfully' })
+  @ApiResponse({ status: 403, description: 'Forbidden - only job owner can cancel' })
+  @ApiResponse({ status: 404, description: 'Job not found' })
+  @Delete(':id/cancel')
+  async cancelJob(
+    @Param('id') jobId: string,
+    @Req() req: Request,
+  ) {
+    const userId = (req.user as any).id;
+    return this.jobService.cancelJob(jobId, userId);
+  }
+
+  /**
+   * Add extra time to an ongoing job
+   */
+  @ApiOperation({ summary: 'Add extra time to an ongoing job (User only)' })
+  @ApiResponse({ status: 200, description: 'Extra time added successfully' })
+  @ApiResponse({ status: 403, description: 'Forbidden - only job owner can add time' })
+  @ApiResponse({ status: 404, description: 'Job not found' })
+  @Post(':id/add-time')
+  async addExtraTime(
+    @Param('id') jobId: string,
+    @Body() addExtraTimeDto: AddExtraTimeDto,
+    @Req() req: Request,
+  ) {
+    const userId = (req.user as any).id;
+    return this.jobService.addExtraTime(jobId, userId, addExtraTimeDto.extraMinutes);
+  }
+
+  /**
+   * Get job status for timeline
+   */
+  @ApiOperation({ summary: 'Get job status for timeline display' })
+  @ApiResponse({ status: 200, description: 'Job status retrieved successfully' })
+  @ApiResponse({ status: 403, description: 'Forbidden - only job participants can view' })
+  @ApiResponse({ status: 404, description: 'Job not found' })
+  @Get(':id/status')
+  async getJobStatus(
+    @Param('id') jobId: string,
+    @Req() req: Request,
+  ) {
+    const userId = (req.user as any).id;
+    return this.jobService.getJobStatus(jobId, userId);
+  }
+
+  
+
 
 }

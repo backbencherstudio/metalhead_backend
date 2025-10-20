@@ -35,7 +35,7 @@ export class UpdateHelperPreferencesDto {
   @IsString({ each: true })
   @ApiProperty({
     description: 'Preferred job categories to get notified about',
-    example: [JobCategory.TECHNOLOGY, JobCategory.PHOTOGRAPHY],
+    example: [JobCategory.TECHNOLOGY, JobCategory.EVENT_PLANNING],
     enum: JobCategory,
     required: false,
   })

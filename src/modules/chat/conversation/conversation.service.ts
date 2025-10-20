@@ -166,8 +166,11 @@ export class ConversationService {
       const job = await this.prisma.job.findFirst({
         where: { id: job_id, deleted_at: null },
         include: {
-          accepted_offers: {
-            include: { counter_offer: { select: { helper_id: true } } },
+          accepted_counter_offer: {
+            select: { helper_id: true },
+          },
+          assigned_helper: {
+            select: { id: true },
           },
           user: { select: { id: true } },
         },
@@ -180,7 +183,7 @@ export class ConversationService {
         throw new ForbiddenException('Chat is only available for confirmed/ongoing jobs');
       }
 
-      const helperId = job.accepted_offers?.[0]?.counter_offer?.helper_id;
+      const helperId = job.accepted_counter_offer?.helper_id || job.assigned_helper_id;
       const ownerId = job.user_id;
       if (!helperId || !ownerId) {
         throw new ForbiddenException('No accepted helper for this job');

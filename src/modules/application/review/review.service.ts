@@ -13,15 +13,12 @@ export class ReviewService {
     const job = await this.prisma.job.findUnique({
       where: { id: job_id },
       include: {
-        accepted_offers: {
+        accepted_counter_offer: {
           include: {
-            counter_offer: {
-              include: {
-                helper: true,
-              },
-            },
+            helper: true,
           },
         },
+        assigned_helper: true,
       },
     });
 
@@ -35,9 +32,7 @@ export class ReviewService {
 
     // Verify the reviewer is either the job owner or the helper
     const isJobOwner = job.user_id === reviewerId;
-    const isHelper = job.accepted_offers.some(
-      offer => offer.counter_offer.helper_id === reviewerId
-    );
+    const isHelper = job.accepted_counter_offer?.helper_id === reviewerId || job.assigned_helper_id === reviewerId;
 
     if (!isJobOwner && !isHelper) {
       throw new ForbiddenException('Only job participants can create reviews');
@@ -45,7 +40,7 @@ export class ReviewService {
 
     // Verify the reviewee is the other participant
     const otherParticipantId = isJobOwner 
-      ? job.accepted_offers[0]?.counter_offer.helper_id
+      ? (job.accepted_counter_offer?.helper_id || job.assigned_helper_id)
       : job.user_id;
 
     if (reviewee_id !== otherParticipantId) {
@@ -402,13 +397,16 @@ export class ReviewService {
       // For helpers: count jobs they completed as helper
       totalJobsDelivered = await this.prisma.job.count({
         where: {
-          accepted_offers: {
-            some: {
-              counter_offer: {
+          OR: [
+            {
+              accepted_counter_offer: {
                 helper_id: userId,
               },
             },
-          },
+            {
+              assigned_helper_id: userId,
+            },
+          ],
           job_status: 'completed',
           status: 1,
           deleted_at: null,

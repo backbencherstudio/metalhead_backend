@@ -36,7 +36,7 @@ export class UpdateHelperPreferencesDto {
 
   @ApiProperty({
     description: 'Preferred job categories to get notified about',
-    example: [JobCategory.CLEANING, JobCategory.PLUMBING, JobCategory.ELECTRICAL],
+    example: [JobCategory.CLEANING, JobCategory.HANDYMAN, JobCategory.TECHNOLOGY],
     enum: JobCategory,
     isArray: true,
     required: false,

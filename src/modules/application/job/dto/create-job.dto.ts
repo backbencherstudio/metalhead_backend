@@ -65,21 +65,23 @@ export class CreateJobDto {
   })
   location?: string;
 
-  @IsNotEmpty()
+  @IsOptional()
   @IsNumber()
   @ApiProperty({
-    description: 'Job location latitude (from device GPS)',
+    description: 'Job location latitude (from device GPS) - optional if location address provided',
     example: 40.7128,
+    required: false,
   })
-  latitude: number;
+  latitude?: number;
 
-  @IsNotEmpty()
+  @IsOptional()
   @IsNumber()
   @ApiProperty({
-    description: 'Job location longitude (from device GPS)',
+    description: 'Job location longitude (from device GPS) - optional if location address provided',
     example: -74.0060,
+    required: false,
   })
-  longitude: number;
+  longitude?: number;
 
   @IsNotEmpty()
   @IsDateString()
