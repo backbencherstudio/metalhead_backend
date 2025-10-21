@@ -1,13 +1,11 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { JobCategory } from '@prisma/client';
 
 export class CategoryResponseDto {
   @ApiProperty({
     description: 'Category key',
-    example: JobCategory.CLEANING,
-    enum: JobCategory,
+    example: 'cleaning',
   })
-  key: JobCategory;
+  key: string;
 
   @ApiProperty({
     description: 'Human-readable category label',

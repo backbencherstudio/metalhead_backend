@@ -24,14 +24,6 @@ export class CreateReviewDto {
   comment?: string;
 
   @ApiProperty({
-    description: 'ID of the user being reviewed',
-    example: 'clx123456789',
-  })
-  @IsString()
-  @IsNotEmpty()
-  reviewee_id: string;
-
-  @ApiProperty({
     description: 'ID of the job this review is for',
     example: 'clx123456789',
   })

@@ -105,11 +105,19 @@ export class NearbyJobsService {
 
       // Add category filter
       if (categories && categories.length > 0) {
-        where.category = { in: categories };
+        // Find category IDs by names
+        const categoryRecords = await (this.prisma as any).category.findMany({
+          where: { name: { in: categories } },
+          select: { id: true }
+        });
+        
+        if (categoryRecords.length > 0) {
+          where.category_id = { in: categoryRecords.map(c => c.id) };
+        }
       }
 
       // Get all matching jobs
-      const jobs = await this.prisma.job.findMany({
+      const jobs = await (this.prisma as any).job.findMany({
         where,
         include: {
           user: {
@@ -117,6 +125,13 @@ export class NearbyJobsService {
               id: true,
               name: true,
               avatar: true,
+            },
+          },
+          category: {
+            select: {
+              id: true,
+              name: true,
+              label: true,
             },
           },
         },
@@ -131,7 +146,7 @@ export class NearbyJobsService {
           jobTitle: job.title,
           jobPrice: Number(job.price),
           jobLocation: job.location,
-          jobCategory: job.category,
+          jobCategory: job.category?.name || 'other',
           jobType: job.job_type,
           distance: this.calculateDistance(
             helper.latitude,

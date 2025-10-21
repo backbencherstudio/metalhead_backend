@@ -3,7 +3,6 @@ import { ApiProperty } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { CreateJobRequirementDto } from './create-job-requirement.dto';
 import { CreateJobNoteDto } from './create-job-note.dto';
-import { JobCategory } from '../enums/job-category.enum';
 import { PaymentType } from '../enums/payment-type.enum';
 import { JobType } from '../enums/job-type.enum';
 
@@ -18,14 +17,12 @@ export class CreateJobDto {
   title: string;
 
   @IsNotEmpty()
-  @IsEnum(JobCategory)
+  @IsString()
   @ApiProperty({
-    description: 'Job category',
-    example: JobCategory.TECHNOLOGY,
-    enum: JobCategory,
-    enumName: 'JobCategory',
+    description: 'Job category name',
+    example: 'technology',
   })
-  category: JobCategory;
+  category: string;
 
 
   @IsNotEmpty()

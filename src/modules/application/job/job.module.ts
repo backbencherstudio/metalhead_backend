@@ -10,9 +10,10 @@ import { PrismaModule } from '../../../prisma/prisma.module';
 import { LocationService } from '../../../common/lib/Location/location.service';
 import { GeocodingService } from '../../../common/lib/Geocoding/geocoding.service';
 import { FirebaseNotificationModule } from '../firebase-notification/firebase-notification.module';
+import { CategoryModule } from '../category/category.module';
 
 @Module({
-  imports: [PrismaModule, FirebaseNotificationModule],
+  imports: [PrismaModule, FirebaseNotificationModule, CategoryModule],
   controllers: [
     JobController, 
     JobHistoryController,

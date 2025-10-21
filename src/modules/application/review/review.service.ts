@@ -7,7 +7,7 @@ export class ReviewService {
   constructor(private prisma: PrismaService) {}
 
   async createReview(createReviewDto: CreateReviewDto, reviewerId: string): Promise<ReviewResponseDto> {
-    const { rating, comment, reviewee_id, job_id } = createReviewDto;
+    const { rating, comment, job_id } = createReviewDto;
 
     // Verify the job exists and is completed
     const job = await this.prisma.job.findUnique({
@@ -38,13 +38,13 @@ export class ReviewService {
       throw new ForbiddenException('Only job participants can create reviews');
     }
 
-    // Verify the reviewee is the other participant
-    const otherParticipantId = isJobOwner 
+    // Automatically determine the reviewee (the other participant)
+    const reviewee_id = isJobOwner 
       ? (job.accepted_counter_offer?.helper_id || job.assigned_helper_id)
       : job.user_id;
 
-    if (reviewee_id !== otherParticipantId) {
-      throw new BadRequestException('Can only review the other job participant');
+    if (!reviewee_id) {
+      throw new BadRequestException('Cannot determine the other job participant');
     }
 
     // Check if review already exists

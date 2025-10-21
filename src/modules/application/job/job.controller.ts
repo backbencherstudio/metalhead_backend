@@ -26,15 +26,13 @@ import { JobResponseDto } from './dto/job-response.dto';
 import { JobCreateResponseDto } from './dto/job-create-response.dto';
 import { JobListResponseDto } from './dto/job-list-response.dto';
 import { JobSingleResponseDto } from './dto/job-single-response.dto';
-import { EnumMapper } from './utils/enum-mapper.util';
 import { RequestExtraTimeDto } from './dto/request-extra-time.dto';
 import { ApproveExtraTimeDto } from './dto/approve-extra-time.dto';
 import { UpdateHelperPreferencesDto } from './dto/update-helper-preferences.dto';
 import { AddExtraTimeDto } from './dto/add-extra-time.dto';
 import { CategoriesListResponseDto, CategoryResponseDto } from './dto/category-response.dto';
 import { LatestJobResponseDto } from './dto/latest-job-response.dto';
-import { JOB_CATEGORY_LABELS, JOB_CATEGORY_DESCRIPTIONS } from './enums/job-category.enum';
-import { JobCategory } from '@prisma/client';
+import { CategoryService } from '../category/category.service';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { Request } from 'express';
 import { SojebStorage } from '../../../common/lib/Disk/SojebStorage';
@@ -47,7 +45,8 @@ import { v4 as uuidv4 } from 'uuid';
 export class JobController {
   constructor(
     private readonly jobService: JobService,
-    private readonly jobNotificationService: JobNotificationService
+    private readonly jobNotificationService: JobNotificationService,
+    private readonly categoryService: CategoryService,
   ) {}
 
   @ApiOperation({ summary: 'Create a new job posting with optional photo' })
@@ -210,10 +209,10 @@ export class JobController {
       }
     }
 
-    // Map all enums using the comprehensive mapping system
-    const category = EnumMapper.mapCategory(createJobDto.category);
-    const paymentType = EnumMapper.mapPaymentType(createJobDto.payment_type);
-    const jobType = EnumMapper.mapJobType(createJobDto.job_type);
+    // Use the values directly since we're now using dynamic categories
+    const category = createJobDto.category;
+    const paymentType = createJobDto.payment_type;
+    const jobType = createJobDto.job_type;
 
 
     // Create the job data object
@@ -255,8 +254,11 @@ export class JobController {
     @Query('urgency') urgency?: string, // filter by urgency: 'urgent' or 'normal'
   ): Promise<JobListResponseDto> {
     // Validate category if provided
-    if (category && !Object.values(JobCategory).includes(category as JobCategory)) {
-      throw new BadRequestException(`Invalid category: ${category}. Valid categories are: ${Object.values(JobCategory).join(', ')}`);
+    if (category) {
+      const categoryRecord = await this.categoryService.getCategoryById(category);
+      if (!categoryRecord) {
+        throw new BadRequestException(`Invalid category: ${category}`);
+      }
     }
 
     let parsedPriceRange = null;
@@ -275,7 +277,7 @@ export class JobController {
     }
 
     const result = await this.jobService.findAll(
-      category as JobCategory,
+      category,
       location,
       jobType,
       paymentType,
@@ -336,12 +338,8 @@ export class JobController {
   @ApiResponse({ status: 200, description: 'Categories retrieved successfully', type: CategoriesListResponseDto })
   @Get('categories')
   async getCategories(): Promise<CategoriesListResponseDto> {
-    const categories: CategoryResponseDto[] = Object.values(JobCategory).map(category => ({
-      key: category,
-      label: JOB_CATEGORY_LABELS[category],
-      description: JOB_CATEGORY_DESCRIPTIONS[category],
-    }));
-
+    const categories = await this.categoryService.getCategoriesWithCounts();
+    
     return {
       categories,
       total: categories.length,
@@ -371,15 +369,15 @@ export class JobController {
   @ApiResponse({ status: 200, description: 'Category details retrieved successfully', type: CategoryResponseDto })
   @Get('categories/:category')
   async getCategoryDetails(@Param('category') category: string): Promise<CategoryResponseDto> {
-    if (!Object.values(JobCategory).includes(category as JobCategory)) {
+    const categoryRecord = await this.categoryService.getCategoryById(category);
+    if (!categoryRecord) {
       throw new BadRequestException(`Invalid category: ${category}`);
     }
 
-    const categoryKey = category as JobCategory;
     return {
-      key: categoryKey,
-      label: JOB_CATEGORY_LABELS[categoryKey],
-      description: JOB_CATEGORY_DESCRIPTIONS[categoryKey],
+      key: categoryRecord.name,
+      label: categoryRecord.label,
+      description: categoryRecord.label, // Using label as description for now
     };
   }
 
@@ -399,9 +397,9 @@ export class JobController {
     @Query('urgency') urgency?: string,
   ) {
     // Validate category
-    const category=givencategory.toUpperCase();
-    if (!Object.values(JobCategory).includes(category as JobCategory)) {
-      throw new BadRequestException(`Invalid category: ${category}. Valid categories are: ${Object.values(JobCategory).join(', ')}`);
+    const categoryRecord = await this.categoryService.getCategoryById(givencategory);
+    if (!categoryRecord) {
+      throw new BadRequestException(`Invalid category: ${givencategory}`);
     }
 
     let parsedPriceRange = null;
@@ -419,9 +417,8 @@ export class JobController {
       };
     }
 
-    // Cast category to the correct Prisma enum type (assuming it's imported as PrismaJobCategory)
     const result = await this.jobService.findAll(
-      category as any, // Temporary workaround: should match the target enum type in the service
+      givencategory,
       location,
       jobType,
       paymentType,
@@ -436,9 +433,9 @@ export class JobController {
     return {
       ...result,
       category: {
-        key: category,
-        label: JOB_CATEGORY_LABELS[category as JobCategory],
-        description: JOB_CATEGORY_DESCRIPTIONS[category as JobCategory],
+        key: categoryRecord.name,
+        label: categoryRecord.label,
+        description: categoryRecord.label,
       },
     };
   }

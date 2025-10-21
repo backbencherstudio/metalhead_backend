@@ -11,9 +11,7 @@ import { JobCreateResponseDto } from './dto/job-create-response.dto';
 import { SojebStorage } from '../../../common/lib/Disk/SojebStorage';
 import { JobNotificationService } from './job-notification.service';
 import { GeocodingService } from '../../../common/lib/Geocoding/geocoding.service';
-import { JOB_CATEGORY_LABELS, JOB_CATEGORY_DESCRIPTIONS } from './enums/job-category.enum';
-import { JobCategory } from '@prisma/client';
-import { EnumMapper } from './utils/enum-mapper.util';
+import { CategoryService } from '../category/category.service';
 
 @Injectable()
 export class JobService {
@@ -21,6 +19,7 @@ export class JobService {
     private prisma: PrismaService,
     private jobNotificationService: JobNotificationService,
     private geocodingService: GeocodingService,
+    private categoryService: CategoryService,
   ) {}
 
    async create(
@@ -97,10 +96,19 @@ export class JobService {
     
     //
     
-    const job = await this.prisma.job.create({
+    // Find the category by name
+    const category = await (this.prisma as any).category.findUnique({
+      where: { name: jobData.category }
+    });
+
+    if (!category) {
+      throw new BadRequestException(`Category '${jobData.category}' not found`);
+    }
+
+    const job = await (this.prisma as any).job.create({
       data: {
         title: jobData.title,
-        category: jobData.category as JobCategory,
+        category_id: category.id,
         price: jobData.price,
         payment_type: jobData.payment_type,
         job_type: jobData.job_type,
@@ -183,7 +191,7 @@ export class JobService {
 
     // Get all jobs with comprehensive filtering
   async findAll(
-    category?: JobCategory,
+    category?: string,
     location?: string,
       jobType?: string,
       paymentType?: string,
@@ -201,7 +209,17 @@ export class JobService {
 
     // Category filter
     if (category) {
-        whereClause.category = category;
+        // Find category by name
+        const categoryRecord = await (this.prisma as any).category.findUnique({
+          where: { name: category }
+        });
+        
+        if (categoryRecord) {
+          whereClause.category_id = categoryRecord.id;
+        } else {
+          // If category not found, return empty results
+          return { jobs: [], total: 0 };
+        }
     }
 
       // Location filter (case-insensitive)
@@ -531,19 +549,17 @@ export class JobService {
   
       // Map category if provided
       if (basicFields.category) {
-        mappedData.category = EnumMapper.mapCategory(basicFields.category);
+        mappedData.category = basicFields.category;
       }
-  
+
       // Map payment_type if provided
       if (basicFields.payment_type) {
-        mappedData.payment_type = EnumMapper.mapPaymentType(
-          basicFields.payment_type,
-        );
+        mappedData.payment_type = basicFields.payment_type;
       }
-  
+
       // Map job_type if provided
       if (basicFields.job_type) {
-        mappedData.job_type = EnumMapper.mapJobType(basicFields.job_type);
+        mappedData.job_type = basicFields.job_type;
       }
   
       // Handle nested relations properly
@@ -736,32 +752,32 @@ export class JobService {
   
     // Get job counts by category
     async getJobCountsByCategory(): Promise<any> {
-      const counts = await this.prisma.job.groupBy({
-      by: ['category'],
-      where: {
+      // Get all categories with their job counts
+      const categories = await (this.prisma as any).category.findMany({
+        where: {
           status: 1,
-        deleted_at: null,
-      },
-      _count: {
-          id: true,
+          deleted_at: null,
         },
+        include: {
+          _count: {
+            select: {
+              jobs: {
+                where: {
+                  status: 1,
+                  deleted_at: null,
+                }
+              }
+            }
+          }
+        },
+        orderBy: { label: 'asc' },
       });
-  
-      // Create a map of existing counts
-      const countsMap = new Map();
-      counts.forEach((item) => {
-        countsMap.set(item.category, item._count.id);
-      });
-  
-      // Get all categories from the enum and create the complete list
-      const allCategories = Object.values(JobCategory);
-      const result = allCategories.map((category) => ({
-        category,
-        label: JOB_CATEGORY_LABELS[category],
-        count: countsMap.get(category) || 0,
+
+      return categories.map((category) => ({
+        category: category.name,
+        label: category.label,
+        count: category._count.jobs,
       }));
-  
-      return result;
     }
     /**
      * Cancel a job (User can cancel if status is 'posted' or 'confirmed')

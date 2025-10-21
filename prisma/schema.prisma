@@ -497,7 +497,8 @@ model Job {
   status          Int?               @default(1) @db.SmallInt
   job_status      String?            @default("posted") // posted, counter_offer, confirmed, ongoing, completed, paid
   title           String?
-  category        JobCategory?
+  category_id     String?
+  category        Category? @relation(fields: [category_id], references: [id])
   date_and_time   DateTime? 
   price           Decimal? // Original price set by user
   final_price     Decimal? // Price after counter offer accepted
@@ -700,4 +701,20 @@ model UserCard {
   user    User   @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
   @@map("user_cards")
+}
+
+model Category {
+  id         String    @id @default(cuid())
+  created_at DateTime  @default(now())
+  updated_at DateTime  @default(now())
+  deleted_at DateTime?
+  status     Int?      @default(1) @db.SmallInt
+
+  name  String @unique // Unique identifier (e.g., 'cleaning')
+  label String // Display name (e.g., 'Cleaning Services')
+
+  // Relations
+  jobs Job[]
+
+  @@map("categories")
 }

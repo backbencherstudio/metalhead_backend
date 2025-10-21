@@ -26,6 +26,7 @@ export class SeedCommand extends CommandRunner {
         await this.permissionSeed();
         await this.userSeed();
         await this.permissionRoleSeed();
+        await this.categorySeed();
       });
 
       console.log('Seeding done.');
@@ -247,6 +248,43 @@ export class SeedCommand extends CommandRunner {
           name: 'viewer',
         },
       ],
+    });
+  }
+
+  async categorySeed() {
+    const categories = [
+      { name: 'cleaning', label: 'Cleaning Services' },
+      { name: 'plumbing', label: 'Plumbing' },
+      { name: 'electrical', label: 'Electrical Work' },
+      { name: 'handyman', label: 'Handyman Services' },
+      { name: 'painting', label: 'Painting' },
+      { name: 'gardening', label: 'Gardening & Lawn Care' },
+      { name: 'moving', label: 'Moving & Relocation' },
+      { name: 'delivery', label: 'Delivery Services' },
+      { name: 'pet_care', label: 'Pet Care' },
+      { name: 'tutoring', label: 'Tutoring & Education' },
+      { name: 'technology', label: 'Technology & IT' },
+      { name: 'photography', label: 'Photography' },
+      { name: 'event_planning', label: 'Event Planning' },
+      { name: 'beauty_wellness', label: 'Beauty & Wellness' },
+      { name: 'fitness', label: 'Fitness & Training' },
+      { name: 'security', label: 'Home Security' },
+      { name: 'carpentry', label: 'Carpentry' },
+      { name: 'roofing', label: 'Roofing' },
+      { name: 'hvac', label: 'HVAC & Heating/Cooling' },
+      { name: 'landscaping', label: 'Landscaping' },
+      { name: 'car_services', label: 'Car Services' },
+      { name: 'house_sitting', label: 'House Sitting' },
+      { name: 'errands', label: 'Errands & Shopping' },
+      { name: 'assembly', label: 'Assembly & Installation' },
+      { name: 'personal_care', label: 'Personal Assistance' },
+      { name: 'transportation', label: 'Transportation' },
+      { name: 'other', label: 'Other' }
+    ];
+
+    await this.prisma.category.createMany({
+      data: categories,
+      skipDuplicates: true,
     });
   }
 }
