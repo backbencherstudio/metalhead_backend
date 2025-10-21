@@ -34,7 +34,7 @@ export class LocalAuthGuard extends AuthGuard('local') {
         );
       } else if (!password) {
         throw new HttpException(
-          { message: 'password not provided' },
+          { message: 'Please enter your password.' },
           HttpStatus.BAD_REQUEST,
         );
       } else {

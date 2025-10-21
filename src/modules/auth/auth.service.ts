@@ -1,5 +1,5 @@
 // external imports
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { HttpException, Injectable, InternalServerErrorException, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRedis } from '@nestjs-modules/ioredis';
 import Redis from 'ioredis';
@@ -15,6 +15,8 @@ import { SojebStorage } from '../../common/lib/Disk/SojebStorage';
 import { DateHelper } from '../../common/helper/date.helper';
 import { StripePayment } from '../../common/lib/Payment/stripe/StripePayment';
 import { StringHelper } from '../../common/helper/string.helper';
+import { CreateUserDto } from './dto/create-user.dto';
+import { comparePassword, hashPassword } from './password.helper';
 
 @Injectable()
 export class AuthService {
@@ -227,9 +229,11 @@ export class AuthService {
     });
 
     if (user) {
-      // Use bcrypt to compare password directly
-      const bcrypt = await import('bcrypt');
-      const _isValidPassword = await bcrypt.compare(_password, user.password);
+      const _isValidPassword = await comparePassword(_password, user.password)
+
+      console.log('====================================');
+      console.log({ _isValidPassword });
+      console.log('====================================');
 
       if (_isValidPassword) {
         const { password, ...result } = user;
@@ -237,18 +241,18 @@ export class AuthService {
           if (token) {
             const isValid = await UserRepository.verify2FA(user.id, token);
             if (!isValid) {
-              throw new UnauthorizedException('Invalid token');
+              throw new UnauthorizedException('Token expired or missing.');
             }
           } else {
-            throw new UnauthorizedException('Token is required');
+            throw new UnauthorizedException('Token expired or missing.');
           }
         }
         return result;
       } else {
-        throw new UnauthorizedException('Password not matched');
+        throw new UnauthorizedException('Invalid credentials.');
       }
     } else {
-      throw new UnauthorizedException('User not found');
+      throw new UnauthorizedException('Invalid credentials.');
     }
   }
 
@@ -256,9 +260,9 @@ export class AuthService {
     try {
       const user = await UserRepository.getUserDetails(userId);
       const fullName = `${user.first_name || ''} ${user.last_name || ''}`.trim() || user.name || 'User';
-      const payload = { 
-        email: email, 
-        sub: userId, 
+      const payload = {
+        email: email,
+        sub: userId,
         type: user.type,
         name: fullName
       };
@@ -267,12 +271,12 @@ export class AuthService {
       const refreshToken = this.jwtService.sign(payload, { expiresIn: '7d' });
 
       // store refreshToken
-      await this.redis.set(
-        `refresh_token:${user.id}`,
-        refreshToken,
-        'EX',
-        60 * 60 * 24 * 7, // 7 days in seconds
-      );
+      // await this.redis.set(
+      //   `refresh_token:${user.id}`,
+      //   refreshToken,
+      //   'EX',
+      //   60 * 60 * 24 * 7, // 7 days in seconds
+      // );
 
       return {
         success: true,
@@ -319,8 +323,8 @@ export class AuthService {
       }
 
       const fullName = `${userDetails.first_name || ''} ${userDetails.last_name || ''}`.trim() || userDetails.name || 'User';
-      const payload = { 
-        email: userDetails.email, 
+      const payload = {
+        email: userDetails.email,
         sub: userDetails.id,
         name: fullName
       };
@@ -365,152 +369,146 @@ export class AuthService {
     }
   }
 
-  async register({
-    username,
-    first_name,
-    last_name,
-    email,
-    password,
-    type,
-    phone_number,
-  }: {
-    username: string;
-    first_name: string;
-    last_name: string;
-    email: string;
-    password: string;
-    phone_number: string;
-    type: string;
-  }) {
+  async register(payload: CreateUserDto) {
     try {
-      // Validate all fields before creating user
+      const { first_name, last_name, email, phone, password, username, type } = payload
       const validationResult = await this.validateUserRegistration({
         username,
         email,
-        phone_number,
+        phone_number: phone,
       });
 
       if (!validationResult.isValid) {
         return {
           success: false,
-          message: validationResult.message,
-          field: validationResult.field,
+          message: 'Validation failed. Please correct the highlighted fields.',
+          errors: validationResult.errors
         };
       }
 
-      // Use transaction to ensure atomicity
-      const result = await this.prisma.$transaction(async (tx) => {
-        // Create user within transaction
-        const user = await UserRepository.createUser({
-          username: username,
-          first_name: first_name,
-          last_name: last_name,
-          email: email,
-          password: password,
-          phone_number: phone_number,
-          type: type,
-        });
-
-        if (!user || !user.success) {
-          throw new Error(user?.message || 'Failed to create user');
-        }
-
-        return user;
+      const user = await UserRepository.createUser({
+        username: username,
+        first_name: first_name,
+        last_name: last_name,
+        email: email,
+        password: password,
+        phone_number: phone,
+        type: type,
       });
 
-      const user = result;
-
-      // Create Stripe customer account
-      try {
-        const stripeCustomer = await StripePayment.createCustomer({
-          user_id: user.data.id,
-          email: email,
-          name: username,
-        });
-
-        if (stripeCustomer) {
-          await this.prisma.user.update({
-            where: {
-              id: user.data.id,
-            },
-            data: {
-              billing_id: stripeCustomer.id,
-            },
-          });
-        }
-      } catch (stripeError) {
-        console.error('Failed to create Stripe customer:', stripeError);
-        // Don't fail registration if Stripe fails, just log it
+      if (!user) {
+        throw new Error(user?.message || 'Failed to create user.');
       }
 
-      // Create Stripe Connect account for helpers
-      if (type === 'helper') {
-        try {
-          const stripeResult = await UserRepository.createStripeConnectAccount(user.data.id);
-          if (stripeResult.success) {
-            console.log(`Stripe Connect account created for helper ${user.data.id}: ${stripeResult.account_id}`);
-          } else {
-            console.error(`Failed to create Stripe Connect account for helper ${user.data.id}: ${stripeResult.message}`);
-          }
-        } catch (error) {
-          console.error('Error creating Stripe Connect account for helper:', error.message);
-        }
+      const token = await UcodeRepository.createToken({
+        userId: user.data.id,
+        isOtp: true,
+      });
+
+      return {
+        success: true,
+        message: 'Account created. We have sent a verification link to your email',
+        data: token
       }
-
-      // Create OTP code and send verification email
-      try {
-        const token = await UcodeRepository.createToken({
-          userId: user.data.id,
-          isOtp: true,
-        });
-
-        // Send OTP code to email
-        await this.mailService.sendOtpCodeToEmail({
-          email: email,
-          name: username,
-          otp: token,
-        });
-
-        return {
-          success: true,
-          message: 'We have sent an OTP code to your email',
-        };
-      } catch (emailError) {
-        console.error('Failed to send verification email:', emailError);
-        // If email fails, we should still return success but log the error
-        // The user is created but needs to request a new OTP
-        return {
-          success: true,
-          message: 'Account created successfully, but verification email failed. Please request a new OTP.',
-        };
-      }
-
-      // ----------------------------------------------------
-
-      // Generate verification token
-      // const token = await UcodeRepository.createVerificationToken({
-      //   userId: user.data.id,
-      //   email: email,
-      // });
-
-      // // Send verification email with token
-      // await this.mailService.sendVerificationLink({
-      //   email,
-      //   name: email,
-      //   token: token.token,
-      //   type: type,
-      // });
-
-      // return {
-      //   success: true,
-      //   message: 'We have sent a verification link to your email',
-      // };
     } catch (error) {
       return {
         success: false,
-        message: error.message,
+        error: error.message,
       };
     }
+    // try {
+
+    //   // Create Stripe customer account
+    //   try {
+    //     const stripeCustomer = await StripePayment.createCustomer({
+    //       user_id: user.data.id,
+    //       email: email,
+    //       name: username,
+    //     });
+
+    //     if (stripeCustomer) {
+    //       await this.prisma.user.update({
+    //         where: {
+    //           id: user.data.id,
+    //         },
+    //         data: {
+    //           billing_id: stripeCustomer.id,
+    //         },
+    //       });
+    //     }
+    //   } catch (stripeError) {
+    //     console.error('Failed to create Stripe customer:', stripeError);
+    //     // Don't fail registration if Stripe fails, just log it
+    //   }
+
+    //   // Create Stripe Connect account for helpers
+    //   if (type === 'helper') {
+    //     try {
+    //       const stripeResult = await UserRepository.createStripeConnectAccount(user.data.id);
+    //       if (stripeResult.success) {
+    //         console.log(`Stripe Connect account created for helper ${user.data.id}: ${stripeResult.account_id}`);
+    //       } else {
+    //         console.error(`Failed to create Stripe Connect account for helper ${user.data.id}: ${stripeResult.message}`);
+    //       }
+    //     } catch (error) {
+    //       console.error('Error creating Stripe Connect account for helper:', error.message);
+    //     }
+    //   }
+
+    //   // Create OTP code and send verification email
+    //   try {
+    //     const token = await UcodeRepository.createToken({
+    //       userId: user.data.id,
+    //       isOtp: true,
+    //     });
+
+    //     // Send OTP code to email
+    //     await this.mailService.sendOtpCodeToEmail({
+    //       email: email,
+    //       name: username,
+    //       otp: token,
+    //     });
+
+    //     return {
+    //       success: true,
+    //       message: 'We have sent an OTP code to your email',
+    //     };
+    //   } catch (emailError) {
+    //     console.error('Failed to send verification email:', emailError);
+    //     // If email fails, we should still return success but log the error
+    //     // The user is created but needs to request a new OTP
+    //     return {
+    //       success: true,
+    //       message: 'Account created successfully, but verification email failed. Please request a new OTP.',
+    //     };
+    //   }
+
+    //   // ----------------------------------------------------
+
+    //   // Generate verification token
+    //   // const token = await UcodeRepository.createVerificationToken({
+    //   //   userId: user.data.id,
+    //   //   email: email,
+    //   // });
+
+    //   // // Send verification email with token
+    //   // await this.mailService.sendVerificationLink({
+    //   //   email,
+    //   //   name: email,
+    //   //   token: token.token,
+    //   //   type: type,
+    //   // });
+
+    //   // return {
+    //   //   success: true,
+    //   //   message: 'We have sent a verification link to your email',
+    //   // };
+    // } catch (error) {
+    //   return {
+    //     success: false,
+    //     message: error.message,
+    //   };
+    // }
   }
 
   async forgotPassword(email) {
@@ -599,7 +597,7 @@ export class AuthService {
     }
   }
 
-  async verifyEmail({ email, token }) {
+  async verifyEmail({ email, otp }) {
     try {
       const user = await UserRepository.exist({
         field: 'email',
@@ -609,7 +607,7 @@ export class AuthService {
       if (user) {
         const existToken = await UcodeRepository.validateToken({
           email: email,
-          token: token,
+          token: otp,
         });
 
         if (existToken) {
@@ -625,7 +623,7 @@ export class AuthService {
           // delete otp code
           await UcodeRepository.deleteToken({
             email: email,
-            token: token,
+            token: otp,
           });
 
           // Generate temporary JWT for profile completion
@@ -638,22 +636,16 @@ export class AuthService {
             user_id: user.id,
           };
         } else {
-          return {
-            success: false,
-            message: 'Invalid token',
-          };
+          throw new UnauthorizedException('Invalid email or OTP.')
         }
       } else {
-        return {
-          success: false,
-          message: 'Email not found',
-        };
+        throw new UnauthorizedException('Invalid email or OTP.')
       }
     } catch (error) {
-      return {
-        success: false,
-        message: error.message,
-      };
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new InternalServerErrorException(`Error creating stripe account: ${error?.message}`);
     }
   }
 
@@ -1010,10 +1002,10 @@ export class AuthService {
     try {
       const user = await this.prisma.user.findUnique({
         where: { id: user_id },
-        select: { 
-          stripe_connect_account_id: true, 
+        select: {
+          stripe_connect_account_id: true,
           stripe_onboarding_completed: true,
-          email: true 
+          email: true
         },
       });
 
@@ -1058,9 +1050,9 @@ export class AuthService {
     try {
       const user = await this.prisma.user.findUnique({
         where: { id: user_id },
-        select: { 
-          stripe_connect_account_id: true, 
-          stripe_onboarding_completed: true 
+        select: {
+          stripe_connect_account_id: true,
+          stripe_onboarding_completed: true
         },
       });
 
@@ -1073,14 +1065,14 @@ export class AuthService {
 
       // Check account status with Stripe
       const account = await StripePayment.checkAccountStatus(user.stripe_connect_account_id);
-      
+
       const isOnboardCompleted = account.details_submitted && account.charges_enabled;
 
       // Update user onboarding status if completed
       if (isOnboardCompleted && !user.stripe_onboarding_completed) {
         await this.prisma.user.update({
           where: { id: user_id },
-          data: { 
+          data: {
             stripe_onboarding_completed: true,
             stripe_account_status: 'active',
           },
@@ -1156,22 +1148,18 @@ export class AuthService {
     phone_number: string;
   }): Promise<{
     isValid: boolean;
-    message: string;
-    field?: string;
+    errors?: { field: string; message: string }[];
   }> {
+    const errors: { field: string; message: string }[] = [];
+
     try {
       // Check if email already exists
       const emailExists = await UserRepository.exist({
         field: 'email',
         value: email,
       });
-
       if (emailExists) {
-        return {
-          isValid: false,
-          message: 'Email already exists',
-          field: 'email',
-        };
+        errors.push({ field: 'email', message: 'Email already exists' });
       }
 
       // Check if username already exists
@@ -1179,13 +1167,8 @@ export class AuthService {
         field: 'username',
         value: username,
       });
-
       if (usernameExists) {
-        return {
-          isValid: false,
-          message: 'Username already exists',
-          field: 'username',
-        };
+        errors.push({ field: 'username', message: 'Username already exists' });
       }
 
       // Check if phone number already exists
@@ -1194,52 +1177,60 @@ export class AuthService {
           field: 'phone_number',
           value: phone_number,
         });
-
         if (phoneExists) {
-          return {
-            isValid: false,
-            message: 'Phone number already exists',
+          errors.push({
             field: 'phone_number',
-          };
+            message: 'Phone number already exists',
+          });
         }
       }
 
       // Additional validations
       if (username && username.length < 3) {
-        return {
-          isValid: false,
-          message: 'Username must be at least 3 characters long',
+        errors.push({
           field: 'username',
-        };
+          message: 'Username must be at least 3 characters long',
+        });
       }
 
       if (email && !this.isValidEmail(email)) {
-        return {
-          isValid: false,
-          message: 'Invalid email format',
+        errors.push({
           field: 'email',
-        };
+          message: 'Invalid email format',
+        });
       }
 
       if (phone_number && !this.isValidPhoneNumber(phone_number)) {
+        errors.push({
+          field: 'phone_number',
+          message: 'Invalid phone number format',
+        });
+      }
+
+      // Return result
+      if (errors.length > 0) {
         return {
           isValid: false,
-          message: 'Invalid phone number format',
-          field: 'phone_number',
+          errors,
         };
       }
 
       return {
         isValid: true,
-        message: 'Validation passed',
       };
     } catch (error) {
       return {
         isValid: false,
-        message: 'Validation error: ' + error.message,
+        errors: [
+          {
+            field: 'system',
+            message: 'Validation error: ' + error.message,
+          },
+        ],
       };
     }
   }
+
 
   /**
    * Validate email format
@@ -1265,7 +1256,7 @@ export class AuthService {
     // Get user details to include name in JWT
     const user = await UserRepository.getUserDetails(userId);
     const fullName = `${user.first_name || ''} ${user.last_name || ''}`.trim() || user.name || 'User';
-    
+
     const payload = {
       userId: userId,
       sub: userId,
@@ -1287,7 +1278,7 @@ export class AuthService {
     // Get user details to include name in JWT
     const user = await UserRepository.getUserDetails(userId);
     const fullName = `${user.first_name || ''} ${user.last_name || ''}`.trim() || user.name || 'User';
-    
+
     const payload = {
       userId: userId,
       sub: userId,

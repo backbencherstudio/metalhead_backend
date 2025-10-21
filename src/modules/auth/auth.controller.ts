@@ -54,57 +54,7 @@ export class AuthController {
   @ApiOperation({ summary: 'Register a user' })
   @Post('register')
   async create(@Body() data: CreateUserDto) {
-    try {
-      const username = data.username;
-      const first_name = data.first_name;
-      const last_name = data.last_name;
-      const email = data.email;
-      const password = data.password;
-      const type = data.type;
-      const phone_number = data.phone_number;
-
-      if (!username) {
-        throw new HttpException('Name not provided', HttpStatus.UNAUTHORIZED);
-      }
-      if (!first_name) {
-        throw new HttpException(
-          'First name not provided',
-          HttpStatus.UNAUTHORIZED,
-        );
-      }
-      if (!email) {
-        throw new HttpException('Email not provided', HttpStatus.UNAUTHORIZED);
-      }
-      if (!password) {
-        throw new HttpException(
-          'Password not provided',
-          HttpStatus.UNAUTHORIZED,
-        );
-      }
-      if (!phone_number) {
-        throw new HttpException(
-          'Phone number not provided',
-          HttpStatus.UNAUTHORIZED,
-        );
-      }
-
-      const response = await this.authService.register({
-        username: username,
-        first_name: first_name,
-        last_name: last_name,
-        email: email,
-        password: password,
-        phone_number: phone_number,
-        type: type,
-      });
-
-      return response;
-    } catch (error) {
-      return {
-        success: false,
-        message: error.message,
-      };
-    }
+    return await this.authService.register(data)
   }
 
   // login user
@@ -112,30 +62,22 @@ export class AuthController {
   @UseGuards(LocalAuthGuard)
   @Post('login')
   async login(@Req() req: Request, @Res() res: Response) {
-    try {
-      const user_id = req.user.id;
+    // try {
+    const user_id = req.user.id;
+    const user_email = req.user.email;
 
-      const user_email = req.user.email;
+    const response = await this.authService.login({
+      userId: user_id,
+      email: user_email,
+    });
 
-      const response = await this.authService.login({
-        userId: user_id,
-        email: user_email,
-      });
+    res.cookie('access_token', response.authorization.access_token, {
+      httpOnly: true,
+      secure: true,
+      maxAge: 1000 * 60 * 60 * 24 * 7,
+    });
 
-      // store to secure cookies
-      res.cookie('refresh_token', response.authorization.refresh_token, {
-        httpOnly: true,
-        secure: true,
-        maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
-      });
-
-      res.json(response);
-    } catch (error) {
-      return {
-        success: false,
-        message: error.message,
-      };
-    }
+    res.json(response)
   }
 
   @ApiOperation({ summary: 'Refresh token' })
@@ -223,9 +165,9 @@ export class AuthController {
     try {
       const user_id = req.user.userId;
       const isTemporary = (req.user as any).isTemporary;
-      
+
       const response = await this.authService.updateUser(user_id, data, image);
-      
+
       // If this was a temporary JWT, generate a permanent JWT
       if (isTemporary) {
         const permanentJwt = await this.authService.generatePermanentJwt(user_id);
@@ -235,7 +177,7 @@ export class AuthController {
           message: 'Profile updated successfully. ',
         };
       }
-      
+
       return response;
     } catch (error) {
       return {
@@ -268,25 +210,7 @@ export class AuthController {
   @ApiOperation({ summary: 'Verify email' })
   @Post('verify-email')
   async verifyEmail(@Body() data: VerifyEmailDto) {
-    try {
-      const email = data.email;
-      const token = data.token;
-      if (!email) {
-        throw new HttpException('Email not provided', HttpStatus.UNAUTHORIZED);
-      }
-      if (!token) {
-        throw new HttpException('Token not provided', HttpStatus.UNAUTHORIZED);
-      }
-      return await this.authService.verifyEmail({
-        email: email,
-        token: token,
-      });
-    } catch (error) {
-      return {
-        success: false,
-        message: 'Failed to verify email',
-      };
-    }
+    return await this.authService.verifyEmail(data);
   }
 
   // resend verification email to verify the email
@@ -413,34 +337,33 @@ export class AuthController {
   }
 
 
-   // -------change username------
+  // -------change username------
 
-// @ApiOperation({ summary: 'Request username change' })
-// @ApiBearerAuth()
-// @UseGuards(JwtAuthGuard)
-// @Post('request-username-change')
-// async requestUsernameChange(
-//   @Req() req: Request,
-//   @Body() data: { email: string },
-// ) {
-//   try {
-//     const user_id = req.user.userId; 
-//     const email = data.email;
+  // @ApiOperation({ summary: 'Request username change' })
+  // @ApiBearerAuth()
+  // @UseGuards(JwtAuthGuard)
+  // @Post('request-username-change')
+  // async requestUsernameChange(
+  //   @Req() req: Request,
+  //   @Body() data: { email: string },
+  // ) {
+  //   try {
+  //     const user_id = req.user.userId; 
+  //     const email = data.email;
 
-//     if (!email) {
-//       throw new HttpException('Email not provided', HttpStatus.UNAUTHORIZED);
-//     }
+  //     if (!email) {
+  //       throw new HttpException('Email not provided', HttpStatus.UNAUTHORIZED);
+  //     }
 
-//     return await this.authService.requestUsernameChange(user_id, email);
-//   } catch (error) {
-//     return {
-//       success: false,
-//       message: 'Something went wrong',
-//     };
-//   }
-// }
+  //     return await this.authService.requestUsernameChange(user_id, email);
+  //   } catch (error) {
+  //     return {
+  //       success: false,
+  //       message: 'Something went wrong',
+  //     };
+  //   }
+  // }
 
-  
 
   @ApiOperation({ summary: 'Change email address' })
   @ApiBearerAuth()
@@ -482,35 +405,35 @@ export class AuthController {
     @Body() data: { email: string; token: string; username: string },
   ) {
     try {
-    const user_id = req.user.userId;
-    const { email, token, username } = data;
+      const user_id = req.user.userId;
+      const { email, token, username } = data;
 
-    // Validate inputs
-    if (!email) {
-      throw new HttpException('Email not provided', HttpStatus.BAD_REQUEST);
+      // Validate inputs
+      if (!email) {
+        throw new HttpException('Email not provided', HttpStatus.BAD_REQUEST);
+      }
+
+      if (!token) {
+        throw new HttpException('Token not provided', HttpStatus.BAD_REQUEST);
+      }
+
+      if (!username) {
+        throw new HttpException('Username not provided', HttpStatus.BAD_REQUEST);
+      }
+
+      // Call the service to handle the email and username change
+      return await this.authService.changeUsername({
+        user_id: user_id,
+        new_email: email,
+        token: token,
+        new_username: username,
+      });
+    } catch (error) {
+      return {
+        success: false,
+        message: error?.response?.message || 'Something went wrong',
+      };
     }
-
-    if (!token) {
-      throw new HttpException('Token not provided', HttpStatus.BAD_REQUEST);
-    }
-
-    if (!username) {
-      throw new HttpException('Username not provided', HttpStatus.BAD_REQUEST);
-    }
-
-    // Call the service to handle the email and username change
-    return await this.authService.changeUsername({
-      user_id: user_id,
-      new_email: email,
-      token: token,
-      new_username: username,
-    });
-  } catch (error) {
-    return {
-      success: false,
-      message: error?.response?.message || 'Something went wrong',
-    };
-  }
   }
 
 
@@ -674,9 +597,8 @@ export class AuthController {
       timestamp: new Date().toISOString(),
     };
   }
-  
-}
 
+}
 
 
 
