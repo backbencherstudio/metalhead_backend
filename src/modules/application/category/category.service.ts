@@ -75,6 +75,18 @@ export class CategoryService {
     return this.mapToResponseDto(category);
   }
 
+  async getCategoryByName(name: string): Promise<CategoryResponseDto> {
+    const category = await this.prisma.category.findUnique({
+      where: { name },
+    });
+
+    if (!category) {
+      throw new NotFoundException('Category not found');
+    }
+
+    return this.mapToResponseDto(category);
+  }
+
   async updateCategory(id: string, updateCategoryDto: UpdateCategoryDto): Promise<CategoryResponseDto> {
     const category = await this.prisma.category.findUnique({
       where: { id },

@@ -1,6 +1,5 @@
 import { IsOptional, IsNumber, IsArray, IsString } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
-import { JobCategory } from '../enums/job-category.enum';
 
 export class UpdateHelperPreferencesDto {
   @IsOptional()
@@ -34,12 +33,11 @@ export class UpdateHelperPreferencesDto {
   @IsArray()
   @IsString({ each: true })
   @ApiProperty({
-    description: 'Preferred job categories to get notified about',
-    example: [JobCategory.TECHNOLOGY, JobCategory.EVENT_PLANNING],
-    enum: JobCategory,
+    description: 'Preferred job categories to get notified about (category names)',
+    example: ['technology', 'event_planning', 'cleaning'],
     required: false,
   })
-  preferredCategories?: JobCategory[];
+  preferredCategories?: string[];
 
   @IsOptional()
   @IsNumber()

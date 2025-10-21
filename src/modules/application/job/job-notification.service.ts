@@ -1,7 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { NotificationRepository } from '../../../common/repository/notification/notification.repository';
-import { JobCategory } from './enums/job-category.enum';
 import { LocationService } from '../../../common/lib/Location/location.service';
 import { FirebaseNotificationService } from '../firebase-notification/firebase-notification.service';
 import { NearbyJobsService } from './nearby-jobs.service';

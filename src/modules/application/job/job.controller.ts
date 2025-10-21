@@ -37,6 +37,7 @@ import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { Request } from 'express';
 import { SojebStorage } from '../../../common/lib/Disk/SojebStorage';
 import { v4 as uuidv4 } from 'uuid';
+import { convertEnumToCategoryName } from './utils/category-mapper.util';
 
 @ApiBearerAuth()
 @ApiTags('Jobs')
@@ -209,10 +210,30 @@ export class JobController {
       }
     }
 
-    // Use the values directly since we're now using dynamic categories
-    const category = createJobDto.category;
-    const paymentType = createJobDto.payment_type;
-    const jobType = createJobDto.job_type;
+    // Handle category - convert old enum values to new category names for backward compatibility
+    let category = createJobDto.category;
+    if (category && typeof category === 'string') {
+      // Convert old enum values to new category names
+      category = convertEnumToCategoryName(category);
+    }
+    
+    // Convert payment_type to proper enum value
+    let paymentType = createJobDto.payment_type;
+    if (typeof paymentType === 'string') {
+      paymentType = paymentType.toUpperCase();
+      if (paymentType !== 'HOURLY' && paymentType !== 'FIXED') {
+        throw new BadRequestException('payment_type must be either "HOURLY" or "FIXED"');
+      }
+    }
+    
+    // Convert job_type to proper enum value
+    let jobType = createJobDto.job_type;
+    if (typeof jobType === 'string') {
+      jobType = jobType.toUpperCase();
+      if (jobType !== 'URGENT' && jobType !== 'ANYTIME') {
+        throw new BadRequestException('job_type must be either "URGENT" or "ANYTIME"');
+      }
+    }
 
 
     // Create the job data object
@@ -369,7 +390,7 @@ export class JobController {
   @ApiResponse({ status: 200, description: 'Category details retrieved successfully', type: CategoryResponseDto })
   @Get('categories/:category')
   async getCategoryDetails(@Param('category') category: string): Promise<CategoryResponseDto> {
-    const categoryRecord = await this.categoryService.getCategoryById(category);
+    const categoryRecord = await this.categoryService.getCategoryByName(category);
     if (!categoryRecord) {
       throw new BadRequestException(`Invalid category: ${category}`);
     }
@@ -397,7 +418,7 @@ export class JobController {
     @Query('urgency') urgency?: string,
   ) {
     // Validate category
-    const categoryRecord = await this.categoryService.getCategoryById(givencategory);
+    const categoryRecord = await this.categoryService.getCategoryByName(givencategory);
     if (!categoryRecord) {
       throw new BadRequestException(`Invalid category: ${givencategory}`);
     }

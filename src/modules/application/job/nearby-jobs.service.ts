@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { FirebaseNotificationService } from '../firebase-notification/firebase-notification.service';
+import { convertEnumArrayToCategoryNames } from './utils/category-mapper.util';
 import { NotificationRepository } from '../../../common/repository/notification/notification.repository';
 
 export interface NearbyJobNotification {
@@ -337,7 +338,8 @@ export class NearbyJobsService {
         updateData.max_job_price = preferences.maxJobPrice;
       }
       if (preferences.preferredCategories !== undefined) {
-        updateData.preferred_categories = preferences.preferredCategories;
+        // Convert old enum values to new category names for backward compatibility
+        updateData.preferred_categories = convertEnumArrayToCategoryNames(preferences.preferredCategories);
       }
 
       await this.prisma.user.update({

@@ -12,6 +12,7 @@ import { SojebStorage } from '../../../common/lib/Disk/SojebStorage';
 import { JobNotificationService } from './job-notification.service';
 import { GeocodingService } from '../../../common/lib/Geocoding/geocoding.service';
 import { CategoryService } from '../category/category.service';
+import { convertEnumToCategoryName } from './utils/category-mapper.util';
 
 @Injectable()
 export class JobService {
@@ -1744,8 +1745,27 @@ export class JobService {
    * Update helper preferences
    */
   async updateHelperPreferences(userId: string, dto: any): Promise<any> {
-    // This would typically update user preferences
-    // For now, return a placeholder
+    // Convert old enum values to new category names for backward compatibility
+    if (dto.preferredCategories && Array.isArray(dto.preferredCategories)) {
+      dto.preferredCategories = dto.preferredCategories.map((category: string) => {
+        // Convert old enum values to new category names
+        return convertEnumToCategoryName(category);
+      });
+    }
+
+    // Update user preferences in database
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        max_distance_km: dto.maxDistanceKm,
+        min_job_price: dto.minJobPrice,
+        max_job_price: dto.maxJobPrice,
+        preferred_categories: dto.preferredCategories,
+        latitude: dto.latitude,
+        longitude: dto.longitude,
+      },
+    });
+
     return {
       message: 'Helper preferences updated successfully',
       userId,
