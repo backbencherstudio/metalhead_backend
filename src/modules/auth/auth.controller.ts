@@ -53,8 +53,9 @@ export class AuthController {
 
   @ApiOperation({ summary: 'Register a user' })
   @Post('register')
-  async create(@Body() data: CreateUserDto) {
-    return await this.authService.register(data)
+  async create(@Body() data: CreateUserDto, @Res() res: Response) {
+    const response = await this.authService.register(data)
+    res.status(response.status || 500).json(response)
   }
 
   // login user

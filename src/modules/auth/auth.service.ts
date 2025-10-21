@@ -380,6 +380,7 @@ export class AuthService {
 
       if (!validationResult.isValid) {
         return {
+          status: validationResult.status,
           success: false,
           message: 'Validation failed. Please correct the highlighted fields.',
           errors: validationResult.errors
@@ -406,12 +407,14 @@ export class AuthService {
       });
 
       return {
+        status: 201,
         success: true,
         message: 'Account created. We have sent a verification link to your email',
         data: token
       }
     } catch (error) {
       return {
+        status: error?.status || 500,
         success: false,
         error: error.message,
       };
@@ -1148,6 +1151,7 @@ export class AuthService {
     phone_number: string;
   }): Promise<{
     isValid: boolean;
+    status: number;
     errors?: { field: string; message: string }[];
   }> {
     const errors: { field: string; message: string }[] = [];
@@ -1179,7 +1183,7 @@ export class AuthService {
         });
         if (phoneExists) {
           errors.push({
-            field: 'phone_number',
+            field: 'phone',
             message: 'Phone number already exists',
           });
         }
@@ -1210,16 +1214,19 @@ export class AuthService {
       // Return result
       if (errors.length > 0) {
         return {
+          status: 400,
           isValid: false,
           errors,
         };
       }
 
       return {
+        status: 201,
         isValid: true,
       };
     } catch (error) {
       return {
+        status: 400,
         isValid: false,
         errors: [
           {
