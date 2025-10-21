@@ -545,8 +545,20 @@ model Job {
   
   reviews         Review[]
   status_history  JobStatusHistory[]
-
+  timeline        JobTimeline[]
   @@map("jobs")
+}
+
+model JobTimeline {
+  id         String    @id @default(cuid())
+  job_id     String
+  status     String
+  timestamp  DateTime  @default(now())
+  created_at DateTime  @default(now())
+  
+  job        Job       @relation(fields: [job_id], references: [id], onDelete: Cascade)
+  
+  @@map("job_timeline")
 }
 
 model JobRequirement {
