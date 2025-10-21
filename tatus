@@ -1,0 +1,179 @@
+[1mdiff --git a/prisma/schema.prisma b/prisma/schema.prisma[m
+[1mindex d84804b..7b6a1ad 100644[m
+[1m--- a/prisma/schema.prisma[m
+[1m+++ b/prisma/schema.prisma[m
+[36m@@ -545,10 +545,22 @@[m [mmodel Job {[m
+   [m
+   reviews         Review[][m
+   status_history  JobStatusHistory[][m
+[31m-[m
+[32m+[m[32m  timeline        JobTimeline[][m
+   @@map("jobs")[m
+ }[m
+ [m
+[32m+[m[32mmodel JobTimeline {[m
+[32m+[m[32m  id         String    @id @default(cuid())[m
+[32m+[m[32m  job_id     String[m
+[32m+[m[32m  status     String[m
+[32m+[m[32m  timestamp  DateTime  @default(now())[m
+[32m+[m[32m  created_at DateTime  @default(now())[m
+[32m+[m[41m  [m
+[32m+[m[32m  job        Job       @relation(fields: [job_id], references: [id], onDelete: Cascade)[m
+[32m+[m[41m  [m
+[32m+[m[32m  @@map("job_timeline")[m
+[32m+[m[32m}[m
+[32m+[m
+ model JobRequirement {[m
+   id         String    @id @default(cuid())[m
+   created_at DateTime  @default(now())[m
+[1mdiff --git a/src/modules/application/job/job.controller.ts b/src/modules/application/job/job.controller.ts[m
+[1mindex 4b02d83..d9d66ba 100644[m
+[1m--- a/src/modules/application/job/job.controller.ts[m
+[1m+++ b/src/modules/application/job/job.controller.ts[m
+[36m@@ -443,6 +443,23 @@[m [mexport class JobController {[m
+     };[m
+   }[m
+ [m
+[32m+[m
+[32m+[m[32m  @ApiOperation({ summary: 'Get past appointments for user' })[m
+[32m+[m[32m  @ApiResponse({ status: 200, description: 'Past appointments retrieved successfully' })[m
+[32m+[m[32m  @Get('past-appointments')[m
+[32m+[m[32m  async jobHistory(@Req() req: Request) {[m
+[32m+[m[32m      const userId = (req as any).user.userId[m
+[32m+[m[32m      const userType=(req as any).user.type;[m
+[32m+[m[32m      const appointments = await this.jobService.jobHistory(userId,userType);[m
+[32m+[m[32m      return {[m
+[32m+[m[32m        success: true,[m
+[32m+[m[32m        message: 'Past appointments retrieved successfully',[m
+[32m+[m[32m        data: appointments[m
+[32m+[m[32m      };[m[41m [m
+[32m+[m[32m  }[m
+[32m+[m
+[32m+[m
+[32m+[m[41m  [m
+   @ApiOperation({ summary: 'Get a specific job by ID' })[m
+   @ApiResponse({ status: 200, description: 'Job retrieved successfully', type: JobSingleResponseDto })[m
+   @Get(':id')[m
+[36m@@ -572,14 +589,39 @@[m [mexport class JobController {[m
+     return { message: 'Job auto-completed and payment released successfully' };[m
+   }[m
+ [m
+[31m-  @ApiOperation({ summary: 'Get time tracking information for hourly jobs' })[m
+[31m-  @Get(':id/time-tracking')[m
+[31m-  async getTimeTracking(@Param('id') id: string, @Req() req: Request): Promise<any> {[m
+[31m-    const userId = (req as any).user.userId || (req as any).user.id;[m
+[31m-    return this.jobService.getTimeTracking(id, userId);[m
+[31m-  }[m
+[32m+[m[32m  // @ApiOperation({ summary: 'Get time tracking information for hourly jobs' })[m
+[32m+[m[32m  // @Get(':id/time-tracking')[m
+[32m+[m[32m  // async getTimeTracking(@Param('id') id: string, @Req() req: Request): Promise<any> {[m
+[32m+[m[32m  //   const userId = (req as any).user.userId || (req as any).user.id;[m
+[32m+[m[32m  //   return this.jobService.getTimeTracking(id, userId);[m
+[32m+[m[32m  // }[m
+ [m
+[31m-  @ApiOperation({ summary: 'Get job status timeline' })[m
+[32m+[m[32m  @ApiOperation({[m[41m [m
+[32m+[m[32m    summary: 'Get job status timeline',[m
+[32m+[m[32m    description: 'Get complete timeline of job status changes with timestamps'[m
+[32m+[m[32m  })[m
+[32m+[m[32m  @ApiResponse({[m[41m [m
+[32m+[m[32m    status: 200,[m[41m [m
+[32m+[m[32m    description: 'Timeline retrieved successfully',[m
+[32m+[m[32m    schema: {[m
+[32m+[m[32m      type: 'object',[m
+[32m+[m[32m      properties: {[m
+[32m+[m[32m        job_id: { type: 'string' },[m
+[32m+[m[32m        title: { type: 'string' },[m
+[32m+[m[32m        current_status: { type: 'string' },[m
+[32m+[m[32m        timeline: {[m
+[32m+[m[32m          type: 'array',[m
+[32m+[m[32m          items: {[m
+[32m+[m[32m            type: 'object',[m
+[32m+[m[32m            properties: {[m
+[32m+[m[32m              status: { type: 'string' },[m
+[32m+[m[32m              timestamp: { type: 'string', format: 'date-time' }[m
+[32m+[m[32m            }[m
+[32m+[m[32m          }[m
+[32m+[m[32m        }[m
+[32m+[m[32m      }[m
+[32m+[m[32m    }[m
+[32m+[m[32m  })[m
+   @Get(':id/timeline')[m
+   async getTimeline(@Param('id') id: string) {[m
+     return this.jobService.getTimeline(id);[m
+[36m@@ -697,28 +739,6 @@[m [mexport class JobController {[m
+   }[m
+ [m
+  [m
+[31m-  @ApiOperation({ summary: 'Get past appointments for user' })[m
+[31m-  @ApiResponse({ status: 200, description: 'Past appointments retrieved successfully' })[m
+[31m-  @Get('past-appointments')[m
+[31m-  async jobHistory(@Req() req: Request) {[m
+[31m-    try {[m
+[31m-      const userId = req.user.userId[m
+[31m-      const userType=(req as any).user.type;[m
+[31m-      const appointments = await this.jobService.jobHistory(userId,userType);[m
+[31m-      return {[m
+[31m-        success: true,[m
+[31m-        message: 'Past appointments retrieved successfully',[m
+[31m-        data: appointments[m
+[31m-      };[m
+[31m-    } catch (error) {[m
+[31m-      return {[m
+[31m-        success: false,[m
+[31m-        message: error.message[m
+[31m-      };[m
+[31m-    }[m
+[31m-  }[m
+[31m-[m
+[31m-[m
+ [m
+   @ApiOperation({ summary: 'Get historical earnings graph data' })[m
+   @ApiResponse({ status: 200, description: 'Historical earnings data retrieved successfully' })[m
+[36m@@ -768,54 +788,54 @@[m [mexport class JobController {[m
+ [m
+ [m
+   // Extra Time Request System Endpoints[m
+[31m-  @Post(':id/request-extra-time')[m
+[31m-  @UseGuards(JwtAuthGuard)[m
+[31m-  @ApiBearerAuth()[m
+[31m-  @ApiOperation({ summary: 'Helper requests extra time for ongoing job' })[m
+[31m-  @ApiResponse({ status: 200, description: 'Extra time request submitted successfully' })[m
+[31m-  @ApiResponse({ status: 400, description: 'Bad request - invalid data or job not eligible' })[m
+[31m-  @ApiResponse({ status: 403, description: 'Forbidden - only assigned helpers can request' })[m
+[31m-  @ApiResponse({ status: 404, description: 'Job not found' })[m
+[31m-  async requestExtraTime([m
+[31m-    @Param('id') jobId: string,[m
+[31m-    @Body() requestDto: RequestExtraTimeDto,[m
+[31m-    @Req() req: Request,[m
+[31m-  ) {[m
+[31m-    const userId = (req.user as any).id;[m
+[31m-    return this.jobService.requestExtraTime(jobId, userId, requestDto);[m
+[31m-  }[m
+[31m-[m
+[31m-  @Put(':id/approve-extra-time')[m
+[31m-  @UseGuards(JwtAuthGuard)[m
+[31m-  @ApiBearerAuth()[m
+[31m-  @ApiOperation({ summary: 'Client approves or rejects extra time request' })[m
+[31m-  @ApiResponse({ status: 200, description: 'Extra time request approved/rejected successfully' })[m
+[31m-  @ApiResponse({ status: 400, description: 'Bad request - no pending request found' })[m
+[31m-  @ApiResponse({ status: 403, description: 'Forbidden - only job owner can approve' })[m
+[31m-  @ApiResponse({ status: 404, description: 'Job not found' })[m
+[31m-  async approveExtraTime([m
+[31m-    @Param('id') jobId: string,[m
+[31m-    @Body() approvalDto: ApproveExtraTimeDto,[m
+[31m-    @Req() req: Request,[m
+[31m-  ) {[m
+[31m-    const userId = (req.user as any).id;[m
+[31m-    return this.jobService.approveExtraTime(jobId, userId, approvalDto);[m
+[31m-  }[m
+[31m-[m
+[31m-  @Get(':id/extra-time-status')[m
+[31m-  @UseGuards(JwtAuthGuard)[m
+[31m-  @ApiBearerAuth()[m
+[31m-  @ApiOperation({ summary: 'Get extra time request status for a job' })[m
+[31m-  @ApiResponse({ status: 200, description: 'Extra time status retrieved successfully' })[m
+[31m-  @ApiResponse({ status: 403, description: 'Forbidden - only job participants can view' })[m
+[31m-  @ApiResponse({ status: 404, description: 'Job not found' })[m
+[31m-  async getExtraTimeStatus([m
+[31m-
