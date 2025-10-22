@@ -37,6 +37,7 @@ async createCounterOffer(createCounterOfferDto: CreateCounterOfferDto, userId: s
   })
   await this.counterOfferNotificationService.notifyUserAboutCounterOffer(counterOffer.id);
   return {
+    success:true,
     message:'Counter offer created successfully',
     counter_offer:counterOffer,
   };
@@ -62,6 +63,7 @@ const updatedJob= await this.prisma.job.update({
   where:{id:counterOffer.job_id},
   data:{
     job_status:'confirmed',
+    status:0,
     accepted_counter_offer_id:counterOffer.id,
     assigned_helper_id:counterOffer.helper_id, // Assign the helper to the job
     final_price:counterOffer.amount,
@@ -80,7 +82,8 @@ const modifiedUpdatedjob=this.jobService.mapToResponseDto(updatedJob);
 
 return{
   message:'Counter offer accepted successfully',
-  modifiedUpdatedjob,
+  success:true,
+  job:modifiedUpdatedjob,
 }
 }
 
@@ -117,8 +120,58 @@ async helperAcceptsJob(helperId: string, jobId: string) {
   const modifiedUpdatedjob=this.jobService.mapToResponseDto(updatedJob);
 
   return {
+    success:true,
     message: 'Job accepted successfully',
     job: modifiedUpdatedjob,
   };
 }
+
+async getCounterOffers(userId: string, jobId: string){
+  const counterOffers=await this.prisma.counterOffer.findMany({
+    where:{
+      job_id:jobId,
+      job:{
+        user_id:userId,
+      }
+    },
+    include:{
+      helper:{
+        select:{
+          name:true,
+          avatar:true,
+        }
+      }
+    }
+  })
+  return {
+    success:true,
+    message:'Counter offers fetched successfully',
+    counter_offers:counterOffers,
+  };
+}
+
+async declineCounterOffer(userId: string, counterOfferId: string){
+  const counterOffer=await this.prisma.counterOffer.findUnique({
+    where:{
+      id:counterOfferId,
+    },
+    include:{
+      job:{
+        select:{
+          user_id:true,
+        }
+      }
+    }
+  })
+  if(!counterOffer) throw new NotFoundException('Counter offer not found')
+  if(counterOffer.job.user_id!==userId) throw new UnauthorizedException('You are not authorized to decline this offer')
+  await this.prisma.counterOffer.delete({
+    where:{id:counterOfferId},
+  })
+  return {
+    success:true,
+    message:'Counter offer declined successfully',
+  };
+}
+
 }

@@ -481,22 +481,6 @@ export class JobController {
 
   // Note: Use the main /api/jobs endpoint with category filter instead of this endpoint
 
-
-  @ApiOperation({ summary: 'Get past appointments for user' })
-  @ApiResponse({ status: 200, description: 'Past appointments retrieved successfully' })
-  @Get('past-appointments')
-  async jobHistory(@Req() req: Request) {
-      const userId = (req as any).user.userId
-      const userType=(req as any).user.type;
-      const appointments = await this.jobService.jobHistory(userId,userType);
-      return {
-        success: true,
-        message: 'Past appointments retrieved successfully',
-        data: appointments
-      }; 
-  }
-
-
   
   @ApiOperation({ summary: 'Get a specific job by ID' })
   @ApiResponse({ status: 200, description: 'Job retrieved successfully', type: JobSingleResponseDto })
@@ -778,30 +762,30 @@ export class JobController {
 
  
 
-  @ApiOperation({ summary: 'Get historical earnings graph data' })
-  @ApiResponse({ status: 200, description: 'Historical earnings data retrieved successfully' })
-  @Get('earnings/historical')
-  async getHistoricalEarnings(
-    @Req() req: Request,
-    @Query('period') period: string = 'week',
-    @Query('days') days: string = '7'
-  ) {
-    try {
-      const userId = (req as any).user.userId || (req as any).user.id;
-      const userType = (req as any).user.type;
-      const earningsData = await this.jobService.getHistoricalEarnings(userId, userType, period, parseInt(days));
-      return {
-        success: true,
-        message: 'Historical earnings data retrieved successfully',
-        data: earningsData
-      };
-    } catch (error) {
-      return {
-        success: false,
-        message: error.message
-      };
-    }
-  }
+  // @ApiOperation({ summary: 'Get historical earnings graph data' })
+  // @ApiResponse({ status: 200, description: 'Historical earnings data retrieved successfully' })
+  // @Get('earnings/historical')
+  // async getHistoricalEarnings(
+  //   @Req() req: Request,
+  //   @Query('period') period: string = 'week',
+  //   @Query('days') days: string = '7'
+  // ) {
+  //   try {
+  //     const userId = (req as any).user.userId || (req as any).user.id;
+  //     const userType = (req as any).user.type;
+  //     const earningsData = await this.jobService.getHistoricalEarnings(userId, userType, period, parseInt(days));
+  //     return {
+  //       success: true,
+  //       message: 'Historical earnings data retrieved successfully',
+  //       data: earningsData
+  //     };
+  //   } catch (error) {
+  //     return {
+  //       success: false,
+  //       message: error.message
+  //     };
+  //   }
+  // }
 
   @ApiOperation({ summary: 'Get weekly earnings breakdown' })
   @ApiResponse({ status: 200, description: 'Weekly earnings breakdown retrieved successfully' })

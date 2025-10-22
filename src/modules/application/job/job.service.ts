@@ -2,8 +2,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
-  ForbiddenException,
-  ConsoleLogger,
+
 } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CreateJobDto } from './dto/create-job.dto';
@@ -621,6 +620,7 @@ export class JobService {
         where: {
           user_id: userId,
           status: 1,
+          job_status:"posted",
           deleted_at: null,
         },
         orderBy: { created_at: 'desc' },
@@ -693,12 +693,13 @@ export class JobService {
       const existingJob = await this.prisma.job.findFirst({
       where: {
         id,
-          user_id: userId,
+        user_id: userId,
         status: 1,
+        job_status:{in:["posted","counter_offer"]},
         deleted_at: null,
       },
       });
-  
+
       if (!existingJob) {
         throw new NotFoundException(
           'Job not found or you do not have permission to update it',
@@ -819,6 +820,7 @@ export class JobService {
         user_id: userId,
         status: 1,
         deleted_at: null,
+        job_status:{not:{in:["confirm","completed","cancelled"]}}
       },
     });
 
@@ -1627,44 +1629,7 @@ export class JobService {
   }
 
 
-  async jobHistory(userId: string, userType: string) {
-    if (!userId) {
-      throw new BadRequestException('User ID is required');
-    }
-    
-    if (userType === "user") {
-      const jobs = await this.prisma.job.findMany({
-        where: {
-          user_id: userId,
-        },
-      });
-      
-      // Parse photos for each job
-      const jobsWithParsedPhotos = jobs.map(job => ({
-        ...job,
-        photos: job.photos ? this.parsePhotos(job.photos) : []
-      }));
-      
-      return jobsWithParsedPhotos;
-    } else if (userType === "helper") {
-      const jobs = await this.prisma.job.findMany({
-      where: { 
-          assigned_helper_id: userId,
-        },
-      });
-      
-      // Parse photos for each job
-      const jobsWithParsedPhotos = jobs.map(job => ({
-        ...job,
-        photos: job.photos ? this.parsePhotos(job.photos) : []
-      }));
-      
-      return jobsWithParsedPhotos;
-      } else {
-      throw new BadRequestException('Invalid user type');
-    }
-  }
-
+ 
 
   async getTimeline(jobId: string): Promise<any> {
     const job = await this.prisma.job.findUnique({
@@ -1750,71 +1715,67 @@ export class JobService {
     };
   }
 
-
-
   // Earnings and payments
-
-
 
 
   /**
    * Get historical earnings
    */
 
-  async getHistoricalEarnings(
-    userId: string,
-    userType: string,
-    period: string,
-    days: number,
-  ): Promise<any> {
-    const startDate = new Date();
-    startDate.setDate(startDate.getDate() - days);
+  // async getHistoricalEarnings(
+  //   userId: string,
+  //   userType: string,
+  //   period: string,
+  //   days: number,
+  // ): Promise<any> {
+  //   const startDate = new Date();
+  //   startDate.setDate(startDate.getDate() - days);
 
-    const whereClause: any = {
-      job_status: 'completed',
-      status: 1,
-      deleted_at: null,
-      created_at: { gte: startDate },
-    };
+  //   const whereClause: any = {
+  //     job_status: 'completed',
+  //     status: 1,
+  //     deleted_at: null,
+  //     created_at: { gte: startDate },
+  //   };
 
-    if (userType === 'user') {
-      whereClause.user_id = userId;
-    } else if (userType === 'helper') {
-      whereClause.OR = [
-        { accepted_counter_offer: { helper_id: userId } },
-        { assigned_helper_id: userId },
-      ];
-    }
+  //   if (userType === 'user') {
+  //     whereClause.user_id = userId;
+  //   } else if (userType === 'helper') {
+  //     whereClause.OR = [
+  //       { accepted_counter_offer: { helper_id: userId } },
+  //       { assigned_helper_id: userId },
+  //     ];
+  //   }
 
-    const jobs = await this.prisma.job.findMany({
-      where: whereClause,
-      select: {
-        id: true,
-        title: true,
-        final_price: true,
-        created_at: true,
-        updated_at: true,
-      },
-    });
+  //   const jobs = await this.prisma.job.findMany({
+  //     where: whereClause,
+  //     select: {
+  //       id: true,
+  //       title: true,
+  //       final_price: true,
+  //       created_at: true,
+  //       updated_at: true,
+  //     },
+  //   });
 
-    const totalEarnings = jobs.reduce(
-      (sum, job) => sum + Number(job.final_price || 0),
-      0,
-    );
+  //   const totalEarnings = jobs.reduce(
+  //     (sum, job) => sum + Number(job.final_price || 0),
+  //     0,
+  //   );
 
-    return {
-      period,
-      days,
-      total_earnings: totalEarnings,
-      job_count: jobs.length,
-      jobs: jobs.map((job) => ({
-        id: job.id,
-        title: job.title,
-        amount: Number(job.final_price || 0),
-        completed_at: job.updated_at,
-      })),
-    };
-  }
+  //   return {
+  //     period,
+  //     days,
+  //     total_earnings: totalEarnings,
+  //     job_count: jobs.length,
+  //     jobs: jobs.map((job) => ({
+  //       id: job.id,
+  //       title: job.title,
+  //       amount: Number(job.final_price || 0),
+  //       completed_at: job.updated_at,
+  //     })),
+  //   };
+  // }
   /**
    * Get weekly earnings
    */
@@ -1867,43 +1828,43 @@ export class JobService {
   }
  
   
-  // async getTimeTracking(jobId: string, userId: string): Promise<any> {
-  //   const job = await this.prisma.job.findFirst({
-  //     where: {
-  //       id: jobId,
-  //       OR: [{ user_id: userId }, { assigned_helper_id: userId }],
-  //       status: 1,
-  //       deleted_at: null,
-  //     },
-  //     select: {
-  //       id: true,
-  //       title: true,
-  //       start_time: true,
-  //       end_time: true,
-  //       actual_start_time: true,
-  //       actual_end_time: true,
-  //       actual_hours: true,
-  //       job_status: true,
-  //     },
-  //   });
+  async getTimeTracking(jobId: string, userId: string): Promise<any> {
+    const job = await this.prisma.job.findFirst({
+      where: {
+        id: jobId,
+        OR: [{ user_id: userId }, { assigned_helper_id: userId }],
+        status: 1,
+        deleted_at: null,
+      },
+      select: {
+        id: true,
+        title: true,
+        start_time: true,
+        end_time: true,
+        actual_start_time: true,
+        actual_end_time: true,
+        actual_hours: true,
+        job_status: true,
+      },
+    });
 
-  //   if (!job) {
-  //     throw new NotFoundException(
-  //       'Job not found or you do not have access to it',
-  //     );
-  //   }
+    if (!job) {
+      throw new NotFoundException(
+        'Job not found or you do not have access to it',
+      );
+    }
 
-  //   return {
-  //     job_id: job.id,
-  //     title: job.title,
-  //     scheduled_start: job.start_time,
-  //     scheduled_end: job.end_time,
-  //     actual_start: job.actual_start_time,
-  //     actual_end: job.actual_end_time,
-  //     actual_hours: job.actual_hours,
-  //     status: job.job_status,
-  //   };
-  // }
+    return {
+      job_id: job.id,
+      title: job.title,
+      scheduled_start: job.start_time,
+      scheduled_end: job.end_time,
+      actual_start: job.actual_start_time,
+      actual_end: job.actual_end_time,
+      actual_hours: job.actual_hours,
+      status: job.job_status,
+    };
+  }
   /**
    * Update helper preferences
    */

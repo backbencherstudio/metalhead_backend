@@ -208,7 +208,7 @@ export class ReviewService {
       return {
         average_rating: averageRating,
         total_reviews: reviews.length,
-        recent_reviews: reviews.map(review => this.mapToResponseDto(review)),
+        
       }
     }
     else {
@@ -403,22 +403,22 @@ export class ReviewService {
     }
 
     // Get recent reviews (last 5)
-    const recentReviews = reviews.slice(0, 5).map(review => ({
-      id: review.id,
-      rating: review.rating,
-      comment: review.comment,
-      created_at: review.created_at,
-      reviewer: {
-        id: review.reviewer.id,
-        name: review.reviewer.name || [review.reviewer.first_name, review.reviewer.last_name].filter(Boolean).join(' ') || 'Unknown',
-        email: review.reviewer.email,
-        avatar: review.reviewer.avatar,
-      },
-      job: {
-        id: review.job.id,
-        title: review.job.title || 'Untitled Job',
-      },
-    }));
+    // const recentReviews = reviews.slice(0, 5).map(review => ({
+    //   id: review.id,
+    //   rating: review.rating,
+    //   comment: review.comment,
+    //   created_at: review.created_at,
+    //   reviewer: {
+    //     id: review.reviewer.id,
+    //     name: review.reviewer.name || [review.reviewer.first_name, review.reviewer.last_name].filter(Boolean).join(' ') || 'Unknown',
+    //     email: review.reviewer.email,
+    //     avatar: review.reviewer.avatar,
+    //   },
+    //   job: {
+    //     id: review.job.id,
+    //     title: review.job.title || 'Untitled Job',
+    //   },
+    // }));
 
     return {
       user_id: user.id,
@@ -428,7 +428,7 @@ export class ReviewService {
       total_jobs_delivered: totalJobsDelivered,
       average_rating: Math.round(averageRating * 10) / 10,
       total_reviews: totalReviews,
-      recent_reviews: recentReviews,
+      // recent_reviews: recentReviews,
       rating_breakdown: ratingBreakdown,
     };
   }

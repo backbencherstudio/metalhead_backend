@@ -37,4 +37,20 @@ async directAcceptJob(
   const userId = req.user.id;
   return this.counterOfferService.helperAcceptsJob(userId, jobId);
 }
+@Post('decline/:counterOfferId')
+@ApiOperation({ summary: 'Helper directly accepts a job without counter offer' })
+async declineCounterOffer(
+@Param('jobId') jobId: string, 
+@Req() req:any){
+  const counterOfferId=req.params.counterOfferId;
+  const userId = req.user.id;
+  return this.counterOfferService.declineCounterOffer(userId, counterOfferId);
+}
+
+@Get(':jobId')
+async getCounterOffers(@Param('jobId') jobId: string, @Req() req:any){
+  const userId = req.user.id;
+  return this.counterOfferService.getCounterOffers(userId, jobId);
+}
+
 }

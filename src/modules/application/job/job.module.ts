@@ -2,8 +2,8 @@ import { Module } from '@nestjs/common';
 import { JobController } from './job.controller';
 import { JobService } from './job.service';
 import { JobNotificationService } from './job-notification.service';
-import { JobHistoryService } from './job-history.service';
-import { JobHistoryController } from './job-history.controller';
+import { JobManageService } from './job-manage.service';
+import { JobManageController } from './job-manage.controller';
 import { NearbyJobsController } from './nearby-jobs.controller';
 import { NearbyJobsService } from './nearby-jobs.service';
 import { PrismaModule } from '../../../prisma/prisma.module';
@@ -15,22 +15,23 @@ import { CategoryModule } from '../category/category.module';
 @Module({
   imports: [PrismaModule, FirebaseNotificationModule, CategoryModule],
   controllers: [
+    JobManageController,
     JobController, 
-    JobHistoryController,
+    
     NearbyJobsController
   ],
   providers: [
     JobService, 
     JobNotificationService, 
-    JobHistoryService,
+    JobManageService,
     NearbyJobsService,
     LocationService, 
     GeocodingService
   ],
   exports: [
+    JobManageService,
     JobService, 
     JobNotificationService,
-    JobHistoryService,
     NearbyJobsService
   ],
 })

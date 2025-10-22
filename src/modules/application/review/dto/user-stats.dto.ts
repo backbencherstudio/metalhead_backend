@@ -23,22 +23,22 @@ export class UserStatsResponseDto {
   total_reviews: number;
 
   @ApiProperty()
-  recent_reviews: {
-    id: string;
-    rating: number;
-    comment?: string;
-    created_at: Date;
-    reviewer: {
-      id: string;
-      name: string;
-      email: string;
-      avatar?: string;
-    };
-    job: {
-      id: string;
-      title: string;
-    };
-  }[];
+  // recent_reviews: {
+  //   id: string;
+  //   rating: number;
+  //   comment?: string;
+  //   created_at: Date;
+  //   reviewer: {
+  //     id: string;
+  //     name: string;
+  //     email: string;
+  //     avatar?: string;
+  //   };
+  //   job: {
+  //     id: string;
+  //     title: string;
+  //   };
+  // }[];
 
   @ApiProperty()
   rating_breakdown: {
