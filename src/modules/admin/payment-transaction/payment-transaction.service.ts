@@ -4,11 +4,11 @@ import { UserRepository } from '../../../common/repository/user/user.repository'
 
 @Injectable()
 export class PaymentTransactionService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService, private userRepo: UserRepository,) { }
 
   async findAll(user_id?: string) {
     try {
-      const userDetails = await UserRepository.getUserDetails(user_id);
+      const userDetails = await this.userRepo.getUserDetails(user_id);
 
       const whereClause = {};
       if (userDetails.type == 'vendor') {
@@ -49,7 +49,7 @@ export class PaymentTransactionService {
 
   async findOne(id: string, user_id?: string) {
     try {
-      const userDetails = await UserRepository.getUserDetails(user_id);
+      const userDetails = await this.userRepo.getUserDetails(user_id);
 
       const whereClause = {};
       if (userDetails.type == 'vendor') {
@@ -97,7 +97,7 @@ export class PaymentTransactionService {
 
   async remove(id: string, user_id?: string) {
     try {
-      const userDetails = await UserRepository.getUserDetails(user_id);
+      const userDetails = await this.userRepo.getUserDetails(user_id);
 
       const whereClause = {};
       if (userDetails.type == 'vendor') {

@@ -1,16 +1,16 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { 
-  HelperDashboardDto, 
-  UserDashboardDto, 
-  JobActionStateDto, 
+import {
+  HelperDashboardDto,
+  UserDashboardDto,
+  JobActionStateDto,
   JobActionButtonDto,
-  JobSummaryDto 
+  JobSummaryDto
 } from './dto/dashboard-response.dto';
 
 @Injectable()
 export class DashboardService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService) { }
 
   // Get helper dashboard data
   async getHelperDashboard(helperId: string): Promise<HelperDashboardDto> {
@@ -18,7 +18,6 @@ export class DashboardService {
       where: { id: helperId },
       select: {
         id: true,
-        name: true,
         first_name: true,
         last_name: true,
         stripe_onboarding_completed: true,
@@ -91,7 +90,7 @@ export class DashboardService {
 
     return {
       helper_id: helper.id,
-      helper_name: helper.name || `${helper.first_name} ${helper.last_name}`.trim(),
+      helper_name: `${helper.first_name} ${helper.last_name}`.trim(),
       total_jobs: totalJobs,
       active_jobs: activeJobs,
       completed_jobs: completedJobs,
@@ -110,7 +109,6 @@ export class DashboardService {
       where: { id: userId },
       select: {
         id: true,
-        name: true,
         first_name: true,
         last_name: true,
       },
@@ -152,7 +150,7 @@ export class DashboardService {
 
     return {
       user_id: user.id,
-      user_name: user.name || `${user.first_name} ${user.last_name}`.trim(),
+      user_name: `${user.first_name} ${user.last_name}`.trim(),
       total_jobs_posted: totalJobsPosted,
       active_jobs: activeJobs,
       completed_jobs: completedJobs,
@@ -346,7 +344,7 @@ export class DashboardService {
 
   private mapToJobSummary(job: any, userRole: 'owner' | 'helper'): JobSummaryDto {
     const acceptedOffer = job.accepted_counter_offer || (job.assigned_helper_id ? { helper: job.assigned_helper } : null);
-    
+
     return {
       id: job.id,
       title: job.title,
@@ -356,7 +354,7 @@ export class DashboardService {
       created_at: job.created_at,
       accepted_offer: acceptedOffer ? {
         helper_id: acceptedOffer.counter_offer.helper.id,
-        helper_name: acceptedOffer.counter_offer.helper.name || 
+        helper_name: acceptedOffer.counter_offer.helper.name ||
           `${acceptedOffer.counter_offer.helper.first_name} ${acceptedOffer.counter_offer.helper.last_name}`.trim(),
         amount: Number(acceptedOffer.counter_offer.amount),
       } : undefined,
@@ -397,7 +395,7 @@ export class DashboardService {
       if (autoCompleteTime) {
         const now = new Date();
         const timeUntilAutoComplete = Math.max(0, Math.floor((autoCompleteTime.getTime() - now.getTime()) / 1000));
-        
+
         actions.push({
           action: 'auto_complete',
           enabled: timeUntilAutoComplete > 0,
@@ -411,7 +409,7 @@ export class DashboardService {
 
   private calculateAutoCompleteTime(job: any): Date | null {
     if (job.job_status !== 'completed') return null;
-    
+
     // Auto-complete after 24 hours
     const completedAt = job.updated_at; // Assuming this is when job was completed
     return new Date(completedAt.getTime() + 24 * 60 * 60 * 1000);
@@ -419,7 +417,7 @@ export class DashboardService {
 
   private calculateAutoReleaseTime(job: any): Date | null {
     if (job.job_status !== 'completed') return null;
-    
+
     // Auto-release payment after 24 hours of completion
     const completedAt = job.updated_at;
     return new Date(completedAt.getTime() + 24 * 60 * 60 * 1000);

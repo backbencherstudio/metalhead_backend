@@ -4,7 +4,7 @@ import { CreateReviewDto, ReviewResponseDto, JobReviewsResponseDto, UserReviewsS
 
 @Injectable()
 export class ReviewService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService) { }
 
   async createReview(createReviewDto: CreateReviewDto, reviewerId: string): Promise<ReviewResponseDto> {
     const { rating, comment, reviewee_id, job_id } = createReviewDto;
@@ -39,7 +39,7 @@ export class ReviewService {
     }
 
     // Verify the reviewee is the other participant
-    const otherParticipantId = isJobOwner 
+    const otherParticipantId = isJobOwner
       ? (job.accepted_counter_offer?.helper_id || job.assigned_helper_id)
       : job.user_id;
 
@@ -73,7 +73,6 @@ export class ReviewService {
         reviewer: {
           select: {
             id: true,
-            name: true,
             first_name: true,
             last_name: true,
             email: true,
@@ -83,7 +82,6 @@ export class ReviewService {
         reviewee: {
           select: {
             id: true,
-            name: true,
             first_name: true,
             last_name: true,
             email: true,
@@ -103,7 +101,6 @@ export class ReviewService {
         reviewer: {
           select: {
             id: true,
-            name: true,
             first_name: true,
             last_name: true,
             email: true,
@@ -113,7 +110,6 @@ export class ReviewService {
         reviewee: {
           select: {
             id: true,
-            name: true,
             first_name: true,
             last_name: true,
             email: true,
@@ -138,7 +134,6 @@ export class ReviewService {
         reviewer: {
           select: {
             id: true,
-            name: true,
             first_name: true,
             last_name: true,
             email: true,
@@ -148,7 +143,6 @@ export class ReviewService {
         reviewee: {
           select: {
             id: true,
-            name: true,
             first_name: true,
             last_name: true,
             email: true,
@@ -188,7 +182,6 @@ export class ReviewService {
             reviewer: {
               select: {
                 id: true,
-                name: true,
                 first_name: true,
                 last_name: true,
                 email: true,
@@ -198,7 +191,6 @@ export class ReviewService {
             reviewee: {
               select: {
                 id: true,
-                name: true,
                 first_name: true,
                 last_name: true,
                 email: true,
@@ -216,8 +208,8 @@ export class ReviewService {
     }
 
     const reviews = job.reviews.map(review => this.mapToResponseDto(review));
-    const averageRating = reviews.length > 0 
-      ? reviews.reduce((sum, review) => sum + review.rating, 0) / reviews.length 
+    const averageRating = reviews.length > 0
+      ? reviews.reduce((sum, review) => sum + review.rating, 0) / reviews.length
       : undefined;
 
     return {
@@ -234,7 +226,6 @@ export class ReviewService {
       where: { id: userId },
       select: {
         id: true,
-        name: true,
         first_name: true,
         last_name: true,
       },
@@ -250,7 +241,6 @@ export class ReviewService {
         reviewer: {
           select: {
             id: true,
-            name: true,
             first_name: true,
             last_name: true,
             email: true,
@@ -260,7 +250,6 @@ export class ReviewService {
         reviewee: {
           select: {
             id: true,
-            name: true,
             first_name: true,
             last_name: true,
             email: true,
@@ -278,13 +267,13 @@ export class ReviewService {
       select: { rating: true },
     });
 
-    const averageRating = allReviews.length > 0 
-      ? allReviews.reduce((sum, review) => sum + review.rating, 0) / allReviews.length 
+    const averageRating = allReviews.length > 0
+      ? allReviews.reduce((sum, review) => sum + review.rating, 0) / allReviews.length
       : 0;
 
     return {
       user_id: user.id,
-      user_name: user.name || [user.first_name, user.last_name].filter(Boolean).join(' ') || 'Unknown',
+      user_name: [user.first_name, user.last_name].filter(Boolean).join(' ') || 'Unknown',
       average_rating: Math.round(averageRating * 10) / 10,
       total_reviews: allReviews.length,
       recent_reviews: reviews.map(review => this.mapToResponseDto(review)),
@@ -298,7 +287,6 @@ export class ReviewService {
         reviewer: {
           select: {
             id: true,
-            name: true,
             first_name: true,
             last_name: true,
             email: true,
@@ -308,7 +296,6 @@ export class ReviewService {
         reviewee: {
           select: {
             id: true,
-            name: true,
             first_name: true,
             last_name: true,
             email: true,
@@ -329,7 +316,6 @@ export class ReviewService {
       where: { id: userId },
       select: {
         id: true,
-        name: true,
         first_name: true,
         last_name: true,
         type: true,
@@ -347,7 +333,6 @@ export class ReviewService {
         reviewer: {
           select: {
             id: true,
-            name: true,
             first_name: true,
             last_name: true,
             email: true,
@@ -366,8 +351,8 @@ export class ReviewService {
 
     // Calculate statistics
     const totalReviews = reviews.length;
-    const averageRating = totalReviews > 0 
-      ? reviews.reduce((sum, review) => sum + review.rating, 0) / totalReviews 
+    const averageRating = totalReviews > 0
+      ? reviews.reduce((sum, review) => sum + review.rating, 0) / totalReviews
       : 0;
 
     // Rating breakdown
@@ -422,7 +407,7 @@ export class ReviewService {
       created_at: review.created_at,
       reviewer: {
         id: review.reviewer.id,
-        name: review.reviewer.name || [review.reviewer.first_name, review.reviewer.last_name].filter(Boolean).join(' ') || 'Unknown',
+        name: [review.reviewer.first_name, review.reviewer.last_name].filter(Boolean).join(' ') || 'Unknown',
         email: review.reviewer.email,
         avatar: review.reviewer.avatar,
       },
@@ -434,7 +419,7 @@ export class ReviewService {
 
     return {
       user_id: user.id,
-      user_name: user.name || [user.first_name, user.last_name].filter(Boolean).join(' ') || 'Unknown',
+      user_name: [user.first_name, user.last_name].filter(Boolean).join(' ') || 'Unknown',
       user_type: user.type || 'user',
       total_jobs_completed: totalJobsCompleted,
       total_jobs_delivered: totalJobsDelivered,

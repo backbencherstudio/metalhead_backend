@@ -20,7 +20,7 @@ export class JobService {
     private prisma: PrismaService,
     private jobNotificationService: JobNotificationService,
     private geocodingService: GeocodingService,
-  ) {}
+  ) { }
 
   async create(
     createJobDto: CreateJobDto,
@@ -79,7 +79,7 @@ export class JobService {
     // Calculate estimated time from start_time and end_time
     const startTime = new Date(jobData.start_time);
     const endTime = new Date(jobData.end_time);
-    
+
     // Validate dates
     if (isNaN(startTime.getTime())) {
       throw new BadRequestException('Invalid start_time format');
@@ -90,12 +90,12 @@ export class JobService {
     if (startTime >= endTime) {
       throw new BadRequestException('start_time must be before end_time');
     }
-    
+
     const estimatedHours = this.calculateHours(startTime, endTime);
     const estimatedTimeString = this.formatEstimatedTime(estimatedHours);
-    
+
     //
-    
+
     const job = await this.prisma.job.create({
       data: {
         title: jobData.title,
@@ -142,7 +142,8 @@ export class JobService {
         user: {
           select: {
             id: true,
-            name: true,
+            first_name: true,
+            last_name: true,
             email: true,
             avatar: true,
           },
@@ -172,7 +173,7 @@ export class JobService {
       });
 
     const responseData = this.mapToResponseDto(job);
-    
+
     return {
       success: true,
       message: 'Job created successfully',
@@ -240,31 +241,31 @@ export class JobService {
       current_status: job.job_status,
       user: job.user
         ? {
-            id: job.user.id,
-            name: job.user.name,
-            email: job.user.email,
-            avatar: job.user.avatar,
-          }
+          id: job.user.id,
+          name: job.user.name,
+          email: job.user.email,
+          avatar: job.user.avatar,
+        }
         : null,
       counter_offers: job.counter_offers || [],
       accepted_offer: accepted
         ? {
-            amount: Number(accepted.amount || job.final_price || job.price),
-            type: job.payment_type, // Use the job's payment type (FIXED or HOURLY)
-            note: accepted.note ?? undefined,
-            helper: accepted.helper
-              ? {
-                  id: accepted.helper.id,
-                  name:
-                    accepted.helper.name ??
-                    [accepted.helper.first_name, accepted.helper.last_name]
-                      .filter(Boolean)
-                      .join(' '),
-                  email: accepted.helper.email ?? '',
-                  phone_number: accepted.helper.phone_number ?? undefined,
-                }
-              : undefined,
-          }
+          amount: Number(accepted.amount || job.final_price || job.price),
+          type: job.payment_type, // Use the job's payment type (FIXED or HOURLY)
+          note: accepted.note ?? undefined,
+          helper: accepted.helper
+            ? {
+              id: accepted.helper.id,
+              name:
+                accepted.helper.name ??
+                [accepted.helper.first_name, accepted.helper.last_name]
+                  .filter(Boolean)
+                  .join(' '),
+              email: accepted.helper.email ?? '',
+              phone_number: accepted.helper.phone_number ?? undefined,
+            }
+            : undefined,
+        }
         : undefined,
     };
   }
@@ -408,7 +409,6 @@ export class JobService {
           user: {
             select: {
               id: true,
-              name: true,
               first_name: true,
               last_name: true,
               email: true,
@@ -422,7 +422,6 @@ export class JobService {
               helper: {
                 select: {
                   id: true,
-                  name: true,
                   first_name: true,
                   last_name: true,
                   email: true,
@@ -435,7 +434,6 @@ export class JobService {
               helper: {
                 select: {
                   id: true,
-                  name: true,
                   first_name: true,
                   last_name: true,
                   email: true,
@@ -446,7 +444,6 @@ export class JobService {
           assigned_helper: {
             select: {
               id: true,
-              name: true,
               first_name: true,
               last_name: true,
               email: true,
@@ -477,7 +474,6 @@ export class JobService {
         user: {
           select: {
             id: true,
-            name: true,
             first_name: true,
             last_name: true,
             email: true,
@@ -491,7 +487,6 @@ export class JobService {
             helper: {
               select: {
                 id: true,
-                name: true,
                 first_name: true,
                 last_name: true,
                 email: true,
@@ -501,23 +496,21 @@ export class JobService {
           },
         },
         accepted_counter_offer: {
-              include: {
-                helper: {
-                  select: {
-                    id: true,
-                    name: true,
-                    first_name: true,
-                    last_name: true,
-                    email: true,
-                    phone_number: true,
-                  },
-                },
+          include: {
+            helper: {
+              select: {
+                id: true,
+                first_name: true,
+                last_name: true,
+                email: true,
+                phone_number: true,
               },
             },
+          },
+        },
         assigned_helper: {
           select: {
             id: true,
-            name: true,
             first_name: true,
             last_name: true,
             email: true,
@@ -537,31 +530,29 @@ export class JobService {
   // Get jobs posted by a specific user
   async findByUser(userId: string): Promise<{ jobs: any[]; total: number }> {
     const jobs = await this.prisma.job.findMany({
-        where: {
-          user_id: userId,
-          status: 1,
-          deleted_at: null,
-        },
+      where: {
+        user_id: userId,
+        status: 1,
+        deleted_at: null,
+      },
       orderBy: { created_at: 'desc' },
-        include: {
+      include: {
         user: {
           select: {
             id: true,
-            name: true,
             first_name: true,
             last_name: true,
             email: true,
             avatar: true,
           },
         },
-          requirements: true,
-          notes: true,
+        requirements: true,
+        notes: true,
         counter_offers: {
           include: {
             helper: {
               select: {
                 id: true,
-                name: true,
                 first_name: true,
                 last_name: true,
                 email: true,
@@ -574,7 +565,6 @@ export class JobService {
             helper: {
               select: {
                 id: true,
-                name: true,
                 first_name: true,
                 last_name: true,
                 email: true,
@@ -585,7 +575,6 @@ export class JobService {
         assigned_helper: {
           select: {
             id: true,
-            name: true,
             first_name: true,
             last_name: true,
             email: true,
@@ -648,7 +637,7 @@ export class JobService {
     }
 
     // Handle nested relations properly
-      const updateData: any = { 
+    const updateData: any = {
       ...mappedData,
       ...(newPhotoPath ? { photos: newPhotoPath } : {}),
     };
@@ -676,13 +665,12 @@ export class JobService {
     }
 
     const job = await this.prisma.job.update({
-        where: { id },
-        data: updateData,
+      where: { id },
+      data: updateData,
       include: {
         user: {
           select: {
             id: true,
-            name: true,
             first_name: true,
             last_name: true,
             email: true,
@@ -696,7 +684,6 @@ export class JobService {
             helper: {
               select: {
                 id: true,
-                name: true,
                 first_name: true,
                 last_name: true,
                 email: true,
@@ -709,7 +696,6 @@ export class JobService {
             helper: {
               select: {
                 id: true,
-                name: true,
                 first_name: true,
                 last_name: true,
                 email: true,
@@ -720,7 +706,6 @@ export class JobService {
         assigned_helper: {
           select: {
             id: true,
-            name: true,
             first_name: true,
             last_name: true,
             email: true,
@@ -798,8 +783,8 @@ export class JobService {
         user_id: userId,
         status: 1,
         deleted_at: null,
-        },
-      });
+      },
+    });
 
     if (!job) {
       throw new NotFoundException(
@@ -822,7 +807,6 @@ export class JobService {
         user: {
           select: {
             id: true,
-            name: true,
             first_name: true,
             last_name: true,
             email: true,
@@ -832,7 +816,6 @@ export class JobService {
         assigned_helper: {
           select: {
             id: true,
-            name: true,
             first_name: true,
             last_name: true,
             email: true,
@@ -913,7 +896,6 @@ export class JobService {
         user: {
           select: {
             id: true,
-            name: true,
             first_name: true,
             last_name: true,
             email: true,
@@ -923,7 +905,6 @@ export class JobService {
         assigned_helper: {
           select: {
             id: true,
-            name: true,
             first_name: true,
             last_name: true,
             email: true,
@@ -994,7 +975,6 @@ export class JobService {
         user: {
           select: {
             id: true,
-            name: true,
             first_name: true,
             last_name: true,
             email: true,
@@ -1002,12 +982,11 @@ export class JobService {
           },
         },
         assigned_helper: {
-                  select: {
-                    id: true,
-                    name: true,
-                    first_name: true,
-                    last_name: true,
-                    email: true,
+          select: {
+            id: true,
+            first_name: true,
+            last_name: true,
+            email: true,
           },
         },
       },
@@ -1031,7 +1010,7 @@ export class JobService {
         id: jobId,
         assigned_helper_id: helperId,
         status: 1,
-            deleted_at: null,
+        deleted_at: null,
       },
     });
 
@@ -1057,7 +1036,6 @@ export class JobService {
         user: {
           select: {
             id: true,
-            name: true,
             first_name: true,
             last_name: true,
             email: true,
@@ -1065,12 +1043,11 @@ export class JobService {
           },
         },
         assigned_helper: {
-                  select: {
-                    id: true,
-                    name: true,
-                    first_name: true,
-                    last_name: true,
-                    email: true,
+          select: {
+            id: true,
+            first_name: true,
+            last_name: true,
+            email: true,
           },
         },
       },
@@ -1132,7 +1109,6 @@ export class JobService {
         user: {
           select: {
             id: true,
-            name: true,
             first_name: true,
             last_name: true,
             email: true,
@@ -1140,12 +1116,11 @@ export class JobService {
           },
         },
         assigned_helper: {
-                  select: {
-                    id: true,
-                    name: true,
-                    first_name: true,
-                    last_name: true,
-                    email: true,
+          select: {
+            id: true,
+            first_name: true,
+            last_name: true,
+            email: true,
           },
         },
       },
@@ -1168,13 +1143,12 @@ export class JobService {
         id: jobId,
         OR: [{ user_id: userId }, { assigned_helper_id: userId }],
         status: 1,
-            deleted_at: null,
+        deleted_at: null,
       },
       include: {
         user: {
           select: {
             id: true,
-            name: true,
             first_name: true,
             last_name: true,
             email: true,
@@ -1182,12 +1156,11 @@ export class JobService {
           },
         },
         assigned_helper: {
-                  select: {
-                    id: true,
-                    name: true,
-                    first_name: true,
-                    last_name: true,
-                    email: true,
+          select: {
+            id: true,
+            first_name: true,
+            last_name: true,
+            email: true,
           },
         },
       },
@@ -1212,71 +1185,15 @@ export class JobService {
         where: {
           user_id: userId,
           NOT: { assigned_helper_id: null },
-        job_status: { in: ['confirmed', 'ongoing'] },
+          job_status: { in: ['confirmed', 'ongoing'] },
         },
         orderBy: {
           start_time: 'desc',
-      },
-      include: {
-        user: {
-          select: {
-            id: true,
-            name: true,
-              first_name: true,
-              last_name: true,
-            email: true,
-              avatar: true,
-            },
-          },
-          requirements: true,
-          notes: true,
-          counter_offers: {
-              include: {
-                helper: {
-                  select: {
-                    id: true,
-                    name: true,
-                    first_name: true,
-                    last_name: true,
-                    email: true,
-                    phone_number: true,
-                    type: true,
-                },
-              },
-            },
-          },
-          
-          assigned_helper: {
+        },
+        include: {
+          user: {
             select: {
               id: true,
-              name: true,
-              first_name: true,
-              last_name: true,
-              email: true,
-              phone_number: true,
-            },
-          },
-        },
-      });
-
-      const mappedJobs = jobs.map((job) => this.mapToResponseDto(job));
-      return {
-        message:"upcoming appointments retrieved successfully",
-        data:mappedJobs
-      }
-      
-      mappedJobs;
-    } else if (userType === 'helper') {
-    const jobs = await this.prisma.job.findMany({
-        where: { assigned_helper_id: userId },
-        orderBy: {
-          start_time: 'desc',
-      },
-      include: {
-        user: {
-          select: {
-            id: true,
-            name: true,
               first_name: true,
               last_name: true,
               email: true,
@@ -1290,25 +1207,75 @@ export class JobService {
               helper: {
                 select: {
                   id: true,
-                  name: true,
                   first_name: true,
                   last_name: true,
-            email: true,
-            phone_number: true,
+                  email: true,
+                  phone_number: true,
+                  type: true,
+                },
+              },
+            },
+          },
+
+          assigned_helper: {
+            select: {
+              id: true,
+              first_name: true,
+              last_name: true,
+              email: true,
+              phone_number: true,
+            },
+          },
+        },
+      });
+
+      const mappedJobs = jobs.map((job) => this.mapToResponseDto(job));
+      return {
+        message: "upcoming appointments retrieved successfully",
+        data: mappedJobs
+      }
+
+      mappedJobs;
+    } else if (userType === 'helper') {
+      const jobs = await this.prisma.job.findMany({
+        where: { assigned_helper_id: userId },
+        orderBy: {
+          start_time: 'desc',
+        },
+        include: {
+          user: {
+            select: {
+              id: true,
+              first_name: true,
+              last_name: true,
+              email: true,
+              avatar: true,
+            },
+          },
+          requirements: true,
+          notes: true,
+          counter_offers: {
+            include: {
+              helper: {
+                select: {
+                  id: true,
+                  first_name: true,
+                  last_name: true,
+                  email: true,
+                  phone_number: true,
                 },
               },
             },
           },
           accepted_counter_offer: {
-              include: {
-                helper: {
-                  select: {
-                    id: true,
-                    name: true,
-                    first_name: true,
-                    last_name: true,
-                    email: true,
-                    phone_number: true,
+            include: {
+              helper: {
+                select: {
+                  id: true,
+                  first_name: true,
+                  last_name: true,
+                  email: true,
+                  phone_number: true,
                 },
               },
             },
@@ -1317,8 +1284,8 @@ export class JobService {
       });
       const mappedJobs = jobs.map((job) => this.mapToResponseDto(job));
       return {
-        message:"upcoming jobs retrieved successfully",
-        data:mappedJobs
+        message: "upcoming jobs retrieved successfully",
+        data: mappedJobs
       }
     } else {
       throw new BadRequestException('Invalid user type');
@@ -1326,48 +1293,48 @@ export class JobService {
   }
 
 
-  
 
 
-  async jobHistory(userId: string,userType:string): Promise<any> {
+
+  async jobHistory(userId: string, userType: string): Promise<any> {
 
     try {
-      if(!userId){
+      if (!userId) {
         throw new BadRequestException('User ID is required');
       }
-  
-     if(userType==="user"){
-      const jobs=await this.prisma.job.findMany({
-        where:{
-          user_id:userId,
-          job_status:{not:null}
-        }
-      })
-     }
-     else if(userType==="helper"){
-      const jobs=await this.prisma.job.findMany({
-        where:{
-          assigned_helper_id:userId,
-          job_status:{not:null}
-        }
-      })
-      return jobs.map((job) => this.mapToResponseDto(job));
-     }
-     else{
-      throw new BadRequestException('Invalid user type');
-     } 
+
+      if (userType === "user") {
+        const jobs = await this.prisma.job.findMany({
+          where: {
+            user_id: userId,
+            job_status: { not: null }
+          }
+        })
+      }
+      else if (userType === "helper") {
+        const jobs = await this.prisma.job.findMany({
+          where: {
+            assigned_helper_id: userId,
+            job_status: { not: null }
+          }
+        })
+        return jobs.map((job) => this.mapToResponseDto(job));
+      }
+      else {
+        throw new BadRequestException('Invalid user type');
+      }
     } catch (error) {
       console.log(error)
     }
 
-   
-    
+
+
   }
 
 
   // ===== MISSING METHODS =====
 
-  
+
   async getTimeTracking(jobId: string, userId: string): Promise<any> {
     const job = await this.prisma.job.findFirst({
       where: {
@@ -1458,7 +1425,7 @@ export class JobService {
   /**
    * Get past appointments for a user
    */
-  
+
 
   /**
    * Get historical earnings
@@ -1527,7 +1494,7 @@ export class JobService {
 
     const whereClause: any = {
       job_status: 'completed',
-        status: 1, 
+      status: 1,
       deleted_at: null,
       created_at: { gte: startDate },
     };
@@ -1578,10 +1545,10 @@ export class JobService {
     requestDto: any,
   ): Promise<any> {
     const job = await this.prisma.job.findFirst({
-      where: { 
-        id: jobId, 
+      where: {
+        id: jobId,
         user_id: userId,
-        status: 1, 
+        status: 1,
         deleted_at: null,
       },
     });
@@ -1615,10 +1582,10 @@ export class JobService {
     approvalDto: any,
   ): Promise<any> {
     const job = await this.prisma.job.findFirst({
-      where: { 
-        id: jobId, 
+      where: {
+        id: jobId,
         user_id: userId,
-        status: 1, 
+        status: 1,
         deleted_at: null,
       },
     });
@@ -1642,10 +1609,10 @@ export class JobService {
    */
   async getExtraTimeStatus(jobId: string, userId: string): Promise<any> {
     const job = await this.prisma.job.findFirst({
-      where: { 
-        id: jobId, 
+      where: {
+        id: jobId,
         OR: [{ user_id: userId }, { assigned_helper_id: userId }],
-        status: 1, 
+        status: 1,
         deleted_at: null,
       },
     });

@@ -21,10 +21,9 @@ import { LocalAuthGuard } from './guards/local-auth.guard';
 import { CreateUserDto } from './dto/create-user.dto';
 import { VerifyEmailDto } from './dto/verify-email.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
-import { ConvertRoleDto } from './dto/convert-role.dto';
+import { SwitchRoleDto } from './dto/switch-role.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { TemporaryJwtAuthGuard } from './guards/temporary-jwt-auth.guard';
-import appConfig from '../../config/app.config';
 import { AuthGuard } from '@nestjs/passport';
 
 @ApiTags('auth')
@@ -515,18 +514,10 @@ export class AuthController {
   @ApiOperation({ summary: 'Convert user type between user and helper' })
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
-  @Post('convert-role')
-  async convertRole(@Req() req: Request, @Body() body: { type: string }) {
-    try {
-      const user_id = req.user.userId;
-      const result = await this.authService.convertUserType(user_id, body.type);
-      return result;
-    } catch (error) {
-      return {
-        success: false,
-        message: error.message,
-      };
-    }
+  @Patch('switch-role')
+  async convertRole(@Req() req: Request, @Body() body: SwitchRoleDto) {
+    const user_id = req.user.userId;
+    return await this.authService.convertUserType({ id: user_id, role: body.newRole })
   }
 
   // Helper Onboarding Endpoints

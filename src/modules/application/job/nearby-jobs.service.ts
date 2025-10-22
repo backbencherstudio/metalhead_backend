@@ -17,7 +17,8 @@ export interface NearbyJobNotification {
   date_and_time?: Date;
   user: {
     id: string;
-    name: string;
+    first_name: string;
+    last_name: string;
     avatar?: string;
   };
 }
@@ -38,7 +39,7 @@ export class NearbyJobsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly firebaseNotificationService: FirebaseNotificationService,
-  ) {}
+  ) { }
 
   /**
    * Find nearby jobs for a specific helper based on their preferences
@@ -115,7 +116,8 @@ export class NearbyJobsService {
           user: {
             select: {
               id: true,
-              name: true,
+              first_name: true,
+              last_name: true,
               avatar: true,
             },
           },
@@ -170,7 +172,8 @@ export class NearbyJobsService {
           user: {
             select: {
               id: true,
-              name: true,
+              first_name: true,
+              last_name: true,
             },
           },
         },
@@ -214,7 +217,7 @@ export class NearbyJobsService {
         },
         select: {
           id: true,
-          name: true,
+          first_name: true,
           latitude: true,
           longitude: true,
           max_distance_km: true,
@@ -380,9 +383,9 @@ export class NearbyJobsService {
     const a =
       Math.sin(dLat / 2) * Math.sin(dLat / 2) +
       Math.cos(this.toRadians(lat1)) *
-        Math.cos(this.toRadians(lat2)) *
-        Math.sin(dLng / 2) *
-        Math.sin(dLng / 2);
+      Math.cos(this.toRadians(lat2)) *
+      Math.sin(dLng / 2) *
+      Math.sin(dLng / 2);
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     return R * c;
   }

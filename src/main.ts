@@ -22,11 +22,11 @@ async function bootstrap() {
 
   app.setGlobalPrefix('api');
   // main.ts example
-app.enableCors({
-  origin: '*', // allow all for testing
-  methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
-  credentials: true,
-});
+  app.enableCors({
+    origin: '*', // allow all for testing
+    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
+    credentials: true,
+  });
 
   app.use(helmet());
   // Enable it, if special charactrers not encoding perfectly

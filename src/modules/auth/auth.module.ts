@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { AuthService } from './auth.service';
@@ -10,6 +10,8 @@ import { PrismaModule } from '../../prisma/prisma.module';
 import { MailModule } from '../../mail/mail.module';
 import { GoogleStrategy } from './strategies/google.strategy';
 import { TemporaryJwtAuthGuard } from './guards/temporary-jwt-auth.guard';
+import { UserModule } from 'src/common/repository/user/user.module';
+import { UcodeModule } from 'src/common/repository/ucode/ucode.module';
 
 @Module({
   imports: [
@@ -26,9 +28,11 @@ import { TemporaryJwtAuthGuard } from './guards/temporary-jwt-auth.guard';
     }),
     PrismaModule,
     MailModule,
+    forwardRef(() => UserModule),
+    forwardRef(() => UcodeModule),
   ],
   controllers: [AuthController],
   providers: [AuthService, LocalStrategy, JwtStrategy, GoogleStrategy, TemporaryJwtAuthGuard],
   exports: [AuthService],
 })
-export class AuthModule {}
+export class AuthModule { }

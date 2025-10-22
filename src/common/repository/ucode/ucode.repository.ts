@@ -12,7 +12,11 @@ export class UcodeRepository {
    * create ucode token
    * @returns
    */
-  static async createToken({
+
+
+  constructor(private userRepo: UserRepository,) { }
+
+  async createToken({
     userId,
     expired_at = null,
     isOtp = false,
@@ -22,7 +26,7 @@ export class UcodeRepository {
     const otpExpiryTime = 2 * 60 * 1000;
     expired_at = new Date(Date.now() + otpExpiryTime);
 
-    const userDetails = await UserRepository.getUserDetails(userId);
+    const userDetails = await this.userRepo.getUserDetails(userId);
     if (userDetails && userDetails.email) {
       let token: string;
       if (isOtp) {

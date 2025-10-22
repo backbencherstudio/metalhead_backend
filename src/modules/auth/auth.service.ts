@@ -21,6 +21,8 @@ import { comparePassword, hashPassword } from './password.helper';
 @Injectable()
 export class AuthService {
   constructor(
+    private readonly uCodeRepo: UcodeRepository,
+    private readonly userRepo: UserRepository,
     private jwtService: JwtService,
     private prisma: PrismaService,
     private mailService: MailService,
@@ -35,7 +37,8 @@ export class AuthService {
         },
         select: {
           id: true,
-          name: true,
+          first_name: true,
+          last_name: true,
           username: true,
           email: true,
           avatar: true,
@@ -184,7 +187,7 @@ export class AuthService {
       }
 
 
-      const user = await UserRepository.getUserDetails(userId);
+      const user = await this.userRepo.getUserDetails(userId);
       if (user) {
         await this.prisma.user.update({
           where: { id: userId },
@@ -258,8 +261,8 @@ export class AuthService {
 
   async login({ email, userId }) {
     try {
-      const user = await UserRepository.getUserDetails(userId);
-      const fullName = `${user.first_name || ''} ${user.last_name || ''}`.trim() || user.name || 'User';
+      const user = await this.userRepo.getUserDetails(userId);
+      const fullName = `${user.first_name || ''} ${user.last_name || ''}`.trim() || 'User';
       const payload = {
         email: email,
         sub: userId,
@@ -267,8 +270,8 @@ export class AuthService {
         name: fullName
       };
 
-      const accessToken = this.jwtService.sign(payload, { expiresIn: '1h' });
-      const refreshToken = this.jwtService.sign(payload, { expiresIn: '7d' });
+      const accessToken = this.jwtService.sign(payload, { expiresIn: '7d' });
+      const refreshToken = this.jwtService.sign(payload, { expiresIn: '30d' });
 
       // store refreshToken
       // await this.redis.set(
@@ -314,7 +317,7 @@ export class AuthService {
         };
       }
 
-      const userDetails = await UserRepository.getUserDetails(user_id);
+      const userDetails = await this.userRepo.getUserDetails(user_id);
       if (!userDetails) {
         return {
           success: false,
@@ -322,7 +325,7 @@ export class AuthService {
         };
       }
 
-      const fullName = `${userDetails.first_name || ''} ${userDetails.last_name || ''}`.trim() || userDetails.name || 'User';
+      const fullName = `${userDetails.first_name || ''} ${userDetails.last_name || ''}`.trim() || 'User';
       const payload = {
         email: userDetails.email,
         sub: userDetails.id,
@@ -401,7 +404,7 @@ export class AuthService {
         throw new Error(user?.message || 'Failed to create user.');
       }
 
-      const token = await UcodeRepository.createToken({
+      const token = await this.uCodeRepo.createToken({
         userId: user.data.id,
         isOtp: true,
       });
@@ -522,14 +525,14 @@ export class AuthService {
       });
 
       if (user) {
-        const token = await UcodeRepository.createToken({
+        const token = await this.uCodeRepo.createToken({
           userId: user.id,
           isOtp: true,
         });
 
         await this.mailService.sendOtpCodeToEmail({
           email: email,
-          name: user.name,
+          name: `${user.first_name} ${user.last_name}`,
           otp: token,
         });
 
@@ -658,7 +661,7 @@ export class AuthService {
 
       if (user) {
         // create otp code
-        const token = await UcodeRepository.createToken({
+        const token = await this.uCodeRepo.createToken({
           userId: user.id,
           isOtp: true,
         });
@@ -666,7 +669,7 @@ export class AuthService {
         // send otp code to email
         await this.mailService.sendOtpCodeToEmail({
           email: email,
-          name: user.name,
+          name: `${user.first_name} ${user.last_name}`,
           otp: token,
         });
 
@@ -690,7 +693,7 @@ export class AuthService {
 
   async changePassword({ user_id, oldPassword, newPassword }) {
     try {
-      const user = await UserRepository.getUserDetails(user_id);
+      const user = await this.userRepo.getUserDetails(user_id);
 
       if (user) {
         const _isValidPassword = await UserRepository.validatePassword({
@@ -729,9 +732,9 @@ export class AuthService {
 
   async requestEmailChange(user_id: string, email: string) {
     try {
-      const user = await UserRepository.getUserDetails(user_id);
+      const user = await this.userRepo.getUserDetails(user_id);
       if (user) {
-        const token = await UcodeRepository.createToken({
+        const token = await this.uCodeRepo.createToken({
           userId: user.id,
           isOtp: true,
           email: email,
@@ -805,7 +808,7 @@ export class AuthService {
     token: string;
   }) {
     try {
-      const user = await UserRepository.getUserDetails(user_id);
+      const user = await this.userRepo.getUserDetails(user_id);
 
       if (user) {
         const existToken = await UcodeRepository.validateToken({
@@ -864,7 +867,7 @@ export class AuthService {
     new_username: string;
   }) {
     try {
-      const user = await UserRepository.getUserDetails(user_id);
+      const user = await this.userRepo.getUserDetails(user_id);
 
       if (!user) {
         return {
@@ -943,7 +946,7 @@ export class AuthService {
 
   async enable2FA(user_id: string) {
     try {
-      const user = await UserRepository.getUserDetails(user_id);
+      const user = await this.userRepo.getUserDetails(user_id);
       if (user) {
         await UserRepository.enable2FA(user_id);
         return {
@@ -966,7 +969,7 @@ export class AuthService {
 
   async disable2FA(user_id: string) {
     try {
-      const user = await UserRepository.getUserDetails(user_id);
+      const user = await this.userRepo.getUserDetails(user_id);
       if (user) {
         await UserRepository.disable2FA(user_id);
         return {
@@ -988,16 +991,8 @@ export class AuthService {
   }
   // --------- end 2FA ---------
 
-  async convertUserType(userId: string, type: string) {
-    try {
-      const result = await UserRepository.convertTo(userId, type);
-      return result;
-    } catch (error) {
-      return {
-        success: false,
-        message: error.message,
-      };
-    }
+  async convertUserType(payload: { id: string, role: string }) {
+    return await this.userRepo.convertTo(payload.id, payload.role);
   }
 
   // Helper Onboarding Methods
@@ -1261,8 +1256,8 @@ export class AuthService {
    */
   private async generateTemporaryJwt(userId: string): Promise<string> {
     // Get user details to include name in JWT
-    const user = await UserRepository.getUserDetails(userId);
-    const fullName = `${user.first_name || ''} ${user.last_name || ''}`.trim() || user.name || 'User';
+    const user = await this.userRepo.getUserDetails(userId);
+    const fullName = `${user.first_name || ''} ${user.last_name || ''}`.trim() || 'User';
 
     const payload = {
       userId: userId,
@@ -1283,8 +1278,8 @@ export class AuthService {
    */
   async generatePermanentJwt(userId: string): Promise<string> {
     // Get user details to include name in JWT
-    const user = await UserRepository.getUserDetails(userId);
-    const fullName = `${user.first_name || ''} ${user.last_name || ''}`.trim() || user.name || 'User';
+    const user = await this.userRepo.getUserDetails(userId);
+    const fullName = `${user.first_name || ''} ${user.last_name || ''}`.trim() || 'User';
 
     const payload = {
       userId: userId,

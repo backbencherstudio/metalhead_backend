@@ -1,10 +1,9 @@
 import { Injectable } from '@nestjs/common';
-import { PrismaClient } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 
 @Injectable()
 export class UserService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService) { }
 
   async findAll() {
     try {
@@ -18,7 +17,8 @@ export class UserService {
         select: {
           id: true,
           email: true,
-          name: true,
+          first_name: true,
+          last_name: true,
           type: true,
         },
       });

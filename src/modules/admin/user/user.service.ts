@@ -9,7 +9,7 @@ import { DateHelper } from '../../../common/helper/date.helper';
 
 @Injectable()
 export class UserService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService) { }
 
   async create(createUserDto: CreateUserDto) {
     try {
@@ -67,7 +67,8 @@ export class UserService {
         },
         select: {
           id: true,
-          name: true,
+          first_name: true,
+          last_name: true,
           email: true,
           phone_number: true,
           address: true,
@@ -98,7 +99,8 @@ export class UserService {
         },
         select: {
           id: true,
-          name: true,
+          first_name: true,
+          last_name: true,
           email: true,
           type: true,
           phone_number: true,

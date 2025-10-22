@@ -7,12 +7,12 @@ import { Role } from '../../../common/guard/role/role.enum';
 
 @Injectable()
 export class NotificationService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService, private userRepo: UserRepository,) { }
 
   async findAll(user_id: string) {
     try {
       const where_condition = {};
-      const userDetails = await UserRepository.getUserDetails(user_id);
+      const userDetails = await this.userRepo.getUserDetails(user_id);
 
       if (userDetails.type == Role.ADMIN) {
         where_condition['OR'] = [
@@ -37,7 +37,8 @@ export class NotificationService {
           sender: {
             select: {
               id: true,
-              name: true,
+              first_name: true,
+              last_name: true,
               email: true,
               avatar: true,
             },
@@ -45,7 +46,8 @@ export class NotificationService {
           receiver: {
             select: {
               id: true,
-              name: true,
+              first_name: true,
+              last_name: true,
               email: true,
               avatar: true,
             },

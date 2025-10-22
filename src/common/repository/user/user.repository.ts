@@ -6,10 +6,16 @@ import appConfig from '../../../config/app.config';
 import { ArrayHelper } from '../../helper/array.helper';
 import { Role } from '../../guard/role/role.enum';
 import { StripePayment } from 'src/common/lib/Payment/stripe/StripePayment';
+import { BadRequestException, HttpException, Injectable, InternalServerErrorException, UnauthorizedException } from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
 
 const prisma = new PrismaClient();
 
+@Injectable()
 export class UserRepository {
+
+  constructor(private jwtService: JwtService) { }
+
   /**
    * get user by email
    * @param email
@@ -38,7 +44,7 @@ export class UserRepository {
    * get user details
    * @returns
    */
-  static async getUserDetails(userId: string) {
+  async getUserDetails(userId: string) {
     const user = await prisma.user.findFirst({
       where: {
         id: userId,
@@ -117,7 +123,7 @@ export class UserRepository {
     try {
       const user = await prisma.user.create({
         data: {
-          name: name,
+          first_name: name,
           username: username,
           email: email,
         },
@@ -488,67 +494,48 @@ export class UserRepository {
   }
 
   // convert user type between user and helper
-  static async convertTo(user_id: string, type: string = 'user') {
+  async convertTo(user_id: string, type: string = 'user') {
     try {
-      const userDetails = await UserRepository.getUserDetails(user_id);
-      if (!userDetails) {
-        return {
-          success: false,
-          message: 'User not found',
-        };
+      const user = await this.getUserDetails(user_id)
+      if (!user) {
+        throw new UnauthorizedException('Invalid token.')
       }
-      
-      // Validate that the target type is either 'user' or 'helper'
-      if (type !== 'user' && type !== 'helper') {
-        return {
-          success: false,
-          message: 'Invalid type. Only "user" and "helper" are allowed',
-        };
+      if (user.type === type) {
+        throw new BadRequestException(`User is already a ${type}`)
       }
-      
-      // Check if user is already the target type
-      if (userDetails.type === type) {
-        return {
-          success: false,
-          message: `User is already a ${type}`,
-        };
-      }
-      
-      // Only allow conversion between 'user' and 'helper'
-      if (userDetails.type !== 'user' && userDetails.type !== 'helper') {
-        return {
-          success: false,
-          message: 'User must be either "user" or "helper" to convert',
-        };
-      }
-      
-      // Update user type
-      await prisma.user.update({
-        where: { id: user_id },
-        data: { type: type },
-      });
-  
-      // ✅ Create Stripe Connect account if converting to helper
-      if (type === 'helper') {
-        const stripeResult = await UserRepository.createStripeConnectAccount(user_id);
-        
-        if (stripeResult.success) {
-          console.log(`Stripe Connect account created for user ${user_id}: ${stripeResult.account_id}`);
-        } else {
-          console.error(`Failed to create Stripe Connect account for user ${user_id}: ${stripeResult.message}`);
-          // Note: We don't fail the role conversion if Stripe fails
+      const updatedUser = await prisma.user.update({
+        where: {
+          id: user_id
+        },
+        data: {
+          type
         }
-      }
-  
+      })
+
+      const payload = {
+        email: updatedUser.email,
+        sub: updatedUser.id,
+        type: updatedUser.type,
+        name: `${updatedUser.first_name} ${updatedUser.last_name}`
+      };
+
+      const accessToken = this.jwtService.sign(payload, { expiresIn: '7d' });
+
       return {
         success: true,
         message: `Converted to ${type} successfully`,
+        type: updatedUser.type,
+        name: updatedUser.first_name,
+        authorization: {
+          type: 'bearer',
+          token: accessToken,
+        },
       };
     } catch (error) {
-      return {
-        success: false,
-        message: error.message,
-      };
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new InternalServerErrorException(`Failed to switch user role.: ${error?.message}`);
     }
   }
   // generate two factor secret
@@ -618,96 +605,97 @@ export class UserRepository {
   }
 
 
-static async changeUsername({
-  user_id,
-  new_username,
-}: {
-  user_id: string;
-  new_username: string;
-}) {
-  try {
-    // Check if the new username is already taken
-    const existingUser = await prisma.user.findFirst({
-      where: {
-        username: new_username,
-      },
-    });
+  static async changeUsername({
+    user_id,
+    new_username,
+  }: {
+    user_id: string;
+    new_username: string;
+  }) {
+    try {
+      // Check if the new username is already taken
+      const existingUser = await prisma.user.findFirst({
+        where: {
+          username: new_username,
+        },
+      });
 
-    if (existingUser) {
+      if (existingUser) {
+        return {
+          success: false,
+          message: 'Username is already in use by another account',
+        };
+      }
+
+      // Update the username
+      const user = await prisma.user.update({
+        where: {
+          id: user_id,
+        },
+        data: {
+          username: new_username,
+        },
+      });
+
+      return {
+        success: true,
+        message: 'Username updated successfully',
+        data: user,
+      };
+    } catch (error) {
       return {
         success: false,
-        message: 'Username is already in use by another account',
+        message: error.message,
       };
     }
-
-    // Update the username
-    const user = await prisma.user.update({
-      where: {
-        id: user_id,
-      },
-      data: {
-        username: new_username, 
-      },
-    });
-
-    return {
-      success: true,
-      message: 'Username updated successfully',
-      data: user,
-    };
-  } catch (error) {
-    return {
-      success: false,
-      message: error.message,
-    };
   }
-}
- 
-static async createStripeConnectAccount(user_id: string) {
-  try {
-    // Check if user already has a Connect account
-    const user = await prisma.user.findUnique({
-      where: { id: user_id },
-      select: { 
-        id: true, 
-        email: true, 
-        name: true, 
-        username: true,
-        stripe_connect_account_id: true 
-      },
-    });
 
-    if (!user) {
-      return { success: false, message: 'User not found' };
+  static async createStripeConnectAccount(user_id: string) {
+    try {
+      // Check if user already has a Connect account
+      const user = await prisma.user.findUnique({
+        where: { id: user_id },
+        select: {
+          id: true,
+          email: true,
+          first_name: true,
+          last_name: true,
+          username: true,
+          stripe_connect_account_id: true
+        },
+      });
+
+      if (!user) {
+        return { success: false, message: 'User not found' };
+      }
+
+      if (user.stripe_connect_account_id) {
+        return { success: false, message: 'User already has a Stripe Connect account' };
+      }
+
+      // Use existing method
+      const stripeAccount = await StripePayment.createConnectedAccount(user.email);
+
+      // Update user with Connect account ID
+      await prisma.user.update({
+        where: { id: user_id },
+        data: {
+          stripe_connect_account_id: stripeAccount.id,
+          stripe_account_status: 'pending',
+        },
+      });
+
+      return {
+        success: true,
+        message: 'Stripe Connect account created successfully',
+        account_id: stripeAccount.id,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: error.message,
+      };
     }
-
-    if (user.stripe_connect_account_id) {
-      return { success: false, message: 'User already has a Stripe Connect account' };
-    }
-
-    // Use existing method
-    const stripeAccount = await StripePayment.createConnectedAccount(user.email);
-
-    // Update user with Connect account ID
-    await prisma.user.update({
-      where: { id: user_id },
-      data: {
-        stripe_connect_account_id: stripeAccount.id,
-        stripe_account_status: 'pending',
-      },
-    });
-
-    return {
-      success: true,
-      message: 'Stripe Connect account created successfully',
-      account_id: stripeAccount.id,
-    };
-  } catch (error) {
-    return {
-      success: false,
-      message: error.message,
-    };
   }
-}
 
 }

@@ -13,7 +13,7 @@ export class JobNotificationService {
     private locationService: LocationService,
     private firebaseNotificationService: FirebaseNotificationService,
     private nearbyJobsService: NearbyJobsService
-  ) {}
+  ) { }
 
   /**
    * Notify helpers about a new job based on their preferences
@@ -42,7 +42,8 @@ export class JobNotificationService {
       },
       select: {
         id: true,
-        name: true,
+        first_name: true,
+        last_name: true,
         email: true,
         city: true,
         state: true,
@@ -152,16 +153,16 @@ export class JobNotificationService {
     const helperStateLower = helperState?.toLowerCase() || '';
 
     // Check if job location contains helper's city or state
-    return jobLocationLower.includes(helperCityLower) || 
-           jobLocationLower.includes(helperStateLower) ||
-           helperCityLower.includes(jobLocationLower);
+    return jobLocationLower.includes(helperCityLower) ||
+      jobLocationLower.includes(helperStateLower) ||
+      helperCityLower.includes(jobLocationLower);
   }
 
   /**
    * Update helper's notification preferences
    */
   async updateHelperPreferences(
-    helperId: string, 
+    helperId: string,
     preferences: {
       maxDistanceKm?: number;
       minJobPrice?: number;
@@ -214,7 +215,7 @@ export class JobNotificationService {
       }
 
       const existingTokens = user.device_tokens || [];
-      
+
       // Add token if it doesn't already exist
       if (!existingTokens.includes(deviceToken)) {
         const updatedTokens = [...existingTokens, deviceToken];
@@ -248,12 +249,12 @@ export class JobNotificationService {
 
       const existingTokens = user.device_tokens || [];
       const updatedTokens = existingTokens.filter(token => token !== deviceToken);
-      
+
       await this.prisma.user.update({
         where: { id: userId },
         data: { device_tokens: updatedTokens }
       });
-      
+
       console.log(`Device token removed successfully for user ${userId}`);
     } catch (error) {
       console.error(`Failed to remove device token for user ${userId}:`, error);

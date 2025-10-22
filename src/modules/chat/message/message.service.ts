@@ -17,9 +17,10 @@ import { ChatNotificationService } from '../chat-notification.service';
 export class MessageService {
   constructor(
     private prisma: PrismaService,
+    private userRepo: UserRepository,
     private readonly messageGateway: MessageGateway,
     private readonly chatNotificationService: ChatNotificationService,
-  ) {}
+  ) { }
 
   async create(user_id: string, createMessageDto: CreateMessageDto) {
     try {
@@ -52,12 +53,12 @@ export class MessageService {
 
       // check if receiver exists
       const receiver = await this.prisma.user.findFirst({ where: { id: data.receiver_id } });
-      
+
       // validate sender/receiver are within conversation
       const participants = [conversation.creator_id, conversation.participant_id];
       if (!participants.includes(user_id) || !participants.includes(data.receiver_id)) {
-        return { 
-          success: false, 
+        return {
+          success: false,
           message: 'You are not part of this conversation'
         };
       }
@@ -65,7 +66,7 @@ export class MessageService {
       // ensure there is a confirmed/ongoing job linking these two users (owner/helper)
       const ownerId = conversation.creator_id;
       const otherId = conversation.participant_id;
-      
+
       const maybeOwner = await this.prisma.user.findUnique({ where: { id: ownerId } });
       const maybeOther = await this.prisma.user.findUnique({ where: { id: otherId } });
 
@@ -134,7 +135,8 @@ export class MessageService {
           where: { id: user_id },
           select: {
             id: true,
-            name: true,
+            first_name: true,
+            last_name: true,
             username: true,
             type: true,
             avatar: true,
@@ -144,7 +146,8 @@ export class MessageService {
           where: { id: data.receiver_id },
           select: {
             id: true,
-            name: true,
+            first_name: true,
+            last_name: true,
             username: true,
             type: true,
             avatar: true,
@@ -169,7 +172,7 @@ export class MessageService {
         created_at: message.created_at,
         sender: {
           id: senderInfo.id,
-          name: senderInfo.name || senderInfo.username || 'Unknown',
+          name: `${senderInfo.first_name} ${senderInfo.last_name}` || senderInfo.username || 'Unknown',
           username: senderInfo.username,
           role: senderInfo.type,
           avatar: senderInfo.avatar,
@@ -177,7 +180,7 @@ export class MessageService {
 
         receiver: {
           id: receiverInfo.id,
-          name: receiverInfo.name || receiverInfo.username || 'Unknown',
+          name: `${receiverInfo.first_name} ${receiverInfo.last_name}` || receiverInfo.username || 'Unknown',
           username: receiverInfo.username,
           role: receiverInfo.type,
           avatar: receiverInfo.avatar,
@@ -218,7 +221,7 @@ export class MessageService {
     cursor?: string;
   }) {
     try {
-      const userDetails = await UserRepository.getUserDetails(user_id);
+      const userDetails = await this.userRepo.getUserDetails(user_id);
 
       const where_condition = {
         AND: [{ id: conversation_id }],
@@ -311,7 +314,7 @@ export class MessageService {
       // enhance message data with proper sender/receiver info
       for (const message of messages) {
         const msg = message as any;
-        
+
         // Enhance sender info
         if (msg.sender) {
           msg.sender = {
@@ -325,7 +328,7 @@ export class MessageService {
             ) : null,
           };
         }
-        
+
         // Enhance receiver info
         if (msg.receiver) {
           msg.receiver = {
@@ -483,7 +486,8 @@ export class MessageService {
           where: { id: user_id },
           select: {
             id: true,
-            name: true,
+            first_name: true,
+            last_name: true,
             username: true,
             type: true,
             avatar: true,
@@ -493,7 +497,8 @@ export class MessageService {
           where: { id: dto.receiver_id },
           select: {
             id: true,
-            name: true,
+            first_name: true,
+            last_name: true,
             username: true,
             type: true,
             avatar: true,
@@ -514,14 +519,14 @@ export class MessageService {
         created_at: message.created_at,
         sender: {
           id: senderInfo.id,
-          name: senderInfo.name || senderInfo.username || 'Unknown',
+          name: `${senderInfo.first_name} ${senderInfo.last_name}` || senderInfo.username || 'Unknown',
           username: senderInfo.username,
           role: senderInfo.type,
           avatar: senderInfo.avatar,
         },
         receiver: {
           id: receiverInfo.id,
-          name: receiverInfo.name || receiverInfo.username || 'Unknown',
+          name: `${receiverInfo.first_name} ${receiverInfo.last_name}` || receiverInfo.username || 'Unknown',
           username: receiverInfo.username,
           role: receiverInfo.type,
           avatar: receiverInfo.avatar,

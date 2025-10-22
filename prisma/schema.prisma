@@ -42,7 +42,6 @@ model User {
 
   email      String? @unique
   username   String? @unique
-  name       String? @db.VarChar(255)
   first_name String? @db.VarChar(255)
   last_name  String? @db.VarChar(255)
   password   String? @db.VarChar(255)

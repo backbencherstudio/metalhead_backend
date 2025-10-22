@@ -4,7 +4,7 @@ import { NotificationRepository } from '../../../common/repository/notification/
 
 @Injectable()
 export class CounterOfferNotificationService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService) { }
 
   /**
    * Send notification when helper creates a counter offer
@@ -24,7 +24,6 @@ export class CounterOfferNotificationService {
           helper: {
             select: {
               id: true,
-              name: true,
               first_name: true,
               last_name: true,
             },
@@ -37,10 +36,9 @@ export class CounterOfferNotificationService {
         return;
       }
 
-      const helperName = counterOffer.helper.name || 
-        [counterOffer.helper.first_name, counterOffer.helper.last_name]
-          .filter(Boolean)
-          .join(' ') || 'A helper';
+      const helperName = [counterOffer.helper.first_name, counterOffer.helper.last_name]
+        .filter(Boolean)
+        .join(' ') || 'A helper';
 
       await NotificationRepository.createNotification({
         sender_id: counterOffer.helper.id,
@@ -158,7 +156,6 @@ export class CounterOfferNotificationService {
           helper: {
             select: {
               id: true,
-              name: true,
               first_name: true,
               last_name: true,
             },
@@ -171,10 +168,9 @@ export class CounterOfferNotificationService {
         return;
       }
 
-      const helperName = counterOffer.helper.name || 
-        [counterOffer.helper.first_name, counterOffer.helper.last_name]
-          .filter(Boolean)
-          .join(' ') || 'A helper';
+      const helperName = [counterOffer.helper.first_name, counterOffer.helper.last_name]
+        .filter(Boolean)
+        .join(' ') || 'A helper';
 
       await NotificationRepository.createNotification({
         sender_id: counterOffer.helper.id,
@@ -213,7 +209,6 @@ export class CounterOfferNotificationService {
         where: { id: helperId },
         select: {
           id: true,
-          name: true,
           first_name: true,
           last_name: true,
         },
@@ -224,10 +219,9 @@ export class CounterOfferNotificationService {
         return;
       }
 
-      const helperName = helper.name || 
-        [helper.first_name, helper.last_name]
-          .filter(Boolean)
-          .join(' ') || 'A helper';
+      const helperName = [helper.first_name, helper.last_name]
+        .filter(Boolean)
+        .join(' ') || 'A helper';
 
       await NotificationRepository.createNotification({
         sender_id: helperId,

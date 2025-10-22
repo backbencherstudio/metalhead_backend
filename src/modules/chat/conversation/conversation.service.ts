@@ -16,7 +16,7 @@ export class ConversationService {
     private prisma: PrismaService,
     private readonly messageGateway: MessageGateway,
     private readonly chatNotificationService: ChatNotificationService,
-  ) {}
+  ) { }
 
   async create(createConversationDto: CreateConversationDto) {
     try {
@@ -40,14 +40,16 @@ export class ConversationService {
           creator: {
             select: {
               id: true,
-              name: true,
+              first_name: true,
+              last_name: true,
               avatar: true,
             },
           },
           participant: {
             select: {
               id: true,
-              name: true,
+              first_name: true,
+              last_name: true,
               avatar: true,
             },
           },
@@ -87,14 +89,16 @@ export class ConversationService {
           creator: {
             select: {
               id: true,
-              name: true,
+              first_name: true,
+              last_name: true,
               avatar: true,
             },
           },
           participant: {
             select: {
               id: true,
-              name: true,
+              first_name: true,
+              last_name: true,
               avatar: true,
             },
           },
@@ -203,8 +207,8 @@ export class ConversationService {
           participant_id: true,
           created_at: true,
           updated_at: true,
-          creator: { select: { id: true, name: true, avatar: true } },
-          participant: { select: { id: true, name: true, avatar: true } },
+          creator: { select: { id: true, first_name: true, last_name: true, avatar: true } },
+          participant: { select: { id: true, first_name: true, last_name: true, avatar: true } },
         },
       });
 
@@ -232,8 +236,8 @@ export class ConversationService {
           participant_id: true,
           created_at: true,
           updated_at: true,
-          creator: { select: { id: true, name: true, avatar: true } },
-          participant: { select: { id: true, name: true, avatar: true } },
+          creator: { select: { id: true, first_name: true, last_name: true, avatar: true } },
+          participant: { select: { id: true, first_name: true, last_name: true, avatar: true } },
         },
       });
 
@@ -287,14 +291,16 @@ export class ConversationService {
           creator: {
             select: {
               id: true,
-              name: true,
+              first_name: true,
+              last_name: true,
               avatar: true,
             },
           },
           participant: {
             select: {
               id: true,
-              name: true,
+              first_name: true,
+              last_name: true,
               avatar: true,
             },
           },
@@ -351,14 +357,16 @@ export class ConversationService {
           creator: {
             select: {
               id: true,
-              name: true,
+              first_name: true,
+              last_name: true,
               avatar: true,
             },
           },
           participant: {
             select: {
               id: true,
-              name: true,
+              first_name: true,
+              last_name: true,
               avatar: true,
             },
           },
@@ -374,7 +382,8 @@ export class ConversationService {
               sender: {
                 select: {
                   id: true,
-                  name: true,
+                  first_name: true,
+                  last_name: true,
                   username: true,
                   type: true,
                   avatar: true,
@@ -383,7 +392,8 @@ export class ConversationService {
               receiver: {
                 select: {
                   id: true,
-                  name: true,
+                  first_name: true,
+                  last_name: true,
                   username: true,
                   type: true,
                   avatar: true,
@@ -425,7 +435,7 @@ export class ConversationService {
       // enhance messages with proper sender/receiver info and attachment URLs
       for (const message of conversation.messages) {
         const msg = message as any;
-        
+
         // Enhance sender info
         if (msg.sender) {
           msg.sender = {
@@ -439,7 +449,7 @@ export class ConversationService {
             ) : null,
           };
         }
-        
+
         // Enhance receiver info
         if (msg.receiver) {
           msg.receiver = {
@@ -526,9 +536,9 @@ export class ConversationService {
     try {
       // Get all messages for this conversation without any filtering
       const messages = await this.prisma.message.findMany({
-        where: { 
+        where: {
           conversation_id: id,
-          deleted_at: null 
+          deleted_at: null
         },
         orderBy: {
           created_at: 'asc',

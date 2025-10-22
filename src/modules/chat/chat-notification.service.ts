@@ -12,7 +12,7 @@ export class ChatNotificationService {
     private prisma: PrismaService,
     private notificationGateway: NotificationGateway,
     private firebaseNotificationService: FirebaseNotificationService,
-  ) {}
+  ) { }
 
   /**
    * Send notification when a new message is received
@@ -34,7 +34,7 @@ export class ChatNotificationService {
       // Get sender details
       const sender = await this.prisma.user.findUnique({
         where: { id: senderId },
-        select: { id: true, name: true, username: true },
+        select: { id: true, first_name: true, last_name: true, username: true },
       });
 
       if (!sender) {
@@ -44,11 +44,11 @@ export class ChatNotificationService {
 
       // Create notification text based on message type
       let notificationText = '';
-      const senderName = sender.name || sender.username || 'Someone';
+      const senderName = `${sender.first_name} ${sender.last_name}` || sender.username || 'Someone';
 
       switch (messageType) {
         case 'text':
-          notificationText = messageText 
+          notificationText = messageText
             ? `${senderName}: ${messageText.length > 50 ? messageText.substring(0, 50) + '...' : messageText}`
             : `${senderName} sent you a message`;
           break;
@@ -84,7 +84,7 @@ export class ChatNotificationService {
           entity_id: conversationId,
           sender: {
             id: sender.id,
-            name: sender.name,
+            name: `${sender.first_name} ${sender.last_name}`,
             username: sender.username,
           },
           created_at: new Date(),
@@ -123,7 +123,7 @@ export class ChatNotificationService {
       // Get creator details
       const creator = await this.prisma.user.findUnique({
         where: { id: creatorId },
-        select: { id: true, name: true, username: true },
+        select: { id: true, first_name: true, last_name: true, username: true },
       });
 
       if (!creator) {
@@ -131,7 +131,7 @@ export class ChatNotificationService {
         return;
       }
 
-      const creatorName = creator.name || creator.username || 'Someone';
+      const creatorName = `${creator.first_name} ${creator.last_name}` || creator.username || 'Someone';
       const notificationText = `${creatorName} started a conversation with you`;
 
       // Create notification in database
@@ -153,7 +153,7 @@ export class ChatNotificationService {
           entity_id: conversationId,
           sender: {
             id: creator.id,
-            name: creator.name,
+            name: `${creator.first_name} ${creator.last_name}`,
             username: creator.username,
           },
           created_at: new Date(),
@@ -187,7 +187,7 @@ export class ChatNotificationService {
       // Get sender details
       const sender = await this.prisma.user.findUnique({
         where: { id: senderId },
-        select: { id: true, name: true, username: true },
+        select: { id: true, first_name: true, last_name: true, username: true },
       });
 
       if (!sender) {
@@ -195,7 +195,7 @@ export class ChatNotificationService {
         return;
       }
 
-      const senderName = sender.name || sender.username || 'Someone';
+      const senderName = `${sender.first_name} ${sender.last_name}` || sender.username || 'Someone';
       let notificationText = '';
 
       // Determine file type for notification
@@ -226,7 +226,7 @@ export class ChatNotificationService {
           entity_id: conversationId,
           sender: {
             id: sender.id,
-            name: sender.name,
+            name: `${sender.first_name} ${sender.last_name}`,
             username: sender.username,
           },
           created_at: new Date(),

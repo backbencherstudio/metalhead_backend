@@ -13,9 +13,10 @@ import { AbilityFactory } from './ability.factory';
 @Injectable()
 export class AbilitiesGuard implements CanActivate {
   constructor(
+    private userRepo: UserRepository,
     private reflector: Reflector,
     private abilityFacory: AbilityFactory,
-  ) {}
+  ) { }
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const rules =
@@ -23,7 +24,7 @@ export class AbilitiesGuard implements CanActivate {
       [];
 
     const req = context.switchToHttp().getRequest();
-    const userDetails = await UserRepository.getUserDetails(req.user.userId);
+    const userDetails = await this.userRepo.getUserDetails(req.user.userId);
 
     const ability = this.abilityFacory.defineAbility(userDetails);
 

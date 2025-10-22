@@ -7,7 +7,7 @@ import appConfig from '../../../config/app.config';
 
 @Injectable()
 export class NotificationService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService) { }
 
   async create(createNotificationDto: CreateNotificationDto) {
     // This would typically be called by other services, not directly by users
@@ -30,7 +30,8 @@ export class NotificationService {
           sender: {
             select: {
               id: true,
-              name: true,
+              first_name: true,
+              last_name: true,
               email: true,
               avatar: true,
             },
@@ -38,7 +39,8 @@ export class NotificationService {
           receiver: {
             select: {
               id: true,
-              name: true,
+              first_name: true,
+              last_name: true,
               email: true,
               avatar: true,
             },

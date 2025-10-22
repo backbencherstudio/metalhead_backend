@@ -13,7 +13,7 @@ export class FirebaseNotificationService implements OnModuleInit {
   constructor(
     private configService: ConfigService,
     private prisma: PrismaService
-  ) {}
+  ) { }
 
   onModuleInit() {
     this.initializeFirebase();
@@ -50,7 +50,7 @@ export class FirebaseNotificationService implements OnModuleInit {
           projectId: this.configService.get('FIREBASE_PROJECT_ID'),
         });
       }
-      
+
       console.log('🔥 Firebase Admin initialized successfully!');
     } catch (error) {
       console.error('❌ Firebase initialization error:', error);
@@ -133,7 +133,7 @@ export class FirebaseNotificationService implements OnModuleInit {
     try {
       const user = await this.prisma.user.findUnique({
         where: { id: receiverId },
-        select: { device_tokens: true, name: true }
+        select: { device_tokens: true, first_name: true, last_name: true }
       });
 
       if (!user?.device_tokens || user.device_tokens.length === 0) {
@@ -202,11 +202,11 @@ export class FirebaseNotificationService implements OnModuleInit {
       const [receiver, sender] = await Promise.all([
         this.prisma.user.findUnique({
           where: { id: receiverId },
-          select: { device_tokens: true, name: true }
+          select: { device_tokens: true, first_name: true, last_name: true }
         }),
         this.prisma.user.findUnique({
           where: { id: senderId },
-          select: { name: true, username: true }
+          select: { first_name: true, last_name: true, username: true }
         })
       ]);
 
@@ -215,13 +215,13 @@ export class FirebaseNotificationService implements OnModuleInit {
         return;
       }
 
-      const senderName = sender?.name || sender?.username || 'Someone';
+      const senderName = `${sender?.first_name} ${sender?.last_name}` || sender?.username || 'Someone';
       let title = '💬 New Message';
       let body = '';
 
       switch (messageType) {
         case 'text':
-          body = messageText 
+          body = messageText
             ? `${senderName}: ${messageText.length > 50 ? messageText.substring(0, 50) + '...' : messageText}`
             : `${senderName} sent you a message`;
           break;
@@ -276,11 +276,11 @@ export class FirebaseNotificationService implements OnModuleInit {
       const [receiver, sender] = await Promise.all([
         this.prisma.user.findUnique({
           where: { id: receiverId },
-          select: { device_tokens: true, name: true }
+          select: { device_tokens: true, first_name: true, last_name: true }
         }),
         this.prisma.user.findUnique({
           where: { id: senderId },
-          select: { name: true, username: true }
+          select: { first_name: true, last_name: true, username: true }
         })
       ]);
 
@@ -289,9 +289,9 @@ export class FirebaseNotificationService implements OnModuleInit {
         return;
       }
 
-      const senderName = sender?.name || sender?.username || 'Someone';
+      const senderName = `${sender.first_name} ${sender.last_name}` || sender?.username || 'Someone';
       const title = customTitle || (reviewType === 'received' ? '⭐ New Review Received!' : '⭐ Review Posted!');
-      const body = customBody || (reviewType === 'received' 
+      const body = customBody || (reviewType === 'received'
         ? `${senderName} left you a review`
         : `You reviewed ${senderName}`);
 
@@ -333,11 +333,11 @@ export class FirebaseNotificationService implements OnModuleInit {
       const [receiver, sender] = await Promise.all([
         this.prisma.user.findUnique({
           where: { id: receiverId },
-          select: { device_tokens: true, name: true }
+          select: { device_tokens: true, first_name: true, last_name: true }
         }),
         this.prisma.user.findUnique({
           where: { id: senderId },
-          select: { name: true, username: true }
+          select: { first_name: true, last_name: true, username: true }
         })
       ]);
 
@@ -346,7 +346,7 @@ export class FirebaseNotificationService implements OnModuleInit {
         return;
       }
 
-      const senderName = sender?.name || sender?.username || 'Someone';
+      const senderName = `${sender.first_name} ${sender.last_name}` || sender?.username || 'Someone';
       let title = customTitle;
       let body = customBody;
 
@@ -412,7 +412,7 @@ export class FirebaseNotificationService implements OnModuleInit {
     try {
       const receiver = await this.prisma.user.findUnique({
         where: { id: receiverId },
-        select: { device_tokens: true, name: true }
+        select: { device_tokens: true, first_name: true, last_name: true }
       });
 
       if (!receiver?.device_tokens || receiver.device_tokens.length === 0) {
@@ -476,7 +476,7 @@ export class FirebaseNotificationService implements OnModuleInit {
     try {
       const receiver = await this.prisma.user.findUnique({
         where: { id: receiverId },
-        select: { device_tokens: true, name: true }
+        select: { device_tokens: true, first_name: true, last_name: true }
       });
 
       if (!receiver?.device_tokens || receiver.device_tokens.length === 0) {
@@ -498,66 +498,66 @@ export class FirebaseNotificationService implements OnModuleInit {
   }
 
   // Test Firebase connection without sending notifications
-async testFirebaseConnection(): Promise<{ success: boolean; message: string; details?: any }> {
-  try {
-    // Check if Firebase app is initialized
-    if (!this.firebaseApp) {
-      throw new Error('Firebase app not initialized');
+  async testFirebaseConnection(): Promise<{ success: boolean; message: string; details?: any }> {
+    try {
+      // Check if Firebase app is initialized
+      if (!this.firebaseApp) {
+        throw new Error('Firebase app not initialized');
+      }
+
+      // Get the Firebase project information
+      const auth = this.firebaseApp.auth();
+
+      // Try to get a user list (just to test authentication)
+      // This verifies our service account credentials are valid
+      const listUsersResult = await auth.listUsers(1); // Get just 1 user to test
+
+      // If we reach here, Firebase connection is successful
+      return {
+        success: true,
+        message: '✅ Firebase connection successful!',
+        details: {
+          projectId: this.firebaseApp.options.projectId,
+          serviceAccount: this.firebaseApp.options.credential?.['serviceAccountId'] || 'Unknown',
+          timestamp: new Date().toISOString(),
+          testUsersCount: listUsersResult.users.length
+        }
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: '❌ Firebase connection failed',
+        details: {
+          error: error.message,
+          timestamp: new Date().toISOString(),
+          suggestion: 'Check your service account credentials and project ID'
+        }
+      };
+    }
+  }
+
+  // Test notification with validation (without sending)
+  async validateNotificationPayload(deviceToken: string, title: string, body: string): Promise<{ valid: boolean; errors: string[] }> {
+    const errors: string[] = [];
+
+    // Validate token format (basic check)
+    if (!deviceToken || deviceToken.length < 10) {
+      errors.push('Device token appears invalid');
     }
 
-    // Get the Firebase project information
-    const auth = this.firebaseApp.auth();
-    
-    // Try to get a user list (just to test authentication)
-    // This verifies our service account credentials are valid
-    const listUsersResult = await auth.listUsers(1); // Get just 1 user to test
-    
-    // If we reach here, Firebase connection is successful
+    // Validate title
+    if (!title || title.trim().length === 0) {
+      errors.push('Title is required');
+    }
+
+    // Validate body
+    if (!body || body.trim().length === 0) {
+      errors.push('Body is required');
+    }
+
     return {
-      success: true,
-      message: '✅ Firebase connection successful!',
-      details: {
-        projectId: this.firebaseApp.options.projectId,
-        serviceAccount: this.firebaseApp.options.credential?.['serviceAccountId'] || 'Unknown',
-        timestamp: new Date().toISOString(),
-        testUsersCount: listUsersResult.users.length
-      }
-    };
-  } catch (error) {
-    return {
-      success: false,
-      message: '❌ Firebase connection failed',
-      details: {
-        error: error.message,
-        timestamp: new Date().toISOString(),
-        suggestion: 'Check your service account credentials and project ID'
-      }
+      valid: errors.length === 0,
+      errors: errors
     };
   }
-}
-
-// Test notification with validation (without sending)
-async validateNotificationPayload(deviceToken: string, title: string, body: string): Promise<{ valid: boolean; errors: string[] }> {
-  const errors: string[] = [];
-
-  // Validate token format (basic check)
-  if (!deviceToken || deviceToken.length < 10) {
-    errors.push('Device token appears invalid');
-  }
-
-  // Validate title
-  if (!title || title.trim().length === 0) {
-    errors.push('Title is required');
-  }
-
-  // Validate body
-  if (!body || body.trim().length === 0) {
-    errors.push('Body is required');
-  }
-
-  return {
-    valid: errors.length === 0,
-    errors: errors
-  };
-}
 }
