@@ -10,6 +10,7 @@ import {
   Query,
   ParseIntPipe,
   DefaultValuePipe,
+  Req,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { ReviewService } from './review.service';
@@ -41,17 +42,12 @@ export class ReviewController {
     return this.reviewService.createReview(createReviewDto, userId);
   }
 
-  @Get('job/:jobId')
-  @ApiOperation({ summary: 'Get all reviews for a specific job' })
-  @ApiResponse({
-    status: 200,
-    description: 'Job reviews retrieved successfully',
-    type: JobReviewsResponseDto,
-  })
-  @ApiResponse({ status: 404, description: 'Job not found' })
-  async getJobReviews(@Param('jobId') jobId: string): Promise<JobReviewsResponseDto> {
-    return this.reviewService.getJobReviews(jobId);
+  @Get("avrg-review")
+  async averageReview(@Param('userId') userId:string,@Req() userType:string){
+    userType=userType.toLowerCase();
+    return this.reviewService.averageReview(userId,userType);
   }
+  
 
   @Get('user/:userId')
   @ApiOperation({ summary: 'Get reviews for a specific user' })

@@ -179,54 +179,42 @@ export class ReviewService {
     });
   }
 
-  async getJobReviews(jobId: string): Promise<JobReviewsResponseDto> {
-    const job = await this.prisma.job.findUnique({
-      where: { id: jobId },
-      include: {
-        reviews: {
-          include: {
-            reviewer: {
-              select: {
-                id: true,
-                name: true,
-                first_name: true,
-                last_name: true,
-                email: true,
-                avatar: true,
-              },
-            },
-            reviewee: {
-              select: {
-                id: true,
-                name: true,
-                first_name: true,
-                last_name: true,
-                email: true,
-                avatar: true,
-              },
-            },
-          },
-          orderBy: { created_at: 'desc' },
-        },
-      },
-    });
-
-    if (!job) {
-      throw new NotFoundException('Job not found');
+  async averageReview(userId: string,userType:string) {
+    if(userType=='user'){
+      const reviews= await this.prisma.review.findMany({
+        where:{reviewee_id:userId,
+        job:{
+          user_id:userId,
+        }
+      }
+    })
+    const averageRating = reviews.reduce((sum, review) => sum + review.rating, 0) / reviews.length;
+    return {
+      average_rating: averageRating,
+      total_reviews: reviews.length,
+      recent_reviews: reviews.map(review => this.mapToResponseDto(review)),
     }
 
-    const reviews = job.reviews.map(review => this.mapToResponseDto(review));
-    const averageRating = reviews.length > 0 
-      ? reviews.reduce((sum, review) => sum + review.rating, 0) / reviews.length 
-      : undefined;
-
-    return {
-      job_id: job.id,
-      job_title: job.title || '',
-      reviews,
-      average_rating: averageRating ? Math.round(averageRating * 10) / 10 : undefined,
-      total_reviews: reviews.length,
-    };
+    }else if(userType=='helper'){
+      const reviews= await this.prisma.review.findMany({
+        where:{
+          reviewee_id:userId,
+          job:{
+            assigned_helper_id:userId,
+          }
+        }
+      })
+      const averageRating = reviews.reduce((sum, review) => sum + review.rating, 0) / reviews.length;
+      return {
+        average_rating: averageRating,
+        total_reviews: reviews.length,
+        recent_reviews: reviews.map(review => this.mapToResponseDto(review)),
+      }
+    }
+    else {
+      throw new BadRequestException('Invalid user type');
+    }
+   
   }
 
   async getUserReviews(userId: string, page: number = 1, limit: number = 10): Promise<UserReviewsSummaryDto> {

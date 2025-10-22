@@ -22,56 +22,90 @@ export class NearbyJobsController {
   constructor(private readonly nearbyJobsService: NearbyJobsService) {}
 
   @ApiOperation({ 
-    summary: 'Get nearby jobs for helper',
-    description: 'Find jobs near the helper based on their location and preferences. This is the main endpoint for helpers to discover nearby work opportunities.'
+    summary: 'Comprehensive Nearby Jobs API (Common for Users and Helpers)',
+    description: 'Single API for all nearby job searching needs - supports location-based search, filtering, sorting, and pagination. Use this for all nearby job discovery needs.'
   })
   @ApiQuery({ name: 'page', description: 'Page number', example: '1', required: false })
   @ApiQuery({ name: 'limit', description: 'Items per page', example: '10', required: false })
+  
+  // Location-based search (either use user's location or provide coordinates)
+  @ApiQuery({ name: 'lat', description: 'Latitude for location-based search', example: '40.7128', required: false })
+  @ApiQuery({ name: 'lng', description: 'Longitude for location-based search', example: '-74.0060', required: false })
   @ApiQuery({ name: 'maxDistanceKm', description: 'Maximum distance in kilometers', example: '25', required: false })
+  
+  // Job filters
+  @ApiQuery({ name: 'category', description: 'Job category', example: 'cleaning', required: false })
+  @ApiQuery({ name: 'jobType', description: 'Job type: URGENT or ANYTIME', example: 'URGENT', required: false })
+  @ApiQuery({ name: 'paymentType', description: 'Payment type: HOURLY or FIXED', example: 'HOURLY', required: false })
+  @ApiQuery({ name: 'jobStatus', description: 'Job status', example: 'posted', required: false })
   @ApiQuery({ name: 'minPrice', description: 'Minimum job price', example: '100', required: false })
   @ApiQuery({ name: 'maxPrice', description: 'Maximum job price', example: '1000', required: false })
-  @ApiQuery({ name: 'categories', description: 'Job categories (comma-separated)', example: 'Technology,Photography', required: false })
-  @ApiQuery({ name: 'sortBy', description: 'Sort by: distance, price, date', example: 'distance', required: false })
+  @ApiQuery({ name: 'categories', description: 'Job categories (comma-separated)', example: 'cleaning,technology', required: false })
+  
+  // Search & Sort
+  @ApiQuery({ name: 'search', description: 'Search in title and description', example: 'plumbing repair', required: false })
+  @ApiQuery({ name: 'sortBy', description: 'Sort by: distance, price, date, urgency_recent', example: 'distance', required: false })
   @Get()
-  async getNearbyJobs(
+  async searchNearbyJobs(
     @Req() req: Request,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
+    @Query('lat') lat?: string,
+    @Query('lng') lng?: string,
     @Query('maxDistanceKm') maxDistanceKm?: string,
+    @Query('category') category?: string,
+    @Query('jobType') jobType?: string,
+    @Query('paymentType') paymentType?: string,
+    @Query('jobStatus') jobStatus?: string,
     @Query('minPrice') minPrice?: string,
     @Query('maxPrice') maxPrice?: string,
     @Query('categories') categories?: string,
+    @Query('search') search?: string,
     @Query('sortBy') sortBy?: string,
   ) {
     try {
-      const helperId = (req as any).user.userId || (req as any).user.id;
+      const userId = (req as any).user.userId || (req as any).user.id;
       
-      if (!helperId) {
+      if (!userId) {
         return {
           success: false,
-          message: 'Helper ID not found in request',
+          message: 'User ID not found in request',
         };
       }
 
+      // Parse pagination parameters
       const pageNum = page ? parseInt(page) : 1;
       const limitNum = limit ? parseInt(limit) : 10;
-      const maxDistance = maxDistanceKm ? parseFloat(maxDistanceKm) : undefined;
+      
+      // Parse location parameters
+      const searchLat = lat ? parseFloat(lat) : undefined;
+      const searchLng = lng ? parseFloat(lng) : undefined;
+      const maxDistance = maxDistanceKm ? parseFloat(maxDistanceKm) : 25;
+      
+      // Parse filter parameters
       const minPriceNum = minPrice ? parseFloat(minPrice) : undefined;
       const maxPriceNum = maxPrice ? parseFloat(maxPrice) : undefined;
       const categoriesArray = categories ? categories.split(',').map(c => c.trim()) : undefined;
-      const sortByValue = sortBy as 'distance' | 'price' | 'date' || 'distance';
+      const sortByValue = sortBy as 'distance' | 'price' | 'date' | 'urgency_recent' || 'distance';
 
-      const result = await this.nearbyJobsService.getNearbyJobsWithPagination(
-        helperId,
-        pageNum,
-        limitNum,
+      const result = await this.nearbyJobsService.searchNearbyJobsWithPagination(
+        userId,
         {
+          searchLat,
+          searchLng,
           maxDistanceKm: maxDistance,
+          category,
+          jobType,
+          paymentType,
+          jobStatus,
           minPrice: minPriceNum,
           maxPrice: maxPriceNum,
           categories: categoriesArray,
+          search,
           sortBy: sortByValue,
-        }
+        },
+        pageNum,
+        limitNum,
       );
 
       return {
@@ -88,22 +122,22 @@ export class NearbyJobsController {
   }
 
   @ApiOperation({ 
-    summary: 'Get helper notification preferences',
-    description: 'Get the current notification preferences for a helper including distance, price range, and preferred categories.'
+    summary: 'Get notification preferences (Common for Users and Helpers)',
+    description: 'Get the current notification preferences for a user/helper including distance, price range, and preferred categories.'
   })
   @Get('preferences')
   async getNotificationPreferences(@Req() req: Request) {
     try {
-      const helperId = (req as any).user.userId || (req as any).user.id;
+      const userId = (req as any).user.userId || (req as any).user.id;
       
-      if (!helperId) {
+      if (!userId) {
         return {
           success: false,
-          message: 'Helper ID not found in request',
+          message: 'User ID not found in request',
         };
       }
 
-      const preferences = await this.nearbyJobsService.getHelperNotificationPreferences(helperId);
+      const preferences = await this.nearbyJobsService.getHelperNotificationPreferences(userId);
 
       return {
         success: true,
@@ -119,8 +153,8 @@ export class NearbyJobsController {
   }
 
   @ApiOperation({ 
-    summary: 'Update helper notification preferences',
-    description: 'Update the notification preferences for a helper including maximum distance, price range, and preferred categories.'
+    summary: 'Update notification preferences (Common for Users and Helpers)',
+    description: 'Update the notification preferences for a user/helper including maximum distance, price range, and preferred categories.'
   })
   @ApiBody({
     description: 'Helper notification preferences',
@@ -152,16 +186,16 @@ export class NearbyJobsController {
     @Req() req: Request,
   ) {
     try {
-      const helperId = (req as any).user.userId || (req as any).user.id;
+      const userId = (req as any).user.userId || (req as any).user.id;
       
-      if (!helperId) {
+      if (!userId) {
         return {
           success: false,
-          message: 'Helper ID not found in request',
+          message: 'User ID not found in request',
         };
       }
 
-      await this.nearbyJobsService.updateHelperNotificationPreferences(helperId, preferences);
+      await this.nearbyJobsService.updateHelperNotificationPreferences(userId, preferences);
 
       return {
         success: true,
@@ -176,113 +210,5 @@ export class NearbyJobsController {
   }
 
 
-  @ApiOperation({ 
-    summary: 'Get nearby jobs count',
-    description: 'Get the count of nearby jobs for a helper without fetching the full job details. Useful for showing notification badges.'
-  })
-  @ApiQuery({ name: 'maxDistanceKm', description: 'Maximum distance in kilometers', example: '25', required: false })
-  @Get('count')
-  async getNearbyJobsCount(
-    @Req() req: Request,
-    @Query('maxDistanceKm') maxDistanceKm?: string,
-  ) {
-    try {
-      const helperId = (req as any).user.userId || (req as any).user.id;
-      
-      if (!helperId) {
-        return {
-          success: false,
-          message: 'Helper ID not found in request',
-        };
-      }
-
-      const maxDistance = maxDistanceKm ? parseFloat(maxDistanceKm) : undefined;
-      const nearbyJobs = await this.nearbyJobsService.findNearbyJobsForHelper(helperId, {
-        maxDistanceKm: maxDistance,
-        limit: 100, // Get more to count
-      });
-
-      return {
-        success: true,
-        data: {
-          count: nearbyJobs.length,
-          maxDistance: maxDistance,
-        },
-        message: `Found ${nearbyJobs.length} nearby jobs`,
-      };
-    } catch (error) {
-      return {
-        success: false,
-        message: error.message,
-      };
-    }
-  }
-
-  @ApiOperation({ 
-    summary: 'Get nearby jobs by specific location',
-    description: 'Find jobs near a specific location (useful for exploring jobs in different areas)'
-  })
-  @ApiQuery({ name: 'lat', description: 'Latitude', example: '40.7128', required: true })
-  @ApiQuery({ name: 'lng', description: 'Longitude', example: '-74.0060', required: true })
-  @ApiQuery({ name: 'maxDistanceKm', description: 'Maximum distance in kilometers', example: '25', required: false })
-  @ApiQuery({ name: 'limit', description: 'Maximum number of jobs to return', example: '10', required: false })
-  @Get('by-location')
-  async getNearbyJobsByLocation(
-    @Req() req: Request,
-    @Query('lat') lat: string,
-    @Query('lng') lng: string,
-    @Query('maxDistanceKm') maxDistanceKm?: string,
-    @Query('limit') limit?: string,
-  ) {
-    try {
-      const helperId = (req as any).user.userId || (req as any).user.id;
-      
-      if (!helperId) {
-        return {
-          success: false,
-          message: 'Helper ID not found in request',
-        };
-      }
-
-      const latitude = parseFloat(lat);
-      const longitude = parseFloat(lng);
-
-      if (isNaN(latitude) || isNaN(longitude)) {
-        return {
-          success: false,
-          message: 'Invalid coordinates provided',
-        };
-      }
-
-      // Temporarily update helper's location for this search
-      // You might want to create a separate method for this
-      const maxDistance = maxDistanceKm ? parseFloat(maxDistanceKm) : 25;
-      const limitNum = limit ? parseInt(limit) : 10;
-
-      // For now, we'll use the helper's current location and preferences
-      // You can extend this to accept custom location
-      const nearbyJobs = await this.nearbyJobsService.findNearbyJobsForHelper(helperId, {
-        maxDistanceKm: maxDistance,
-        limit: limitNum,
-      });
-
-      return {
-        success: true,
-        data: {
-          jobs: nearbyJobs,
-          searchLocation: {
-            latitude,
-            longitude,
-          },
-          maxDistance,
-        },
-        message: `Found ${nearbyJobs.length} jobs near the specified location`,
-      };
-    } catch (error) {
-      return {
-        success: false,
-        message: error.message,
-      };
-    }
-  }
+  // Note: Use the main /api/nearby-jobs endpoint with lat/lng parameters instead of separate endpoints
 }

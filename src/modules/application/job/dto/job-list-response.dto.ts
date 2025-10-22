@@ -15,7 +15,7 @@ export class JobListResponseDto {
   message: string;
 
   @ApiProperty({
-    description: 'Job list data (no pagination - Flutter handles pagination)',
+    description: 'Job list data with pagination',
     type: 'object',
     properties: {
       jobs: {
@@ -26,12 +26,22 @@ export class JobListResponseDto {
       total: {
         type: 'number',
         description: 'Total number of jobs matching the criteria'
+      },
+      totalPages: {
+        type: 'number',
+        description: 'Total number of pages'
+      },
+      currentPage: {
+        type: 'number',
+        description: 'Current page number'
       }
     }
   })
   data: {
     jobs: JobResponseDto[];
     total: number;
+    totalPages: number;
+    currentPage: number;
   };
 }
 

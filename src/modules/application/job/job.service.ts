@@ -190,27 +190,53 @@ export class JobService {
     };
    }
 
-    // Get all jobs with comprehensive filtering
-  async findAll(
-    category?: string,
-    location?: string,
-      jobType?: string,
-      paymentType?: string,
-      jobStatus?: string,
-      priceRange?: { min: number; max: number },
-      dateRange?: { start: Date; end: Date },
-      sortBy?: string,
-      search?: string,
-      urgency?: string,
-    ): Promise<{ jobs: any[]; total: number }> {
+  /**
+   * Ultra-dynamic job search with pagination - supports ANY combination of filters
+   */
+  async searchJobsWithPagination(
+    filters: {
+      // Location filters
+      category?: string;
+      categories?: string[];
+      location?: string;
+      searchLat?: number;
+      searchLng?: number;
+      maxDistanceKm?: number;
+      
+      // Job property filters
+      jobType?: string;
+      paymentType?: string;
+      jobStatus?: string;
+      urgency?: string;
+      
+      // Price & rating filters
+      priceRange?: { min?: number; max?: number };
+      minRating?: number;
+      maxRating?: number;
+      
+      // Date filters
+      dateRange?: { start?: Date; end?: Date };
+      
+      // Search & sort
+      search?: string;
+      sortBy?: string;
+    },
+    page: number = 1,
+    limit: number = 10,
+  ): Promise<{ jobs: any[]; total: number; totalPages: number; currentPage: number }> {
+    const { 
+      category, categories, location, searchLat, searchLng, maxDistanceKm,
+      jobType, paymentType, jobStatus, urgency,
+      priceRange, minRating, maxRating,
+      dateRange, search, sortBy 
+    } = filters;
       const whereClause: any = {
       status: 1,
       deleted_at: null,
     };
 
-    // Category filter
+    // Category filter (single category)
     if (category) {
-        // Find category by name
         const categoryRecord = await (this.prisma as any).category.findUnique({
           where: { name: category }
         });
@@ -218,8 +244,20 @@ export class JobService {
         if (categoryRecord) {
           whereClause.category_id = categoryRecord.id;
         } else {
-          // If category not found, return empty results
-          return { jobs: [], total: 0 };
+          return { jobs: [], total: 0, totalPages: 0, currentPage: 1 };
+        }
+    }
+    
+    // Multiple categories filter
+    if (categories && categories.length > 0) {
+        const categoryRecords = await (this.prisma as any).category.findMany({
+          where: { name: { in: categories } }
+        });
+        
+        if (categoryRecords.length > 0) {
+          whereClause.category_id = { in: categoryRecords.map(c => c.id) };
+        } else {
+          return { jobs: [], total: 0, totalPages: 0, currentPage: 1 };
         }
     }
 
@@ -229,6 +267,23 @@ export class JobService {
         contains: location,
         mode: 'insensitive',
       };
+    }
+    
+    // Location-based filtering with lat/lng
+    if (searchLat && searchLng && maxDistanceKm) {
+        // This will be handled in post-processing since Prisma doesn't have built-in distance calculations
+        // We'll filter by approximate bounding box first, then calculate exact distances
+        const latRange = maxDistanceKm / 111; // Rough conversion: 1 degree ≈ 111 km
+        const lngRange = maxDistanceKm / (111 * Math.cos(searchLat * Math.PI / 180));
+        
+        whereClause.latitude = {
+          gte: searchLat - latRange,
+          lte: searchLat + latRange,
+        };
+        whereClause.longitude = {
+          gte: searchLng - lngRange,
+          lte: searchLng + lngRange,
+        };
     }
 
       // Job type filter
@@ -246,20 +301,38 @@ export class JobService {
         whereClause.job_status = jobStatus;
     }
 
-    // Price range filter
+      // Price range filter
     if (priceRange) {
-        whereClause.price = {
-        gte: priceRange.min,
-        lte: priceRange.max,
-      };
+        const priceFilter: any = {};
+        if (priceRange.min !== undefined) priceFilter.gte = priceRange.min;
+        if (priceRange.max !== undefined) priceFilter.lte = priceRange.max;
+        if (Object.keys(priceFilter).length > 0) {
+          whereClause.price = priceFilter;
+        }
+    }
+    
+    // Rating filter (through reviews relation)
+    if (minRating !== undefined || maxRating !== undefined) {
+        const ratingFilter: any = {};
+        if (minRating !== undefined) ratingFilter.gte = minRating;
+        if (maxRating !== undefined) ratingFilter.lte = maxRating;
+        if (Object.keys(ratingFilter).length > 0) {
+          whereClause.reviews = {
+            some: {
+              rating: ratingFilter
+            }
+          };
+        }
     }
 
     // Date range filter
     if (dateRange) {
-        whereClause.start_time = {
-        gte: dateRange.start,
-        lte: dateRange.end,
-      };
+        const dateFilter: any = {};
+        if (dateRange.start) dateFilter.gte = dateRange.start;
+        if (dateRange.end) dateFilter.lte = dateRange.end;
+        if (Object.keys(dateFilter).length > 0) {
+          whereClause.start_time = dateFilter;
+        }
     }
 
       // Search filter (title and description)
@@ -298,6 +371,18 @@ export class JobService {
         case 'price_desc':
             orderBy = { price: 'desc' };
             break;
+        case 'rating_asc':
+            // Rating sorting will be handled in post-processing
+            orderBy = { created_at: 'desc' };
+            break;
+        case 'rating_desc':
+            // Rating sorting will be handled in post-processing
+            orderBy = { created_at: 'desc' };
+            break;
+        case 'distance':
+            // Distance sorting will be handled in post-processing
+            orderBy = { created_at: 'desc' };
+            break;
         case 'title':
             orderBy = { title: 'asc' };
             break;
@@ -310,6 +395,13 @@ export class JobService {
               { created_at: 'desc' },
             ];
             break;
+        case 'urgency_recent':
+            // Combined sorting: URGENT jobs first, then by most recent
+            orderBy = [
+              { job_type: 'desc' }, // URGENT first (URGENT > ANYTIME)
+              { created_at: 'desc' }, // Most recent first within each job type
+            ];
+            break;
           case 'created_at':
             orderBy = { created_at: 'desc' };
             break;
@@ -318,10 +410,15 @@ export class JobService {
       }
       }
 
+    // Calculate pagination
+    const skip = (page - 1) * limit;
+    
     const [jobs, total] = await Promise.all([
       this.prisma.job.findMany({
           where: whereClause,
         orderBy,
+        skip,
+        take: limit,
         include: {
           user: {
             select: {
@@ -370,17 +467,83 @@ export class JobService {
                 email: true,
             },
           },
+          reviews: {
+            select: {
+              id: true,
+              rating: true,
+              comment: true,
+              reviewer: {
+                select: {
+                  id: true,
+                  name: true,
+                  first_name: true,
+                  last_name: true,
+                }
+              }
+            }
+          },
         },
       }),
         this.prisma.job.count({ where: whereClause }),
     ]);
   
-      const mappedJobs = jobs.map((job) => this.mapToResponseDto(job));
+      let mappedJobs = jobs.map((job) => this.mapToResponseDto(job));
+      
+      // Post-processing for distance-based filtering and sorting
+      if (searchLat && searchLng) {
+        // Calculate distances and filter by exact distance
+        mappedJobs = mappedJobs
+          .map((job) => ({
+            ...job,
+            distance: this.calculateDistance(searchLat, searchLng, job.latitude, job.longitude),
+          }))
+          .filter((job) => !maxDistanceKm || job.distance <= maxDistanceKm);
+        
+        // Sort by distance if requested
+        if (sortBy === 'distance') {
+          mappedJobs.sort((a, b) => a.distance - b.distance);
+        }
+      }
+      
+      // Post-processing for rating-based sorting
+      if (sortBy === 'rating_asc' || sortBy === 'rating_desc') {
+        mappedJobs.sort((a, b) => {
+          const ratingA = a.reviews && a.reviews.length > 0 ? 
+            a.reviews.reduce((sum, review) => sum + review.rating, 0) / a.reviews.length : 0;
+          const ratingB = b.reviews && b.reviews.length > 0 ? 
+            b.reviews.reduce((sum, review) => sum + review.rating, 0) / b.reviews.length : 0;
+          
+          return sortBy === 'rating_asc' ? ratingA - ratingB : ratingB - ratingA;
+        });
+      }
+      
+      const totalPages = Math.ceil(total / limit);
 
     return {
         jobs: mappedJobs,
       total,
+      totalPages,
+      currentPage: page,
     };
+  }
+
+  /**
+   * Calculate distance between two coordinates using Haversine formula
+   */
+  private calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
+    const R = 6371; // Earth's radius in kilometers
+    const dLat = this.toRadians(lat2 - lat1);
+    const dLon = this.toRadians(lon2 - lon1);
+    const a = 
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(this.toRadians(lat1)) * Math.cos(this.toRadians(lat2)) * 
+      Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+  }
+
+  private toRadians(degrees: number): number {
+    return degrees * (Math.PI / 180);
   }
 
     // Get a single job by ID

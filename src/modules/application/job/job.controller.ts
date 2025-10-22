@@ -259,35 +259,73 @@ export class JobController {
     return this.jobService.create(jobData, userId, photoPaths);
   }
 
-  @ApiOperation({ summary: 'Get all jobs with comprehensive filters (no pagination - Flutter handles pagination)' })
+  @ApiOperation({ 
+    summary: 'Ultra-Dynamic Job Search API (Common for Users and Helpers)',
+    description: 'Single API for ALL job searching needs - supports ANY combination of filters. Each parameter is optional - use any combination you need for dynamic filtering.'
+  })
   @ApiResponse({ status: 200, description: 'Jobs retrieved successfully', type: JobListResponseDto })
   @Get()
-  async findAll(
-    @Query('category') category?: string,
-    @Query('location') location?: string,
+  async searchJobs(
+    // Pagination
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    
+    // Category & Location Filters
+    @Query('category') category?: string, // Single category name
+    @Query('categories') categories?: string, // Comma-separated categories (e.g., "cleaning,plumbing")
+    @Query('location') location?: string, // Text-based location search
+    @Query('lat') lat?: string, // Latitude for location-based filtering
+    @Query('lng') lng?: string, // Longitude for location-based filtering
+    @Query('maxDistanceKm') maxDistanceKm?: string, // Max distance from lat/lng
+    
+    // Job Property Filters
     @Query('jobType') jobType?: string, // URGENT or ANYTIME
     @Query('paymentType') paymentType?: string, // HOURLY or FIXED
     @Query('jobStatus') jobStatus?: string, // posted, counter_offer, confirmed, ongoing, completed, paid
-    @Query('priceRange') priceRange?: string,  // price range will come as a string (e.g., "100,500")
-    @Query('dateRange') dateRange?: string, // date range as "startDate,endDate" (e.g., "2024-01-01,2024-12-31")
-    @Query('sortBy') sortBy?: string, // sorting options: price_asc, price_desc, location, title, urgency, created_at
-    @Query('search') search?: string, // search in title and description
     @Query('urgency') urgency?: string, // filter by urgency: 'urgent' or 'normal'
+    
+    // Price & Rating Filters
+    @Query('minPrice') minPrice?: string, // Minimum price
+    @Query('maxPrice') maxPrice?: string, // Maximum price
+    @Query('priceRange') priceRange?: string, // Price range as "min,max" (e.g., "100,500")
+    @Query('minRating') minRating?: string, // Minimum rating (1-5)
+    @Query('maxRating') maxRating?: string, // Maximum rating (1-5)
+    
+    // Date Filters
+    @Query('dateRange') dateRange?: string, // Date range as "startDate,endDate" (e.g., "2024-01-01,2024-12-31")
+    @Query('createdAfter') createdAfter?: string, // Jobs created after this date
+    @Query('createdBefore') createdBefore?: string, // Jobs created before this date
+    
+    // Search & Sort
+    @Query('search') search?: string, // Search in title and description
+    @Query('sortBy') sortBy?: string, // Sort options: price_asc, price_desc, rating_asc, rating_desc, distance, urgency, urgency_recent, created_at
   ): Promise<JobListResponseDto> {
-    // Validate category if provided
-    if (category) {
-      const categoryRecord = await this.categoryService.getCategoryById(category);
-      if (!categoryRecord) {
-        throw new BadRequestException(`Invalid category: ${category}`);
-      }
-    }
-
+    // Parse pagination parameters
+    const pageNum = page ? parseInt(page) : 1;
+    const limitNum = limit ? parseInt(limit) : 10;
+    
+    // Parse location parameters
+    const searchLat = lat ? parseFloat(lat) : undefined;
+    const searchLng = lng ? parseFloat(lng) : undefined;
+    const maxDistance = maxDistanceKm ? parseFloat(maxDistanceKm) : undefined;
+    
+    // Parse price parameters
     let parsedPriceRange = null;
     if (priceRange) {
       const [min, max] = priceRange.split(',').map((str) => parseFloat(str));
       parsedPriceRange = { min, max };
+    } else if (minPrice || maxPrice) {
+      parsedPriceRange = {
+        min: minPrice ? parseFloat(minPrice) : undefined,
+        max: maxPrice ? parseFloat(maxPrice) : undefined,
+      };
     }
-
+    
+    // Parse rating parameters
+    const minRatingNum = minRating ? parseFloat(minRating) : undefined;
+    const maxRatingNum = maxRating ? parseFloat(maxRating) : undefined;
+    
+    // Parse date parameters
     let parsedDateRange = null;
     if (dateRange) {
       const [startDate, endDate] = dateRange.split(',');
@@ -295,19 +333,54 @@ export class JobController {
         start: new Date(startDate), 
         end: new Date(endDate) 
       };
+    } else if (createdAfter || createdBefore) {
+      parsedDateRange = {
+        start: createdAfter ? new Date(createdAfter) : undefined,
+        end: createdBefore ? new Date(createdBefore) : undefined,
+      };
+    }
+    
+    // Parse categories
+    const categoriesArray = categories ? categories.split(',').map(c => c.trim()) : undefined;
+    
+    // Validate category if provided
+    if (category) {
+      const categoryRecord = await this.categoryService.getCategoryByName(category);
+      if (!categoryRecord) {
+        throw new BadRequestException(`Invalid category: ${category}`);
+      }
     }
 
-    const result = await this.jobService.findAll(
-      category,
-      location,
-      jobType,
-      paymentType,
-      jobStatus,
-      parsedPriceRange,
-      parsedDateRange,
-      sortBy,
-      search,
-      urgency,
+    const result = await this.jobService.searchJobsWithPagination(
+      {
+        // Location filters
+        category,
+        categories: categoriesArray,
+        location,
+        searchLat,
+        searchLng,
+        maxDistanceKm: maxDistance,
+        
+        // Job property filters
+        jobType,
+        paymentType,
+        jobStatus,
+        urgency,
+        
+        // Price & rating filters
+        priceRange: parsedPriceRange,
+        minRating: minRatingNum,
+        maxRating: maxRatingNum,
+        
+        // Date filters
+        dateRange: parsedDateRange,
+        
+        // Search & sort
+        search,
+        sortBy,
+      },
+      pageNum,
+      limitNum,
     );
 
     return {
@@ -316,6 +389,8 @@ export class JobController {
       data: {
         jobs: result.jobs,
         total: result.total,
+        totalPages: result.totalPages,
+        currentPage: result.currentPage,
       },
     };
   }
@@ -336,6 +411,8 @@ export class JobController {
       data: {
         jobs: result.jobs,
         total: result.total,
+        totalPages: 1,
+        currentPage: 1,
       },
     };
   }
@@ -402,64 +479,7 @@ export class JobController {
     };
   }
 
-  @ApiOperation({ summary: 'Get jobs by specific category with comprehensive filters (no pagination - Flutter handles pagination)' })
-  @ApiResponse({ status: 200, description: 'Jobs filtered by category', type: [JobResponseDto] })
-  @Get('by-category/:category')
-  async getJobsByCategory(
-    @Param('category') givencategory: string,
-    @Query('location') location?: string,
-    @Query('jobType') jobType?: string, // URGENT or ANYTIME
-    @Query('paymentType') paymentType?: string, // HOURLY or FIXED
-    @Query('jobStatus') jobStatus?: string, // posted, counter_offer, confirmed, ongoing, completed, paid
-    @Query('priceRange') priceRange?: string,
-    @Query('dateRange') dateRange?: string,
-    @Query('sortBy') sortBy?: string,
-    @Query('search') search?: string,
-    @Query('urgency') urgency?: string,
-  ) {
-    // Validate category
-    const categoryRecord = await this.categoryService.getCategoryByName(givencategory);
-    if (!categoryRecord) {
-      throw new BadRequestException(`Invalid category: ${givencategory}`);
-    }
-
-    let parsedPriceRange = null;
-    if (priceRange) {
-      const [min, max] = priceRange.split(',').map((str) => parseFloat(str));
-      parsedPriceRange = { min, max };
-    }
-
-    let parsedDateRange = null;
-    if (dateRange) {
-      const [startDate, endDate] = dateRange.split(',');
-      parsedDateRange = { 
-        start: new Date(startDate), 
-        end: new Date(endDate) 
-      };
-    }
-
-    const result = await this.jobService.findAll(
-      givencategory,
-      location,
-      jobType,
-      paymentType,
-      jobStatus,
-      parsedPriceRange,
-      parsedDateRange,
-      sortBy,
-      search,
-      urgency,
-    );
-
-    return {
-      ...result,
-      category: {
-        key: categoryRecord.name,
-        label: categoryRecord.label,
-        description: categoryRecord.label,
-      },
-    };
-  }
+  // Note: Use the main /api/jobs endpoint with category filter instead of this endpoint
 
 
   @ApiOperation({ summary: 'Get past appointments for user' })
