@@ -300,88 +300,31 @@ export class JobController {
     @Query('search') search?: string, // Search in title and description
     @Query('sortBy') sortBy?: string, // Sort options: price_asc, price_desc, rating_asc, rating_desc, distance, urgency, urgency_recent, created_at
   ): Promise<JobListResponseDto> {
-    // Parse pagination parameters
-    const pageNum = page ? parseInt(page) : 1;
-    const limitNum = limit ? parseInt(limit) : 10;
-    
-    // Parse location parameters
-    const searchLat = lat ? parseFloat(lat) : undefined;
-    const searchLng = lng ? parseFloat(lng) : undefined;
-    const maxDistance = maxDistanceKm ? parseFloat(maxDistanceKm) : undefined;
-    
-    // Parse price parameters
-    let parsedPriceRange = null;
-    if (priceRange) {
-      const [min, max] = priceRange.split(',').map((str) => parseFloat(str));
-      parsedPriceRange = { min, max };
-    } else if (minPrice || maxPrice) {
-      parsedPriceRange = {
-        min: minPrice ? parseFloat(minPrice) : undefined,
-        max: maxPrice ? parseFloat(maxPrice) : undefined,
-      };
-    }
-    
-    // Parse rating parameters
-    const minRatingNum = minRating ? parseFloat(minRating) : undefined;
-    const maxRatingNum = maxRating ? parseFloat(maxRating) : undefined;
-    
-    // Parse date parameters
-    let parsedDateRange = null;
-    if (dateRange) {
-      const [startDate, endDate] = dateRange.split(',');
-      parsedDateRange = { 
-        start: new Date(startDate), 
-        end: new Date(endDate) 
-      };
-    } else if (createdAfter || createdBefore) {
-      parsedDateRange = {
-        start: createdAfter ? new Date(createdAfter) : undefined,
-        end: createdBefore ? new Date(createdBefore) : undefined,
-      };
-    }
-    
-    // Parse categories
-    const categoriesArray = categories ? categories.split(',').map(c => c.trim()) : undefined;
-    
-    // Validate category if provided
-    if (category) {
-      const categoryRecord = await this.categoryService.getCategoryByName(category);
-      if (!categoryRecord) {
-        throw new BadRequestException(`Invalid category: ${category}`);
-      }
-    }
-
-    const result = await this.jobService.searchJobsWithPagination(
-      {
-        // Location filters
-        category,
-        categories: categoriesArray,
-        location,
-        searchLat,
-        searchLng,
-        maxDistanceKm: maxDistance,
-        
-        // Job property filters
-        jobType,
-        paymentType,
-        jobStatus,
-        urgency,
-        
-        // Price & rating filters
-        priceRange: parsedPriceRange,
-        minRating: minRatingNum,
-        maxRating: maxRatingNum,
-        
-        // Date filters
-        dateRange: parsedDateRange,
-        
-        // Search & sort
-        search,
-        sortBy,
-      },
-      pageNum,
-      limitNum,
-    );
+    const result = await this.jobService.searchJobsWithValidation({
+      // Raw query parameters - let service handle parsing and validation
+      page,
+      limit,
+      category,
+      categories,
+      location,
+      lat,
+      lng,
+      maxDistanceKm,
+      jobType,
+      paymentType,
+      jobStatus,
+      urgency,
+      minPrice,
+      maxPrice,
+      priceRange,
+      minRating,
+      maxRating,
+      dateRange,
+      createdAfter,
+      createdBefore,
+      search,
+      sortBy,
+    });
 
     return {
       success: true,
@@ -583,16 +526,16 @@ export class JobController {
  
 
   @ApiOperation({ summary: 'Mark job as started (Helper only)' })
-  @Patch(':id/start')
+  @Patch('start/:id')
   async startJob(@Param('id') id: string, @Req() req: Request): Promise<any> {
-    const helperId = (req as any).user.userId || (req as any).user.id;
+    const helperId = req.user.userId
     return this.jobService.startJob(id, helperId);
   }
 
   @ApiOperation({ summary: 'Mark job as completed (Helper only) - Returns time tracking data for hourly jobs' })
-  @Patch(':id/complete')
+  @Patch('complete/:id')
   async completeJob(@Param('id') id: string, @Req() req: Request): Promise<any> {
-    const helperId = (req as any).user.userId || (req as any).user.id;
+    const helperId =req.user.userId
     return await this.jobService.completeJob(id, helperId);
   }
 

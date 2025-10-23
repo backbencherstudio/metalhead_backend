@@ -12,6 +12,7 @@ import { JobNotificationService } from './job-notification.service';
 import { GeocodingService } from '../../../common/lib/Geocoding/geocoding.service';
 import { CategoryService } from '../category/category.service';
 import { convertEnumToCategoryName } from './utils/category-mapper.util';
+import { jobType, PaymentType } from '@prisma/client';
 
 @Injectable()
 export class JobService {
@@ -192,6 +193,144 @@ export class JobService {
   /**
    * Ultra-dynamic job search with pagination - supports ANY combination of filters
    */
+  async searchJobsWithValidation(rawParams: {
+    // Raw query parameters
+    page?: string;
+    limit?: string;
+    category?: string;
+    categories?: string;
+    location?: string;
+    lat?: string;
+    lng?: string;
+    maxDistanceKm?: string;
+    jobType?: string;
+    paymentType?: string;
+    jobStatus?: string;
+    urgency?: string;
+    minPrice?: string;
+    maxPrice?: string;
+    priceRange?: string;
+    minRating?: string;
+    maxRating?: string;
+    dateRange?: string;
+    createdAfter?: string;
+    createdBefore?: string;
+    search?: string;
+    sortBy?: string;
+  }): Promise<{ jobs: any[]; total: number; totalPages: number; currentPage: number }> {
+    // Parse and validate all parameters
+    const {
+      page,
+      limit,
+      category,
+      categories,
+      location,
+      lat,
+      lng,
+      maxDistanceKm,
+      jobType,
+      paymentType,
+      jobStatus,
+      urgency,
+      minPrice,
+      maxPrice,
+      priceRange,
+      minRating,
+      maxRating,
+      dateRange,
+      createdAfter,
+      createdBefore,
+      search,
+      sortBy
+    } = rawParams;
+
+    // Parse pagination parameters
+    const pageNum = page ? parseInt(page) : 1;
+    const limitNum = limit ? parseInt(limit) : 10;
+    
+    // Parse location parameters
+    const searchLat = lat ? parseFloat(lat) : undefined;
+    const searchLng = lng ? parseFloat(lng) : undefined;
+    const maxDistance = maxDistanceKm ? parseFloat(maxDistanceKm) : undefined;
+    
+    // Parse price parameters
+    let parsedPriceRange = null;
+    if (priceRange) {
+      const [min, max] = priceRange.split(',').map((str) => parseFloat(str));
+      parsedPriceRange = { min, max };
+    } else if (minPrice || maxPrice) {
+      parsedPriceRange = {
+        min: minPrice ? parseFloat(minPrice) : undefined,
+        max: maxPrice ? parseFloat(maxPrice) : undefined,
+      };
+    }
+    
+    // Parse rating parameters
+    const minRatingNum = minRating ? parseFloat(minRating) : undefined;
+    const maxRatingNum = maxRating ? parseFloat(maxRating) : undefined;
+    
+    // Parse date parameters
+    let parsedDateRange = null;
+    if (dateRange) {
+      const [startDate, endDate] = dateRange.split(',');
+      parsedDateRange = { 
+        start: new Date(startDate), 
+        end: new Date(endDate) 
+      };
+    } else if (createdAfter || createdBefore) {
+      parsedDateRange = {
+        start: createdAfter ? new Date(createdAfter) : undefined,
+        end: createdBefore ? new Date(createdBefore) : undefined,
+      };
+    }
+    
+    // Parse categories
+    const categoriesArray = categories ? categories.split(',').map(c => c.trim()) : undefined;
+    
+    // Validate category if provided
+    if (category) {
+      const categoryRecord = await this.prisma.category.findUnique({
+        where: { name: category }
+      });
+      if (!categoryRecord) {
+        throw new BadRequestException(`Invalid category: ${category}`);
+      }
+    }
+
+    // Call the existing searchJobsWithPagination method with parsed parameters
+    return this.searchJobsWithPagination(
+      {
+        // Location filters
+        category,
+        categories: categoriesArray,
+        location,
+        searchLat,
+        searchLng,
+        maxDistanceKm: maxDistance,
+        
+        // Job property filters
+        jobType,
+        paymentType,
+        jobStatus,
+        urgency,
+        
+        // Price & rating filters
+        priceRange: parsedPriceRange,
+        minRating: minRatingNum,
+        maxRating: maxRatingNum,
+        
+        // Date filters
+        dateRange: parsedDateRange,
+        
+        // Search & sort
+        search,
+        sortBy,
+      },
+      pageNum,
+      limitNum,
+    );
+  }
+
   async searchJobsWithPagination(
     filters: {
       // Location filters
@@ -1214,7 +1353,8 @@ export class JobService {
         id: jobId,
         assigned_helper_id: helperId,
         status: 1,
-            deleted_at: null,
+        deleted_at: null,
+        job_status: 'confirmed',
       },
     });
 
@@ -1234,16 +1374,13 @@ export class JobService {
       where: { id: jobId },
       data: {
         job_status: 'ongoing',
-        actual_start_time: new Date(), // Record when helper actually started
+        actual_start_time: new Date(),
       },
       include: {
         user: {
           select: {
             id: true,
             name: true,
-            first_name: true,
-            last_name: true,
-            email: true,
             avatar: true,
           },
         },
@@ -1251,8 +1388,6 @@ export class JobService {
                   select: {
                     id: true,
                     name: true,
-                    first_name: true,
-                    last_name: true,
                     email: true,
           },
         },
@@ -1272,12 +1407,14 @@ export class JobService {
    * Complete a job (Helper can complete if status is 'ongoing')
    */
   async completeJob(jobId: string, helperId: string): Promise<any> {
+
     const job = await this.prisma.job.findFirst({
       where: {
         id: jobId,
         assigned_helper_id: helperId,
         status: 1,
         deleted_at: null,
+        job_status: 'ongoing',
       },
     });
 
@@ -1293,54 +1430,56 @@ export class JobService {
       );
     }
 
-    const actualEndTime = new Date();
-    const actualStartTime = job.actual_start_time || new Date(job.start_time);
-    const actualHours = this.calculateHours(actualStartTime, actualEndTime);
+   if (job.payment_type===PaymentType.HOURLY){
+   const startTime=new Date(job.actual_start_time);
+   const endTime=new Date();
+   const actualHours=this.calculateHours(startTime, endTime);
+   const price=job.hourly_rate?Number(job.hourly_rate)*actualHours:job.price;
 
-    const updatedJob = await this.prisma.job.update({
-      where: { id: jobId },
-      data: {
-        job_status: 'completed_by_helper',
-        actual_end_time: actualEndTime,
-        actual_hours: actualHours,
-        // Update final price if it's an hourly job
-        final_price:
-          job.payment_type === 'HOURLY'
-            ? job.hourly_rate
-              ? Number(job.hourly_rate) * actualHours
-              : job.price
-            : job.final_price || job.price,
-      },
-      include: {
-        user: {
-          select: {
-            id: true,
-            name: true,
-            first_name: true,
-            last_name: true,
-            email: true,
-            avatar: true,
-          },
-        },
-        assigned_helper: {
-                  select: {
-                    id: true,
-                    name: true,
-                    first_name: true,
-                    last_name: true,
-                    email: true,
-          },
-        },
-      },
-    });
+   const updatedJob= await this.prisma.job.update({
+     where: { id: jobId },
+     data:{
+       actual_start_time:startTime,
+       actual_end_time: endTime,
+       actual_hours: actualHours,
+       job_status: 'completed',
+       price: price,
+     },
+     select: {
+       id: true,
+       title: true,
+       job_status: true,
+       actual_start_time: true,
+       actual_end_time: true,
+       actual_hours: true,
+       price: true,
+       final_price: true,
+       updated_at: true
+     }
+   })
+   return updatedJob;
+   }else{
+     const updatedJob= await this.prisma.job.update({
+       where: { id: jobId },
+       data:{
+         job_status: 'completed',
+         price: job.price,
+       },
+       select: {
+         id: true,
+         title: true,
+         job_status: true,
+         price: true,
+         final_price: true,
+         updated_at: true
+       }
+     })
+     return updatedJob;
+   }
 
     // TODO: Send notification to user via WebSocket
     // this.jobNotificationService.notifyJobCompleted(updatedJob);
-
-    return {
-      message: 'Job completed successfully. Waiting for user confirmation.',
-      job: this.mapToResponseDto(updatedJob),
-    };
+   
   }
   /**
    * Get job status for timeline display
