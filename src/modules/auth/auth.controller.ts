@@ -25,6 +25,7 @@ import { SwitchRoleDto } from './dto/switch-role.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { TemporaryJwtAuthGuard } from './guards/temporary-jwt-auth.guard';
 import { AuthGuard } from '@nestjs/passport';
+import { CompleteProfileDto } from './dto/complete-profile.dto';
 
 @ApiTags('auth')
 @Controller('auth')
@@ -36,18 +37,8 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   @Get('me')
   async me(@Req() req: Request) {
-    try {
-      const user_id = req.user.userId;
-
-      const response = await this.authService.me(user_id);
-
-      return response;
-    } catch (error) {
-      return {
-        success: false,
-        message: 'Failed to fetch user details',
-      };
-    }
+    const user_id = req.user.userId;
+    return await this.authService.me(user_id);
   }
 
   @ApiOperation({ summary: 'Register a user' })
@@ -55,6 +46,15 @@ export class AuthController {
   async create(@Body() data: CreateUserDto, @Res() res: Response) {
     const response = await this.authService.register(data)
     res.status(response.status || 500).json(response)
+  }
+
+  @ApiOperation({ summary: 'Complete Profile' })
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Patch('complete-profile')
+  async completeProfile(@Req() req: Request, @Body() data: CompleteProfileDto) {
+    const user_id = req?.user?.userId;
+    return await this.authService.completeProfile(user_id, data)
   }
 
   // login user

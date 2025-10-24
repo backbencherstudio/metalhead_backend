@@ -17,6 +17,7 @@ import { StripePayment } from '../../common/lib/Payment/stripe/StripePayment';
 import { StringHelper } from '../../common/helper/string.helper';
 import { CreateUserDto } from './dto/create-user.dto';
 import { comparePassword, hashPassword } from './password.helper';
+import { CompleteProfileDto } from './dto/complete-profile.dto';
 
 @Injectable()
 export class AuthService {
@@ -58,13 +59,10 @@ export class AuthService {
       });
 
       if (!user) {
-        return {
-          success: false,
-          message: 'User not found',
-        };
+        throw new UnauthorizedException('Invalid token or missing token.')
       }
 
-      if (user.avatar) {
+      if (user?.avatar) {
         user['avatar_url'] = SojebStorage.url(
           appConfig().storageUrl.avatar + user.avatar,
         );
@@ -76,16 +74,13 @@ export class AuthService {
           data: user,
         };
       } else {
-        return {
-          success: false,
-          message: 'User not found',
-        };
+        throw new UnauthorizedException('Invalid token or missing token.')
       }
     } catch (error) {
-      return {
-        success: false,
-        message: error.message,
-      };
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new InternalServerErrorException(`Error getting auth user details: ${error?.message}`);
     }
   }
 
@@ -233,10 +228,6 @@ export class AuthService {
 
     if (user) {
       const _isValidPassword = await comparePassword(_password, user.password)
-
-      console.log('====================================');
-      console.log({ _isValidPassword });
-      console.log('====================================');
 
       if (_isValidPassword) {
         const { password, ...result } = user;
@@ -515,6 +506,48 @@ export class AuthService {
     //     message: error.message,
     //   };
     // }
+  }
+
+  async completeProfile(id: string, payload: CompleteProfileDto) {
+    try {
+      const { address, city, dob, state, zip, age, bio, skills } = payload
+      const updated_data = await this.prisma.user.update({
+        where: {
+          id: id
+        },
+        data: {
+          address,
+          city,
+          date_of_birth: dob,
+          state,
+          zip_code: zip,
+          age,
+          bio,
+          skills
+        }
+      })
+      return {
+        status: 200,
+        success: true,
+        message: 'Profile Completed.',
+        data: {
+          address: updated_data.address,
+          city: updated_data.city,
+          dob: updated_data.date_of_birth,
+          state: updated_data.state,
+          zip: updated_data.zip_code,
+          age: updated_data.age,
+          bio: updated_data.bio,
+          skills: updated_data.skills
+        }
+      }
+    } catch (error) {
+      console.log(error?.message);
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new InternalServerErrorException(`Error getting auth user details: ${error?.message}`);
+    }
   }
 
   async forgotPassword(email) {
