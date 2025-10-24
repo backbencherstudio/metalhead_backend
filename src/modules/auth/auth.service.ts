@@ -529,7 +529,7 @@ export class AuthService {
       return {
         status: 200,
         success: true,
-        message: 'Profile Completed.',
+        message: 'Profile updated successfully.',
         data: {
           address: updated_data.address,
           city: updated_data.city,
@@ -542,10 +542,10 @@ export class AuthService {
         }
       }
     } catch (error) {
-      console.log(error?.message);
       if (error instanceof HttpException) {
         throw error;
       }
+      console.log(error?.message);
       throw new InternalServerErrorException(`Error getting auth user details: ${error?.message}`);
     }
   }

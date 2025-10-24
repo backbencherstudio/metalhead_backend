@@ -15,7 +15,7 @@ import {
   BadRequestException,
   Put,
 } from '@nestjs/common';
-import { FileInterceptor, FileFieldsInterceptor } from '@nestjs/platform-express';
+import { FileInterceptor, FileFieldsInterceptor, AnyFilesInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { ApiBearerAuth, ApiOperation, ApiTags, ApiConsumes, ApiBody, ApiResponse } from '@nestjs/swagger';
 import { JobService } from './job.service';
@@ -48,196 +48,234 @@ export class JobController {
   constructor(
     private readonly jobService: JobService,
     private readonly jobNotificationService: JobNotificationService
-  ) {}
+  ) { }
 
-  @ApiOperation({ summary: 'Create a new job posting with optional photo' })
-  @ApiResponse({ status: 201, description: 'Job created successfully', type: JobCreateResponseDto })
+  @Post()
+  @UseInterceptors(FileFieldsInterceptor([
+    { name: 'files', maxCount: 10 },
+    { name: 'photos', maxCount: 10 }
+  ], {
+    storage: memoryStorage(),
+    limits: { fileSize: 10 * 1024 * 1024 },
+    fileFilter: (req, file, cb) => cb(null, true),
+  }),)
   @ApiConsumes('multipart/form-data')
   @ApiBody({
+    description: 'Create a new job with optional file uploads',
+    type: CreateJobDto,
     schema: {
       type: 'object',
       properties: {
-        title: { type: 'string' },
-        category: { type: 'string' },
-        date_and_time: { type: 'string', format: 'date-time' },
-        price: { type: 'number' },
-        payment_type: { type: 'string' },
-        job_type: { type: 'string' },
-        location: { type: 'string' },
-        estimated_time: { type: 'number' },
-        description: { type: 'string' },
-        requirements: { type: 'string' },
-        notes: { type: 'string' },
-        files: { 
-          type: 'array', 
+        files: {
+          type: 'array',
           items: { type: 'string', format: 'binary' },
-          description: 'Multiple image files (up to 10 files, 10MB each)'
-        },
-        photoes: { 
-          type: 'array', 
-          items: { type: 'string', format: 'binary' },
-          description: 'Alternative field name for multiple image files'
-        },
-        photos: { 
-          type: 'array', 
-          items: { type: 'string', format: 'binary' },
-          description: 'Alternative field name for multiple image files'
         },
       },
     },
   })
-  @Post()
-  @UseInterceptors(
-    FileFieldsInterceptor([
-      { name: 'files', maxCount: 10 },
-      { name: 'photoes', maxCount: 10 },
-      { name: 'photos', maxCount: 10 }
-    ], {
-      storage: memoryStorage(),
-      limits: { fileSize: 10 * 1024 * 1024 }, 
-      fileFilter: (req, file, cb) => cb(null, true),
-    }),
-  )
   async create(
-    @Body() createJobDto: any,
-    @UploadedFiles() files: Record<string, Express.Multer.File[]>,
     @Req() req: Request,
-  ): Promise<JobCreateResponseDto> {
-    const userId = (req as any).user.userId || (req as any).user.id;
-    
-    // Parse JSON strings for requirements and notes
-    let requirements = [];
-    let notes = [];
-    
-    if (createJobDto.requirements) {
-      try {
-        if (typeof createJobDto.requirements === 'string') {
-          console.log('DEBUG - Parsing requirements string:', createJobDto.requirements);
-          
-          // Fix malformed JSON by adding missing commas
-          let cleanedJson = createJobDto.requirements
-            .replace(/}\s*{/g, '},{') // Add commas between objects
-            .replace(/}\s*\]/g, '}]') // Fix last object
-            .replace(/\[\s*{/g, '[{') // Fix first object
-            .replace(/\n/g, '') // Remove newlines
-            .replace(/\r/g, ''); // Remove carriage returns
-          
-          
-        } else if (Array.isArray(createJobDto.requirements)) {
-          requirements = createJobDto.requirements;
-        }
-      } catch (e) {
-        console.error('DEBUG - Error parsing requirements:', e);;
-        requirements = [];
-      }
-    }
-   
-    if (createJobDto.notes) {
-      try {
-        if (typeof createJobDto.notes === 'string') {
-          // Fix malformed JSON by adding missing commas
-          let cleanedJson = createJobDto.notes
-            .replace(/}\s*{/g, '},{') // Add commas between objects
-            .replace(/}\s*\]/g, '}]') // Fix last object
-            .replace(/\[\s*{/g, '[{') // Fix first object
-            .replace(/\n/g, '') // Remove newlines
-            .replace(/\r/g, ''); // Remove carriage returns
-          
-          notes = JSON.parse(cleanedJson);
-        } else if (Array.isArray(createJobDto.notes)) {
-          notes = createJobDto.notes;
-        }
-      } catch (e) {
-        console.error('DEBUG - Error parsing notes:', e);
-        notes = [];
-      }
-    }
-    
-    // Handle file upload if provided
-    let photoPaths: string[] = [];
-    
-    // Handle multiple files from various field names
-    const fileFields = ['files', 'photoes', 'photos'];
-    
-    for (const fieldName of fileFields) {
-      if (files?.[fieldName] && files[fieldName].length > 0) {
-        console.log(`Processing ${files[fieldName].length} files from field: ${fieldName}`);
-        for (const file of files[fieldName]) {
-          const fileExtension = file.originalname.split('.').pop();
-          const uniqueFileName = `job-photos/${uuidv4()}.${fileExtension}`;
-          await SojebStorage.put(uniqueFileName, file.buffer);
-          photoPaths.push(uniqueFileName);
-        }
-      }
-    }
-    // Store photos as JSON string in database
-    const photoPath = photoPaths.length > 0 ? JSON.stringify(photoPaths) : null;
-    
-    // Handle single files from other fields (fallback)
-    const singleFile = files?.file?.[0] || files?.image?.[0] || files?.photo?.[0];
-    if (singleFile) {
-      const fileExtension = singleFile.originalname.split('.').pop();
-      const uniqueFileName = `job-photos/${uuidv4()}.${fileExtension}`;
-      await SojebStorage.put(uniqueFileName, singleFile.buffer);
-      photoPaths.push(uniqueFileName);
-    }
-  
-    let latitude: number | undefined;
-    let longitude: number | undefined;
-    
-    // Only process coordinates if they are provided
-    if (createJobDto.latitude !== undefined && createJobDto.longitude !== undefined) {
-      // Validate coordinates - handle different input types from Flutter
-      if (typeof createJobDto.latitude === 'string') {
-        latitude = parseFloat(createJobDto.latitude);
-      } else if (typeof createJobDto.latitude === 'number') {
-        latitude = createJobDto.latitude;
-      } else {
-        latitude = parseFloat(createJobDto.latitude);
-      }
-      
-      if (typeof createJobDto.longitude === 'string') {
-        longitude = parseFloat(createJobDto.longitude);
-      } else if (typeof createJobDto.longitude === 'number') {
-        longitude = createJobDto.longitude;
-      } else {
-        longitude = parseFloat(createJobDto.longitude);
-      }
-      
-      // Only validate if coordinates were provided
-      if (isNaN(latitude) || isNaN(longitude)) {
-        throw new BadRequestException(`Latitude and longitude must be valid numbers. Received: lat="${createJobDto.latitude}" (type: ${typeof createJobDto.latitude}), lng="${createJobDto.longitude}" (type: ${typeof createJobDto.longitude})`);
-      }
+    @Body() body: CreateJobDto,
+    @UploadedFiles() files: Express.Multer.File[],
+  ) {
+    const user = req.user as any
+    const userPayload = {
+      id: user?.id,
+      email: user?.email,
+      type: user.type,
     }
 
-    // Map all enums using the comprehensive mapping system
-    const category = EnumMapper.mapCategory(createJobDto.category);
-    const paymentType = EnumMapper.mapPaymentType(createJobDto.payment_type);
-    const jobType = EnumMapper.mapJobType(createJobDto.job_type);
-
-
-    // Create the job data object
-    const jobData: CreateJobDto = {
-      title: createJobDto.title,
-      category: category as any, // Use mapped category
-      price: createJobDto.price,
-      payment_type: paymentType as any, // Use mapped payment type
-      job_type: jobType as any, // Use mapped job type
-      location: createJobDto.location,
-      latitude: latitude, // Will be undefined if not provided, allowing geocoding
-      longitude: longitude, // Will be undefined if not provided, allowing geocoding
-      start_time: createJobDto.start_time,
-      end_time: createJobDto.end_time,
-      description: createJobDto.description,
-      requirements: requirements,
-      notes: notes,
-      urgent_note: createJobDto.urgent_note,
-    };
-    
-    
-    
-    return this.jobService.create(jobData, userId, photoPaths);
+    return await this.jobService.createJob(userPayload, body, files);
   }
+
+  // @ApiOperation({ summary: 'Create a new job posting with optional photo' })
+  // @ApiResponse({ status: 201, description: 'Job created successfully', type: JobCreateResponseDto })
+  // @ApiConsumes('multipart/form-data')
+  // @ApiBody({
+  //   schema: {
+  //     type: 'object',
+  //     properties: {
+  //       title: { type: 'string' },
+  //       category: { type: 'string' },
+  //       date_and_time: { type: 'string', format: 'date-time' },
+  //       price: { type: 'number' },
+  //       payment_type: { type: 'string' },
+  //       job_type: { type: 'string' },
+  //       location: { type: 'string' },
+  //       estimated_time: { type: 'number' },
+  //       description: { type: 'string' },
+  //       requirements: { type: 'string' },
+  //       notes: { type: 'string' },
+  //       files: { 
+  //         type: 'array', 
+  //         items: { type: 'string', format: 'binary' },
+  //         description: 'Multiple image files (up to 10 files, 10MB each)'
+  //       },
+  //       photoes: { 
+  //         type: 'array', 
+  //         items: { type: 'string', format: 'binary' },
+  //         description: 'Alternative field name for multiple image files'
+  //       },
+  //       photos: { 
+  //         type: 'array', 
+  //         items: { type: 'string', format: 'binary' },
+  //         description: 'Alternative field name for multiple image files'
+  //       },
+  //     },
+  //   },
+  // })
+  // @Post()
+  // @UseInterceptors(
+  //   FileFieldsInterceptor([
+  //     { name: 'files', maxCount: 10 },
+  //     { name: 'photoes', maxCount: 10 },
+  //     { name: 'photos', maxCount: 10 }
+  //   ], {
+  //     storage: memoryStorage(),
+  //     limits: { fileSize: 10 * 1024 * 1024 }, 
+  //     fileFilter: (req, file, cb) => cb(null, true),
+  //   }),
+  // )
+  // async create(
+  //   @Body() createJobDto: any,
+  //   @UploadedFiles() files: Record<string, Express.Multer.File[]>,
+  //   @Req() req: Request,
+  // ): Promise<JobCreateResponseDto> {
+  //   const userId = (req as any).user.userId || (req as any).user.id;
+
+  //   // Parse JSON strings for requirements and notes
+  //   let requirements = [];
+  //   let notes = [];
+
+  //   if (createJobDto.requirements) {
+  //     try {
+  //       if (typeof createJobDto.requirements === 'string') {
+  //         console.log('DEBUG - Parsing requirements string:', createJobDto.requirements);
+
+  //         // Fix malformed JSON by adding missing commas
+  //         let cleanedJson = createJobDto.requirements
+  //           .replace(/}\s*{/g, '},{') // Add commas between objects
+  //           .replace(/}\s*\]/g, '}]') // Fix last object
+  //           .replace(/\[\s*{/g, '[{') // Fix first object
+  //           .replace(/\n/g, '') // Remove newlines
+  //           .replace(/\r/g, ''); // Remove carriage returns
+
+
+  //       } else if (Array.isArray(createJobDto.requirements)) {
+  //         requirements = createJobDto.requirements;
+  //       }
+  //     } catch (e) {
+  //       console.error('DEBUG - Error parsing requirements:', e);;
+  //       requirements = [];
+  //     }
+  //   }
+
+  //   if (createJobDto.notes) {
+  //     try {
+  //       if (typeof createJobDto.notes === 'string') {
+  //         // Fix malformed JSON by adding missing commas
+  //         let cleanedJson = createJobDto.notes
+  //           .replace(/}\s*{/g, '},{') // Add commas between objects
+  //           .replace(/}\s*\]/g, '}]') // Fix last object
+  //           .replace(/\[\s*{/g, '[{') // Fix first object
+  //           .replace(/\n/g, '') // Remove newlines
+  //           .replace(/\r/g, ''); // Remove carriage returns
+
+  //         notes = JSON.parse(cleanedJson);
+  //       } else if (Array.isArray(createJobDto.notes)) {
+  //         notes = createJobDto.notes;
+  //       }
+  //     } catch (e) {
+  //       console.error('DEBUG - Error parsing notes:', e);
+  //       notes = [];
+  //     }
+  //   }
+
+  //   // Handle file upload if provided
+  //   let photoPaths: string[] = [];
+
+  //   // Handle multiple files from various field names
+  //   const fileFields = ['files', 'photoes', 'photos'];
+
+  //   for (const fieldName of fileFields) {
+  //     if (files?.[fieldName] && files[fieldName].length > 0) {
+  //       console.log(`Processing ${files[fieldName].length} files from field: ${fieldName}`);
+  //       for (const file of files[fieldName]) {
+  //         const fileExtension = file.originalname.split('.').pop();
+  //         const uniqueFileName = `job-photos/${uuidv4()}.${fileExtension}`;
+  //         await SojebStorage.put(uniqueFileName, file.buffer);
+  //         photoPaths.push(uniqueFileName);
+  //       }
+  //     }
+  //   }
+  //   // Store photos as JSON string in database
+  //   const photoPath = photoPaths.length > 0 ? JSON.stringify(photoPaths) : null;
+
+  //   // Handle single files from other fields (fallback)
+  //   const singleFile = files?.file?.[0] || files?.image?.[0] || files?.photo?.[0];
+  //   if (singleFile) {
+  //     const fileExtension = singleFile.originalname.split('.').pop();
+  //     const uniqueFileName = `job-photos/${uuidv4()}.${fileExtension}`;
+  //     await SojebStorage.put(uniqueFileName, singleFile.buffer);
+  //     photoPaths.push(uniqueFileName);
+  //   }
+
+  //   let latitude: number | undefined;
+  //   let longitude: number | undefined;
+
+  //   // Only process coordinates if they are provided
+  //   if (createJobDto.latitude !== undefined && createJobDto.longitude !== undefined) {
+  //     // Validate coordinates - handle different input types from Flutter
+  //     if (typeof createJobDto.latitude === 'string') {
+  //       latitude = parseFloat(createJobDto.latitude);
+  //     } else if (typeof createJobDto.latitude === 'number') {
+  //       latitude = createJobDto.latitude;
+  //     } else {
+  //       latitude = parseFloat(createJobDto.latitude);
+  //     }
+
+  //     if (typeof createJobDto.longitude === 'string') {
+  //       longitude = parseFloat(createJobDto.longitude);
+  //     } else if (typeof createJobDto.longitude === 'number') {
+  //       longitude = createJobDto.longitude;
+  //     } else {
+  //       longitude = parseFloat(createJobDto.longitude);
+  //     }
+
+  //     // Only validate if coordinates were provided
+  //     if (isNaN(latitude) || isNaN(longitude)) {
+  //       throw new BadRequestException(`Latitude and longitude must be valid numbers. Received: lat="${createJobDto.latitude}" (type: ${typeof createJobDto.latitude}), lng="${createJobDto.longitude}" (type: ${typeof createJobDto.longitude})`);
+  //     }
+  //   }
+
+  //   // Map all enums using the comprehensive mapping system
+  //   const category = EnumMapper.mapCategory(createJobDto.category);
+  //   const paymentType = EnumMapper.mapPaymentType(createJobDto.payment_type);
+  //   const jobType = EnumMapper.mapJobType(createJobDto.job_type);
+
+
+  //   // Create the job data object
+  //   const jobData: CreateJobDto = {
+  //     title: createJobDto.title,
+  //     category: category as any, // Use mapped category
+  //     price: createJobDto.price,
+  //     payment_type: paymentType as any, // Use mapped payment type
+  //     job_type: jobType as any, // Use mapped job type
+  //     location: createJobDto.location,
+  //     latitude: latitude, // Will be undefined if not provided, allowing geocoding
+  //     longitude: longitude, // Will be undefined if not provided, allowing geocoding
+  //     start_time: createJobDto.start_time,
+  //     end_time: createJobDto.end_time,
+  //     description: createJobDto.description,
+  //     requirements: requirements,
+  //     notes: notes,
+  //     urgent_note: createJobDto.urgent_note,
+  //   };
+
+
+
+  //   return this.jobService.create(jobData, userId, photoPaths);
+  // }
 
   @ApiOperation({ summary: 'Get all jobs with comprehensive filters (no pagination - Flutter handles pagination)' })
   @ApiResponse({ status: 200, description: 'Jobs retrieved successfully', type: JobListResponseDto })
@@ -268,9 +306,9 @@ export class JobController {
     let parsedDateRange = null;
     if (dateRange) {
       const [startDate, endDate] = dateRange.split(',');
-      parsedDateRange = { 
-        start: new Date(startDate), 
-        end: new Date(endDate) 
+      parsedDateRange = {
+        start: new Date(startDate),
+        end: new Date(endDate)
       };
     }
 
@@ -306,7 +344,7 @@ export class JobController {
   ): Promise<JobListResponseDto> {
     const userId = (req as any).user.userId || (req as any).user.id;
     const result = await this.jobService.findByUser(userId);
-    
+
     return {
       success: true,
       message: `Found ${result.jobs.length} of your jobs`,
@@ -322,9 +360,9 @@ export class JobController {
   @Get('upcoming')
   async getLatestAppointment(@Req() req: Request) {
     const userId = req.user.userId
-    const userType=(req as any).user.type;
-    const latestJob = await this.jobService.upcomingEvents(userId,userType);
-    
+    const userType = (req as any).user.type;
+    const latestJob = await this.jobService.upcomingEvents(userId, userType);
+
     return {
       success: true,
       latestJob: latestJob,
@@ -399,7 +437,7 @@ export class JobController {
     @Query('urgency') urgency?: string,
   ) {
     // Validate category
-    const category=givencategory.toUpperCase();
+    const category = givencategory.toUpperCase();
     if (!Object.values(JobCategory).includes(category as JobCategory)) {
       throw new BadRequestException(`Invalid category: ${category}. Valid categories are: ${Object.values(JobCategory).join(', ')}`);
     }
@@ -413,9 +451,9 @@ export class JobController {
     let parsedDateRange = null;
     if (dateRange) {
       const [startDate, endDate] = dateRange.split(',');
-      parsedDateRange = { 
-        start: new Date(startDate), 
-        end: new Date(endDate) 
+      parsedDateRange = {
+        start: new Date(startDate),
+        end: new Date(endDate)
       };
     }
 
@@ -448,7 +486,7 @@ export class JobController {
   @Get(':id')
   async findOne(@Param('id') id: string): Promise<JobSingleResponseDto> {
     const job = await this.jobService.findOne(id);
-    
+
     return {
       success: true,
       message: 'Job retrieved successfully',
@@ -504,15 +542,15 @@ export class JobController {
     let requirements = [];
     let notes = [];
     if (updateJobDto?.requirements) {
-      try { requirements = JSON.parse(updateJobDto.requirements); } catch {}
+      try { requirements = JSON.parse(updateJobDto.requirements); } catch { }
     }
     if (updateJobDto?.notes) {
-      try { notes = JSON.parse(updateJobDto.notes); } catch {}
+      try { notes = JSON.parse(updateJobDto.notes); } catch { }
     }
 
     let photoPath: string | undefined;
     const uploadedFiles = files?.photoes || files?.file || files?.File || files?.image || files?.photo || [];
-    
+
     if (uploadedFiles.length > 0) {
       const photoPaths = [];
       for (const file of uploadedFiles) {
@@ -541,7 +579,7 @@ export class JobController {
     return this.jobService.update(id, dto, userId, photoPath);
   }
 
- 
+
 
   @ApiOperation({ summary: 'Mark job as started (Helper only)' })
   @Patch(':id/start')
@@ -601,7 +639,7 @@ export class JobController {
   ): Promise<{ message: string }> {
     try {
       const userId = (req as any).user.userId || (req as any).user.id;
-      
+
       if (!userId) {
         throw new Error('User ID not found in request');
       }
@@ -632,7 +670,7 @@ export class JobController {
     try {
       const userId = (req as any).user.userId || (req as any).user.id;
       await this.jobNotificationService.addDeviceToken(userId, body.deviceToken);
-      
+
       return {
         success: true,
         message: 'Device token added successfully'
@@ -660,7 +698,7 @@ export class JobController {
     try {
       const userId = (req as any).user.userId || (req as any).user.id;
       await this.jobNotificationService.removeDeviceToken(userId, body.deviceToken);
-      
+
       return {
         success: true,
         message: 'Device token removed successfully'
@@ -679,7 +717,7 @@ export class JobController {
     try {
       const userId = (req as any).user.userId || (req as any).user.id;
       const tokens = await this.jobNotificationService.getUserDeviceTokens(userId);
-      
+
       return {
         success: true,
         data: {
@@ -696,15 +734,15 @@ export class JobController {
     }
   }
 
- 
+
   @ApiOperation({ summary: 'Get past appointments for user' })
   @ApiResponse({ status: 200, description: 'Past appointments retrieved successfully' })
   @Get('past-appointments')
   async jobHistory(@Req() req: Request) {
     try {
       const userId = req.user.userId
-      const userType=(req as any).user.type;
-      const appointments = await this.jobService.jobHistory(userId,userType);
+      const userType = (req as any).user.type;
+      const appointments = await this.jobService.jobHistory(userId, userType);
       return {
         success: true,
         message: 'Past appointments retrieved successfully',
@@ -868,7 +906,7 @@ export class JobController {
     return this.jobService.getJobStatus(jobId, userId);
   }
 
-  
+
 
 
 }

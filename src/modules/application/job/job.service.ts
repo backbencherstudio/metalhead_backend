@@ -3,6 +3,8 @@ import {
   NotFoundException,
   BadRequestException,
   ForbiddenException,
+  HttpException,
+  InternalServerErrorException,
 } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CreateJobDto } from './dto/create-job.dto';
@@ -22,164 +24,188 @@ export class JobService {
     private geocodingService: GeocodingService,
   ) { }
 
-  async create(
-    createJobDto: CreateJobDto,
-    userId: string,
-    photoPaths?: string[],
-  ): Promise<JobCreateResponseDto> {
-    const { requirements, notes, ...jobData } = createJobDto;
-
-    // Handle location data with smart fallback logic
-    let latitude: number;
-    let longitude: number;
-    let location: string;
-
-    // Priority 1: Use device GPS coordinates if provided
-    if (jobData.latitude !== undefined && jobData.longitude !== undefined) {
-      latitude = jobData.latitude;
-      longitude = jobData.longitude;
-      location = jobData.location || `Location: ${latitude}, ${longitude}`;
-    }
-    // Priority 2: Use geocoding if user provided address but no GPS
-    else if (
-      jobData.location &&
-      (jobData.latitude === undefined || jobData.longitude === undefined)
-    ) {
-      try {
-        const coordinates = await this.geocodingService.geocodeAddress(
-          jobData.location,
-        );
-        if (coordinates) {
-          latitude = coordinates.lat;
-          longitude = coordinates.lng;
-          location = jobData.location;
-        } else {
-          throw new BadRequestException(
-            'Could not geocode the provided address',
-          );
-        }
-      } catch (error) {
-        throw new BadRequestException(
-          `Geocoding failed: ${error.message}. Please provide GPS coordinates or a valid address.`,
-        );
+  async createJob(user: User, body: any, files: any) {
+    try {
+      if (user.type === 'helper') {
+        throw new BadRequestException("A helper cannot create a job post.");
       }
+
+      return {
+        success: true,
+        message: 'Job created successfully.',
+        payload: {
+          user,
+          body,
+          files
+        }
+      }
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      console.log(error?.message);
+      throw new InternalServerErrorException(`Error creating new job: ${error?.message}`);
     }
-    // Priority 3: Neither GPS nor address provided
-    else {
-      throw new BadRequestException(
-        'Either GPS coordinates (latitude, longitude) or a valid address (location) must be provided',
-      );
-    }
-
-    // Update jobData with resolved values
-    jobData.latitude = latitude;
-    jobData.longitude = longitude;
-    jobData.location = location;
-
-    // Calculate estimated time from start_time and end_time
-    const startTime = new Date(jobData.start_time);
-    const endTime = new Date(jobData.end_time);
-
-    // Validate dates
-    if (isNaN(startTime.getTime())) {
-      throw new BadRequestException('Invalid start_time format');
-    }
-    if (isNaN(endTime.getTime())) {
-      throw new BadRequestException('Invalid end_time format');
-    }
-    if (startTime >= endTime) {
-      throw new BadRequestException('start_time must be before end_time');
-    }
-
-    const estimatedHours = this.calculateHours(startTime, endTime);
-    const estimatedTimeString = this.formatEstimatedTime(estimatedHours);
-
-    //
-
-    const job = await this.prisma.job.create({
-      data: {
-        title: jobData.title,
-        category: jobData.category as JobCategory,
-        price: jobData.price,
-        payment_type: jobData.payment_type,
-        job_type: jobData.job_type,
-        location: jobData.location,
-        latitude: jobData.latitude,
-        longitude: jobData.longitude,
-        start_time: startTime,
-        end_time: endTime,
-        estimated_time: estimatedTimeString,
-        estimated_hours: estimatedHours,
-        description: jobData.description,
-        urgent_note: jobData.urgent_note,
-        user_id: userId,
-        photos:
-          photoPaths && photoPaths.length > 0
-            ? JSON.stringify(photoPaths)
-            : null,
-        // For hourly jobs, set hourly_rate
-        hourly_rate: jobData.payment_type === 'HOURLY' ? jobData.price : null,
-        requirements: requirements
-          ? {
-            create: requirements.map((req) => ({
-              title: req.title,
-              description: req.description,
-            })),
-          }
-          : undefined,
-        notes: notes
-          ? {
-            create: notes.map((note) => ({
-              title: note.title,
-              description: note.description,
-            })),
-          }
-          : undefined,
-      },
-      include: {
-        requirements: true,
-        notes: true,
-        user: {
-          select: {
-            id: true,
-            first_name: true,
-            last_name: true,
-            email: true,
-            avatar: true,
-          },
-        },
-      },
-    });
-
-    // record posted history
-    await (this.prisma as any).jobStatusHistory?.create({
-      data: {
-        job_id: job.id,
-        status: 'posted',
-        occurred_at: job.created_at,
-      },
-    });
-
-    // Notify helpers about the new job (async, don't wait)
-    this.jobNotificationService
-      .notifyHelpersAboutNewJob(job.id)
-      .then(() => {
-        console.log(
-          `Notification process initiated successfully for job ${job.id}`,
-        );
-      })
-      .catch((error) => {
-        console.error('Failed to notify helpers about new job:', error);
-      });
-
-    const responseData = this.mapToResponseDto(job);
-
-    return {
-      success: true,
-      message: 'Job created successfully',
-      data: responseData,
-    };
   }
+
+  // async create(
+  //   createJobDto: CreateJobDto,
+  //   userId: string,
+  //   photoPaths?: string[],
+  // ): Promise<JobCreateResponseDto> {
+  //   const { requirements, notes, ...jobData } = createJobDto;
+
+  //   // Handle location data with smart fallback logic
+  //   let latitude: number;
+  //   let longitude: number;
+  //   let location: string;
+
+  //   // Priority 1: Use device GPS coordinates if provided
+  //   if (jobData.latitude !== undefined && jobData.longitude !== undefined) {
+  //     latitude = jobData.latitude;
+  //     longitude = jobData.longitude;
+  //     location = jobData.location || `Location: ${latitude}, ${longitude}`;
+  //   }
+  //   // Priority 2: Use geocoding if user provided address but no GPS
+  //   else if (
+  //     jobData.location &&
+  //     (jobData.latitude === undefined || jobData.longitude === undefined)
+  //   ) {
+  //     try {
+  //       const coordinates = await this.geocodingService.geocodeAddress(
+  //         jobData.location,
+  //       );
+  //       if (coordinates) {
+  //         latitude = coordinates.lat;
+  //         longitude = coordinates.lng;
+  //         location = jobData.location;
+  //       } else {
+  //         throw new BadRequestException(
+  //           'Could not geocode the provided address',
+  //         );
+  //       }
+  //     } catch (error) {
+  //       throw new BadRequestException(
+  //         `Geocoding failed: ${error.message}. Please provide GPS coordinates or a valid address.`,
+  //       );
+  //     }
+  //   }
+  //   // Priority 3: Neither GPS nor address provided
+  //   else {
+  //     throw new BadRequestException(
+  //       'Either GPS coordinates (latitude, longitude) or a valid address (location) must be provided',
+  //     );
+  //   }
+
+  //   // Update jobData with resolved values
+  //   jobData.latitude = latitude;
+  //   jobData.longitude = longitude;
+  //   jobData.location = location;
+
+  //   // Calculate estimated time from start_time and end_time
+  //   const startTime = new Date(jobData.start_time);
+  //   const endTime = new Date(jobData.end_time);
+
+  //   // Validate dates
+  //   if (isNaN(startTime.getTime())) {
+  //     throw new BadRequestException('Invalid start_time format');
+  //   }
+  //   if (isNaN(endTime.getTime())) {
+  //     throw new BadRequestException('Invalid end_time format');
+  //   }
+  //   if (startTime >= endTime) {
+  //     throw new BadRequestException('start_time must be before end_time');
+  //   }
+
+  //   const estimatedHours = this.calculateHours(startTime, endTime);
+  //   const estimatedTimeString = this.formatEstimatedTime(estimatedHours);
+
+  //   //
+
+  //   const job = await this.prisma.job.create({
+  //     data: {
+  //       title: jobData.title,
+  //       category: jobData.category as JobCategory,
+  //       price: jobData.price,
+  //       payment_type: jobData.payment_type,
+  //       job_type: jobData.job_type,
+  //       location: jobData.location,
+  //       latitude: jobData.latitude,
+  //       longitude: jobData.longitude,
+  //       start_time: startTime,
+  //       end_time: endTime,
+  //       estimated_time: estimatedTimeString,
+  //       estimated_hours: estimatedHours,
+  //       description: jobData.description,
+  //       urgent_note: jobData.urgent_note,
+  //       user_id: userId,
+  //       photos:
+  //         photoPaths && photoPaths.length > 0
+  //           ? JSON.stringify(photoPaths)
+  //           : null,
+  //       // For hourly jobs, set hourly_rate
+  //       hourly_rate: jobData.payment_type === 'HOURLY' ? jobData.price : null,
+  //       requirements: requirements
+  //         ? {
+  //           create: requirements.map((req) => ({
+  //             title: req.title,
+  //             description: req.description,
+  //           })),
+  //         }
+  //         : undefined,
+  //       notes: notes
+  //         ? {
+  //           create: notes.map((note) => ({
+  //             title: note.title,
+  //             description: note.description,
+  //           })),
+  //         }
+  //         : undefined,
+  //     },
+  //     include: {
+  //       requirements: true,
+  //       notes: true,
+  //       user: {
+  //         select: {
+  //           id: true,
+  //           first_name: true,
+  //           last_name: true,
+  //           email: true,
+  //           avatar: true,
+  //         },
+  //       },
+  //     },
+  //   });
+
+  //   // record posted history
+  //   await (this.prisma as any).jobStatusHistory?.create({
+  //     data: {
+  //       job_id: job.id,
+  //       status: 'posted',
+  //       occurred_at: job.created_at,
+  //     },
+  //   });
+
+  //   // Notify helpers about the new job (async, don't wait)
+  //   this.jobNotificationService
+  //     .notifyHelpersAboutNewJob(job.id)
+  //     .then(() => {
+  //       console.log(
+  //         `Notification process initiated successfully for job ${job.id}`,
+  //       );
+  //     })
+  //     .catch((error) => {
+  //       console.error('Failed to notify helpers about new job:', error);
+  //     });
+
+  //   const responseData = this.mapToResponseDto(job);
+
+  //   return {
+  //     success: true,
+  //     message: 'Job created successfully',
+  //     data: responseData,
+  //   };
+  // }
 
   // Helper methods for job creation
   private calculateHours(startTime: Date, endTime: Date): number {

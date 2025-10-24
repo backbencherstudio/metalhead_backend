@@ -3,9 +3,13 @@ import { ApiProperty } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { CreateJobRequirementDto } from './create-job-requirement.dto';
 import { CreateJobNoteDto } from './create-job-note.dto';
-import { JobCategory } from '../enums/job-category.enum';
 import { PaymentType } from '../enums/payment-type.enum';
 import { JobType } from '../enums/job-type.enum';
+import { IsLocationOrCoordinates } from 'src/utils/location-or-coordinates.validator';
+
+@IsLocationOrCoordinates({
+  message: "Either 'location' or both 'latitude' and 'longitude' must be provided.",
+})
 
 export class CreateJobDto {
   // Job Summary
@@ -13,37 +17,26 @@ export class CreateJobDto {
   @IsString()
   @ApiProperty({
     description: 'Job title',
-    example: 'Frontend Developer',
   })
   title: string;
 
   @IsNotEmpty()
-  @IsEnum(JobCategory)
   @ApiProperty({
     description: 'Job category',
-    example: JobCategory.TECHNOLOGY,
-    enum: JobCategory,
-    enumName: 'JobCategory',
   })
-  category: JobCategory;
+  category: string;
+
+  @IsNotEmpty()
+  @IsDateString()
+  date_time: string;
 
 
   @IsNotEmpty()
   @IsNumber()
-  @ApiProperty({
-    description: 'Job price',
-    example: 5000,
-  })
   price: number;
 
   @IsNotEmpty()
   @IsEnum(PaymentType)
-  @ApiProperty({
-    description: 'Payment type',
-    example: PaymentType.FIXED,
-    enum: PaymentType,
-    enumName: 'PaymentType',
-  })
   payment_type: PaymentType;
 
   @IsNotEmpty()

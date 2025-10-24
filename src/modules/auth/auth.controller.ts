@@ -51,7 +51,7 @@ export class AuthController {
   @ApiOperation({ summary: 'Complete Profile' })
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
-  @Patch('complete-profile')
+  @Patch('update-profile')
   async completeProfile(@Req() req: Request, @Body() data: CompleteProfileDto) {
     const user_id = req?.user?.userId;
     return await this.authService.completeProfile(user_id, data)
