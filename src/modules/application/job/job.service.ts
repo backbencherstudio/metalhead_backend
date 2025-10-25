@@ -1213,151 +1213,24 @@ export class JobService {
   }
 
   /**
-   * Add extra time to an ongoing job
-   */
-  async addExtraTime(
-    jobId: string,
-    userId: string,
-    extraMinutes: number,
-  ): Promise<any> {
-    const job = await this.prisma.job.findFirst({
-      where: {
-        id: jobId,
-        user_id: userId,
-        status: 1,
-        deleted_at: null,
-      },
-    });
-
-    if (!job) {
-      throw new NotFoundException(
-        'Job not found or you do not have permission to modify it',
-      );
-    }
-
-    if (job.job_status !== 'ongoing') {
-      throw new BadRequestException(
-        'Extra time can only be added to ongoing jobs',
-      );
-    }
-
-    if (extraMinutes <= 0) {
-      throw new BadRequestException('Extra time must be greater than 0');
-    }
-
-    // Calculate new end time
-    const currentEndTime = new Date(job.end_time);
-    const newEndTime = new Date(
-      currentEndTime.getTime() + extraMinutes * 60 * 1000,
-    );
-
-    // Recalculate estimated hours
-    const startTime = new Date(job.start_time);
-    const newEstimatedHours = this.calculateHours(startTime, newEndTime);
-
-    const updatedJob = await this.prisma.job.update({
-      where: { id: jobId },
-      data: {
-        end_time: newEndTime,
-        estimated_hours: newEstimatedHours,
-        estimated_time: this.formatEstimatedTime(newEstimatedHours),
-      },
-      include: {
-        user: {
-          select: {
-            id: true,
-            name: true,
-            first_name: true,
-            last_name: true,
-            email: true,
-            avatar: true,
-          },
-        },
-        assigned_helper: {
-          select: {
-            id: true,
-            name: true,
-            first_name: true,
-            last_name: true,
-            email: true,
-          },
-        },
-      },
-    });
-
-    // TODO: Send notification to helper via WebSocket
-    // this.jobNotificationService.notifyExtraTimeAdded(updatedJob, extraMinutes);
-
-    return {
-      message: `Added ${extraMinutes} minutes to the job`,
-      job: this.mapToResponseDto(updatedJob),
-    };
-  }
-  // Helper Actions (Helper Interface)
-  /**
    * Start a job (Helper can start if status is 'confirmed')
    */
-  async startJob(jobId: string, helperId: string): Promise<any> {
+  async startOrCompleteJob(jobId: string, helperId: string): Promise<any> {
     const job = await this.prisma.job.findFirst({
       where: {
         id: jobId,
         assigned_helper_id: helperId,
         status: 1,
         deleted_at: null,
-        job_status: 'confirmed',
       },
-    });
-
-    if (!job) {
-      throw new NotFoundException(
-        'Job not found or you are not assigned to this job',
-      );
-    }
-
-    if (job.job_status !== 'confirmed') {
-      throw new BadRequestException(
-        'Job must be confirmed before you can start it',
-      );
-    }
-
-    const updatedJob = await this.prisma.job.update({
-      where: { id: jobId },
-      data: {
-        job_status: 'ongoing',
-        actual_start_time: new Date(),
-      },
-      select: {
-        id: true,
-        title: true,
+      select:{
         job_status: true,
         actual_start_time: true,
-        updated_at: true,
-        user_id: true,
-        assigned_helper_id: true,
-      },
-    });
-
-    // TODO: Send notification to user via WebSocket
-    // this.jobNotificationService.notifyJobStarted(updatedJob);
-
-    return {
-      message: 'Job started successfully',
-      job: updatedJob,
-    };
-  }
-
-  /**
-   * Complete a job (Helper can complete if status is 'ongoing')
-   */
-  async completeJob(jobId: string, helperId: string): Promise<any> {
-    const job = await this.prisma.job.findFirst({
-      where: {
-        id: jobId,
-        assigned_helper_id: helperId,
-        status: 1,
-        deleted_at: null,
-        job_status: 'ongoing',
-      },
+        price: true,
+        hourly_rate: true,
+        payment_type: true,
+        total_approved_hours: true,
+      }
     });
 
     if (!job) {
@@ -1366,78 +1239,107 @@ export class JobService {
       );
     }
 
-    if (job.job_status !== 'ongoing') {
-      throw new BadRequestException(
-        'Job must be ongoing before you can complete it',
-      );
-    }
+    try {
+      if(job.job_status==='confirmed'){
+        const updatedJob = await this.prisma.job.update({
+          where: { id: jobId },
+          data: {
+            job_status: 'ongoing',
+            actual_start_time: new Date(),
+          },
+        });
+        return {
+          message: 'Job started successfully',
+          job: updatedJob,
+        };
+      }else{
+      
+        if (job.job_status !== 'ongoing') {
+          throw new BadRequestException(
+            'Job must be ongoing before you can complete it',
+          );
+        }
+    
+        if (job.payment_type === PaymentType.HOURLY) {
+          const startTime = new Date(job.actual_start_time);
+          const endTime = new Date();
+          const actualHours = this.calculateHours(startTime, endTime);
+    
+          const approvedExtraHours=await this.prisma.job.findFirst({
+            where:{
+              id:jobId,
+              extra_time_approved:true,
+            },
+            select:{
+              total_approved_hours: true,
+            }
+          })
 
-    if (job.payment_type === PaymentType.HOURLY) {
-      const startTime = new Date(job.actual_start_time);
-      const endTime = new Date();
-      const actualHours = this.calculateHours(startTime, endTime);
+          const hourlyRate = Number(job.hourly_rate);
+    
+          const finalPrice = hourlyRate * (actualHours+Number(approvedExtraHours?.total_approved_hours||0));
+          const updatedJob = await this.prisma.job.update({
+            where: { id: jobId },
+            data: {
+              actual_start_time: startTime,
+              actual_end_time: endTime,
+              actual_hours: actualHours,
+              job_status: 'completed',
+              final_price: finalPrice,
+            },
+            select: {
+              id: true,
+              title: true,
+              job_status: true,
+              actual_start_time: true,
+              actual_end_time: true,
+              actual_hours: true,
+              final_price: true,
+              updated_at: true,
+            },
+          });
+    
+          return {
+            success: true,
+            message: 'Job completed successfully',
+            updatedJob,
+          };
+        } else {
+          const updatedJob = await this.prisma.job.update({
+            where: { id: jobId },
+            data: {
+              job_status: 'completed',
+              price: job.price,
+              final_price: job.price,
+              actual_end_time: new Date(),
+            },
+            select: {
+              id: true,
+              title: true,
+              job_status: true,
+              price: true,
+              final_price: true,
+              updated_at: true,
+              actual_end_time: true,
+            },
+          });
+          return {
+            success: true,
+            updatedJob,
+          };
+        }
 
-      // Use job.price as the hourly rate (standard approach)
-      // job.price contains the hourly rate (e.g., $25/hour)
-      const hourlyRate = Number(job.hourly_rate);
 
-      const finalPrice = hourlyRate * actualHours;
-      const updatedJob = await this.prisma.job.update({
-        where: { id: jobId },
-        data: {
-          actual_start_time: startTime,
-          actual_end_time: endTime,
-          actual_hours: actualHours,
-          job_status: 'completed',
-          final_price: finalPrice,
-        },
-        select: {
-          id: true,
-          title: true,
-          job_status: true,
-          actual_start_time: true,
-          actual_end_time: true,
-          actual_hours: true,
-          final_price: true,
-          updated_at: true,
-        },
-      });
-
+      }
+    } catch (error) {
       return {
-        success: true,
-        updatedJob,
-      };
-    } else {
-      const updatedJob = await this.prisma.job.update({
-        where: { id: jobId },
-        data: {
-          job_status: 'completed',
-          price: job.price,
-          final_price: job.price,
-          actual_end_time: new Date(),
-        },
-        select: {
-          id: true,
-          title: true,
-          job_status: true,
-          price: true,
-          final_price: true,
-          updated_at: true,
-          actual_end_time: true,
-        },
-      });
-      return {
-        success: true,
-        updatedJob,
+        success: false,
+        message: 'Failed to start job',
+        error: error.message,
       };
     }
-
-    // TODO: Send notification to user via WebSocket
-    // this.jobNotificationService.notifyJobCompleted(updatedJob);
+    
   }
-  /**
-   * Get job status for timeline display
-   */
 
   /**
    * Finish a job (User can finish after helper marks as completed)
@@ -1445,16 +1347,7 @@ export class JobService {
   async finishJob(jobId: string, userId: string): Promise<any> {
     // First, check if job exists at all
     const jobExists = await this.prisma.job.findUnique({
-      where: { id: jobId, job_status: 'completed' },
-
-      select: {
-        id: true,
-        user_id: true,
-        job_status: true,
-        status: true,
-        deleted_at: true,
-        end_time: true,
-      },
+      where: { id: jobId, job_status: 'completed',user_id:userId },
     });
 
     if (!jobExists) {
@@ -1479,50 +1372,36 @@ export class JobService {
     }
 
     // Check job status
-    if (jobExists.job_status !== 'completed_by_helper') {
+    if (jobExists.job_status !== 'completed') {
       throw new BadRequestException(
         `Job must be completed by helper before you can finish it. Current status: ${jobExists.job_status}`,
       );
     }
 
-    const endTime=jobExists.end_time;
-    console.log(endTime);
-    // Get full job data for update
-    const job = await this.prisma.job.findFirst({
-      where: {
+    const updatedJob = await this.prisma.job.update({
+      where: { 
         id: jobId,
         user_id: userId,
         status: 1,
         deleted_at: null,
-      },
-    });
-
-    const updatedJob = await this.prisma.job.update({
-      where: { id: jobId },
+       },
       data: {
-        job_status: 'completed',
+        job_status: 'paid',
+        status: 0,
       },
-      include: {
-        user: {
-          select: {
-            id: true,
-            name: true,
-            first_name: true,
-            last_name: true,
-            email: true,
-            avatar: true,
-          },
-        },
-        assigned_helper: {
-          select: {
-            id: true,
-            name: true,
-            first_name: true,
-            last_name: true,
-            email: true,
-          },
-        },
-      },
+      select:{
+        id: true,
+        title: true,
+        job_status: true,
+        actual_end_time: true,
+        updated_at: true,
+        user_id: true,
+        assigned_helper_id: true,
+        actual_start_time: true,
+        actual_hours: true,
+        final_price: true,
+        price: true,
+      }
     });
 
     // TODO: Send notification to helper via WebSocket
@@ -1530,10 +1409,50 @@ export class JobService {
 
     return {
       message: 'Job finished successfully',
-      job: this.mapToResponseDto(updatedJob),
+      job:updatedJob,
     };
   }
 
+   /**
+   * Add extra time to an ongoing job
+   */
+   async requestExtraTime(jobId, userId, hours){
+   
+    const job=await this.prisma.job.findFirst({
+      where:{
+        id:jobId,
+        status: 1,
+        job_status: 'ongoing',
+      },
+      select:{
+        assigned_helper_id: true,
+        user_id: true,
+        job_status: true,
+      }
+    })
+    
+    if(!job){
+      throw new NotFoundException('Job not found or you do not have access to it');
+    }
+
+    if(job.job_status!=='ongoing'){
+      throw new BadRequestException('Job is not ongoing');
+    }
+    const updatedJob=await this.prisma.job.update({
+      where: { id: jobId },
+      data:{
+        extra_time_requested:hours,
+        extra_time_requested_at: new Date(),
+      }
+    })
+    return {
+      success:true,
+      message: 'Extra time request submitted successfully',
+      job:updatedJob,
+    }
+   }
+    
+  
   async getJobStatus(jobId: string, userId: string): Promise<any> {
     const job = await this.prisma.job.findFirst({
       where: {
@@ -1614,33 +1533,83 @@ export class JobService {
   /**
    * Approve extra time for a job
    */
-  // async approveExtraTime(
-  //   jobId: string,
-  //   userId: string,
-  //   approvalDto: any,
-  // ): Promise<any> {
-  //   const job = await this.prisma.job.findFirst({
-  //     where: {
-  //       id: jobId,
-  //       user_id: userId,
-  //       status: 1,
-  //       deleted_at: null,
-  //     },
-  //   });
+  async approveOrDeclineExtraTime(jobId: string, userId: string, approved: boolean) {
+ 
+  const job = await this.prisma.job.findFirst({
+    where: {
+      id: jobId,
+      user_id: userId,
+      status: 1,
+      deleted_at: null,
+      extra_time_requested: {
+        not: null,
+      },
+    }
+  });
 
-  //   if (!job) {
-  //     throw new NotFoundException(
-  //       'Job not found or you do not have permission to approve extra time',
-  //     );
-  //   }
+  if (!job) {
+    throw new NotFoundException('Job not found or you do not have permission');
+  }
 
-  //   // This would typically update the request status
-  //   return {
-  //     message: 'Extra time request approved successfully',
-  //     job_id: jobId,
-  //     approval: approvalDto,
-  //   };
-  // }
+  if (!job.extra_time_requested) {
+    throw new BadRequestException('No extra time request found');
+  }
+
+ if(approved){ const updatedJob = await this.prisma.job.update({
+  where: {
+    id: jobId,
+    user_id: userId,
+    status: 1,
+    deleted_at: null,
+    extra_time_requested: {
+      not: null,
+    },
+  },
+  data: {
+    extra_time_approved: true,
+    extra_time_approved_at: new Date(),
+  },
+  select: {
+    id: true,
+    title: true,
+    job_status: true,
+    extra_time_requested: true,
+    extra_time_approved: true,
+  }
+});
+
+return {
+  success:true,
+  message: 'Extra time approved successfully',
+  job: updatedJob
+};
+}else{
+  const updatedJob = await this.prisma.job.update({
+    where: {
+      id: jobId,
+      user_id: userId,
+      status: 1,
+      deleted_at: null,
+    },
+    data:{
+      extra_time_approved: false,
+      extra_time_approved_at: new Date(),
+    },
+    select: { 
+      id: true,
+      title: true,
+      job_status: true,
+      extra_time_requested: true,
+      extra_time_approved: true,
+    }
+  })
+  return {
+    success:true,
+    message: 'Extra time rejected successfully',
+    job: updatedJob
+  };
+}
+}
 
   /**
    * Get extra time status for a job
@@ -1802,7 +1771,7 @@ export class JobService {
       throw new BadRequestException('Invalid user type');
     }
   }
-
+  
   async getTimeline(jobId: string): Promise<any> {
     const job = await this.prisma.job.findUnique({
       where: { id: jobId },

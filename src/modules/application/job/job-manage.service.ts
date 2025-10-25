@@ -30,7 +30,7 @@ export class JobManageService {
             { accepted_counter_offer: { helper_id: userId } }
           ],
           deleted_at: null,
-          status: 1
+          
         },
         include: {
           user: {

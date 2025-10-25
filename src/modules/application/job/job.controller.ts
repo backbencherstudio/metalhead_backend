@@ -26,10 +26,7 @@ import { JobResponseDto } from './dto/job-response.dto';
 import { JobCreateResponseDto } from './dto/job-create-response.dto';
 import { JobListResponseDto } from './dto/job-list-response.dto';
 import { JobSingleResponseDto } from './dto/job-single-response.dto';
-import { RequestExtraTimeDto } from './dto/request-extra-time.dto';
-import { ApproveExtraTimeDto } from './dto/approve-extra-time.dto';
 import { UpdateHelperPreferencesDto } from './dto/update-helper-preferences.dto';
-import { AddExtraTimeDto } from './dto/add-extra-time.dto';
 import { CategoriesListResponseDto, CategoryResponseDto } from './dto/category-response.dto';
 import { LatestJobResponseDto } from './dto/latest-job-response.dto';
 import { CategoryService } from '../category/category.service';
@@ -53,39 +50,7 @@ export class JobController {
   @ApiOperation({ summary: 'Create a new job posting with optional photo' })
   @ApiResponse({ status: 201, description: 'Job created successfully', type: JobCreateResponseDto })
   @ApiConsumes('multipart/form-data')
-  @ApiBody({
-    schema: {
-      type: 'object',
-      properties: {
-        title: { type: 'string' },
-        category: { type: 'string' },
-        date_and_time: { type: 'string', format: 'date-time' },
-        price: { type: 'number' },
-        payment_type: { type: 'string' },
-        job_type: { type: 'string' },
-        location: { type: 'string' },
-        estimated_time: { type: 'number' },
-        description: { type: 'string' },
-        requirements: { type: 'string' },
-        notes: { type: 'string' },
-        files: { 
-          type: 'array', 
-          items: { type: 'string', format: 'binary' },
-          description: 'Multiple image files (up to 10 files, 10MB each)'
-        },
-        photoes: { 
-          type: 'array', 
-          items: { type: 'string', format: 'binary' },
-          description: 'Alternative field name for multiple image files'
-        },
-        photos: { 
-          type: 'array', 
-          items: { type: 'string', format: 'binary' },
-          description: 'Alternative field name for multiple image files'
-        },
-      },
-    },
-  })
+
   @Post()
   @UseInterceptors(
     FileFieldsInterceptor([
@@ -526,21 +491,14 @@ export class JobController {
  
 
   @ApiOperation({ summary: 'Mark job as started (Helper only)' })
-  @Patch('start/:id')
+  @Patch('startOrComplete/:id')
   async startJob(@Param('id') id: string, @Req() req: Request): Promise<any> {
     const helperId = req.user.userId
-    return this.jobService.startJob(id, helperId);
-  }
-
-  @ApiOperation({ summary: 'Mark job as completed (Helper only) - Returns time tracking data for hourly jobs' })
-  @Patch('complete/:id')
-  async completeJob(@Param('id') id: string, @Req() req: Request): Promise<any> {
-    const helperId =req.user.userId
-    return await this.jobService.completeJob(id, helperId);
+    return this.jobService.startOrCompleteJob(id, helperId);
   }
 
   @ApiOperation({ summary: 'Mark job as finished and release payment (User only)' })
-  @Patch(':id/finish')
+  @Patch('finish/:id')
   async finishJob(@Param('id') id: string, @Req() req: Request): Promise<any> {
     const userId = (req as any).user.userId || (req as any).user.id;
     return this.jobService.finishJob(id, userId);
@@ -564,28 +522,6 @@ export class JobController {
   @ApiOperation({ 
     summary: 'Get job status timeline',
     description: 'Get complete timeline of job status changes with timestamps'
-  })
-  @ApiResponse({ 
-    status: 200, 
-    description: 'Timeline retrieved successfully',
-    schema: {
-      type: 'object',
-      properties: {
-        job_id: { type: 'string' },
-        title: { type: 'string' },
-        current_status: { type: 'string' },
-        timeline: {
-          type: 'array',
-          items: {
-            type: 'object',
-            properties: {
-              status: { type: 'string' },
-              timestamp: { type: 'string', format: 'date-time' }
-            }
-          }
-        }
-      }
-    }
   })
   @Get(':id/timeline')
   async getTimeline(@Param('id') id: string) {
@@ -770,22 +706,16 @@ export class JobController {
   //   return this.jobService.requestExtraTime(jobId, userId, requestDto);
   // }
 
-  // @Put(':id/approve-extra-time')
-  // @UseGuards(JwtAuthGuard)
-  // @ApiBearerAuth()
-  // @ApiOperation({ summary: 'Client approves or rejects extra time request' })
-  // @ApiResponse({ status: 200, description: 'Extra time request approved/rejected successfully' })
-  // @ApiResponse({ status: 400, description: 'Bad request - no pending request found' })
-  // @ApiResponse({ status: 403, description: 'Forbidden - only job owner can approve' })
-  // @ApiResponse({ status: 404, description: 'Job not found' })
-  // async approveExtraTime(
-  //   @Param('id') jobId: string,
-  //   @Body() approvalDto: ApproveExtraTimeDto,
-  //   @Req() req: Request,
-  // ) {
-  //   const userId = (req.user as any).id;
-  //   return this.jobService.approveExtraTime(jobId, userId, approvalDto);
-  // }
+  @Put('approve-extra-time/:id')
+  @UseGuards(JwtAuthGuard)
+  async approveOrDeclineExtraTime(
+    @Param('id') jobId: string,
+    @Req() req: Request,
+    @Body() body: { approved: boolean },
+  ) {
+    const userId = req.user.userId;
+    return this.jobService.approveOrDeclineExtraTime(jobId, userId, body.approved);
+  }
 
   // @Get(':id/extra-time-status')
   // @UseGuards(JwtAuthGuard)
@@ -827,16 +757,15 @@ export class JobController {
   @ApiResponse({ status: 200, description: 'Extra time added successfully' })
   @ApiResponse({ status: 403, description: 'Forbidden - only job owner can add time' })
   @ApiResponse({ status: 404, description: 'Job not found' })
-  @Post(':id/add-time')
-  async addExtraTime(
+  @Post('add-time/:id')
+  async requestExtraTime(
     @Param('id') jobId: string,
-    @Body() addExtraTimeDto: AddExtraTimeDto,
+    @Body() hours: number,
     @Req() req: Request,
   ) {
     const userId = (req.user as any).id;
-    return this.jobService.addExtraTime(jobId, userId, addExtraTimeDto.extraMinutes);
+    return this.jobService.requestExtraTime(jobId, userId, hours);
   }
-
   /**
    * Get job status for timeline
    */
@@ -849,7 +778,7 @@ export class JobController {
     @Param('id') jobId: string,
     @Req() req: Request,
   ) {
-    const userId = (req.user as any).id;
+    const userId = req.user.userId;
     return this.jobService.getJobStatus(jobId, userId);
   }
 
