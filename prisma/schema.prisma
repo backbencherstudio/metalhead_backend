@@ -316,16 +316,13 @@ model Message {
 
   conversation_id String?
   conversation    Conversation? @relation(fields: [conversation_id], references: [id], onDelete: Cascade)
+  attachments Attachment[] // One message can have multiple attachments
 
-  attachment_id String?
-  attachment    Attachment? @relation(fields: [attachment_id], references: [id])
-
-  message String?
+  message String? // Optional - can be null for image-only messages
 
   @@map("messages")
 }
 
-// this table stores attachment of message
 model Attachment {
   id         String    @id @default(cuid())
   created_at DateTime  @default(now())
@@ -338,7 +335,8 @@ model Attachment {
   file     String?
   file_alt String?
 
-  messages Message[]
+  message_id String? // Optional - can be null for standalone attachments
+  message    Message? @relation(fields: [message_id], references: [id])
 
   @@map("attachments")
 }

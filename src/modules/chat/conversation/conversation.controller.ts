@@ -6,6 +6,7 @@ import {
   Param,
   Delete,
   UseGuards,
+  Req,
 } from '@nestjs/common';
 import { ConversationService } from './conversation.service';
 import { CreateConversationDto, CreateConversationFromJobDto } from './dto/create-conversation.dto';
@@ -16,88 +17,68 @@ import { Role } from '../../../common/guard/role/role.enum';
 import { Roles } from '../../../common/guard/role/roles.decorator';
 
 @ApiBearerAuth()
-@ApiTags('Conversation')
+@ApiTags('conversation')
 @UseGuards(JwtAuthGuard)
-@Controller('chat/conversation')
+@Controller('/create')
 export class ConversationController {
   constructor(private readonly conversationService: ConversationService) {}
 
-  @ApiOperation({ summary: 'Create conversation' })
-  @Post()
-  async create(@Body() createConversationDto: CreateConversationDto) {
-    try {
-      const conversation = await this.conversationService.create(
-        createConversationDto,
-      );
-      return conversation;
-    } catch (error) {
-      return {
-        success: false,
-        message: error.message,
-      };
-    }
-  }
+  // @ApiOperation({ summary: 'Create conversation' })
+  // @Post()
+  // async create(@Body() jobId: string, @Req() req:Request) {
+  //     const userId=(req as any).user.userId;
+  //     return await this.conversationService.create(jobId, userId);
+  //   }
+  // }
 
-  @ApiOperation({ summary: 'Create or get conversation for a confirmed job' })
+  // @ApiOperation({ summary: 'Create or get conversation for a confirmed job' })
   @Post('from-job')
   async createFromJob(@Body() dto: CreateConversationFromJobDto) {
-    try {
-      return await this.conversationService.createFromJob(dto.job_id);
-    } catch (error) {
-      return {
-        success: false,
-        message: error.message,
-      };
-    }
+   return await this.conversationService.createFromJob(dto.job_id);
   }
+
+  
+  // @ApiOperation({ summary: 'Get all conversations' })
+  // @Get()
+  // async findAll() {
+  //   try {
+  //     const conversations = await this.conversationService.findAll();
+  //     return conversations;
+  //   } catch (error) {
+  //     return {
+  //       success: false,
+  //       message: error.message,
+  //     };
+  //   }
+  // }
+
+  // @ApiOperation({ summary: 'Get a conversation by id' })
+  // @Get(':id')
+  // async findOne(@Param('id') id: string) {
+  //   try {
+  //     const conversation = await this.conversationService.findOne(id);
+  //     return conversation;
+  //   } catch (error) {
+  //     return {
+  //       success: false,
+  //       message: error.message,
+  //     };
+  //   }
+  // }
 
   // @Roles(Role.ADMIN)
-  @ApiOperation({ summary: 'Get all conversations' })
-  @Get()
-  async findAll() {
-    try {
-      const conversations = await this.conversationService.findAll();
-      return conversations;
-    } catch (error) {
-      return {
-        success: false,
-        message: error.message,
-      };
-    }
-  }
+  // @ApiOperation({ summary: 'Delete a conversation' })
+  // @Delete(':id')
+  // async remove(@Param('id') id: string) {
+  //   try {
+  //     const conversation = await this.conversationService.remove(id);
+  //     return conversation;
+  //   } catch (error) {
+  //     return {
+  //       success: false,
+  //       message: error.message,
+  //     };
+  //   }
+  // }
 
-  @ApiOperation({ summary: 'Get a conversation by id' })
-  @Get(':id')
-  async findOne(@Param('id') id: string) {
-    try {
-      const conversation = await this.conversationService.findOne(id);
-      return conversation;
-    } catch (error) {
-      return {
-        success: false,
-        message: error.message,
-      };
-    }
-  }
-
-  @Roles(Role.ADMIN)
-  @ApiOperation({ summary: 'Delete a conversation' })
-  @Delete(':id')
-  async remove(@Param('id') id: string) {
-    try {
-      const conversation = await this.conversationService.remove(id);
-      return conversation;
-    } catch (error) {
-      return {
-        success: false,
-        message: error.message,
-      };
-    }
-  }
-
-  @ApiOperation({ summary: 'Debug: Get raw messages for conversation' })
-  @Get(':id/debug-messages')
-  async debugMessages(@Param('id') id: string) {
-    return this.conversationService.debugMessages(id);
-  }
 }

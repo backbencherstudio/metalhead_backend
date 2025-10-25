@@ -18,144 +18,161 @@ export class ConversationService {
     private readonly chatNotificationService: ChatNotificationService,
   ) {}
 
-  async create(createConversationDto: CreateConversationDto) {
-    try {
-      const data: any = {};
+  // async create(jobId:string,userId:string) {
+  //   try {
+  //     const data: any = {};
+  //     const participant=await this.prisma.job.findFirst({
+  //       where: {
+  //         user_id:userId,
+  //         id:jobId
+  //       },
+  //       select:{
+  //         assigned_helper_id:true,
+  //       }
+  //     })
+      
+  //     const conversation = await this.prisma.conversation.create({
+  //       data: {
+  //         creator_id: userId,
+  //         participant_id: participant.assigned_helper_id, 
+  //       }
+  //     });
+    
+  //     return conversation;
+  //   } catch (error) {
+  //     return {
+  //       success: false,
+  //       message: error.message,
+  //     };
 
-      if (createConversationDto.creator_id) {
-        data.creator_id = createConversationDto.creator_id;
-      }
-      if (createConversationDto.participant_id) {
-        data.participant_id = createConversationDto.participant_id;
-      }
 
-      // check if conversation exists
-      let conversation = await this.prisma.conversation.findFirst({
-        select: {
-          id: true,
-          creator_id: true,
-          participant_id: true,
-          created_at: true,
-          updated_at: true,
-          creator: {
-            select: {
-              id: true,
-              name: true,
-              avatar: true,
-            },
-          },
-          participant: {
-            select: {
-              id: true,
-              name: true,
-              avatar: true,
-            },
-          },
-          messages: {
-            orderBy: {
-              created_at: 'desc',
-            },
-            take: 1,
-            select: {
-              id: true,
-              message: true,
-              created_at: true,
-            },
-          },
-        },
-        where: {
-          creator_id: data.creator_id,
-          participant_id: data.participant_id,
-        },
-      });
+  //     // check if conversation exists
+  //   //   let conversation = await this.prisma.conversation.findFirst({
+  //   //     select: {
+  //   //       id: true,
+  //   //       creator_id: true,
+  //   //       participant_id: true,
+  //   //       created_at: true,
+  //   //       updated_at: true,
+  //   //       creator: {
+  //   //         select: {
+  //   //           id: true,
+  //   //           name: true,
+  //   //           avatar: true,
+  //   //         },
+  //   //       },
+  //   //       participant: {
+  //   //         select: {
+  //   //           id: true,
+  //   //           name: true,
+  //   //           avatar: true,
+  //   //         },
+  //   //       },
+  //   //       messages: {
+  //   //         orderBy: {
+  //   //           created_at: 'desc',
+  //   //         },
+  //   //         take: 1,
+  //   //         select: {
+  //   //           id: true,
+  //   //           message: true,
+  //   //           created_at: true,
+  //   //         },
+  //   //       },
+  //   //     },
+  //   //     where: {
+  //   //       creator_id: data.creator_id,
+  //   //       participant_id: data.participant_id,
+  //   //     },
+  //   //   });
 
-      if (conversation) {
-        return {
-          success: false,
-          message: 'Conversation already exists',
-          data: conversation,
-        };
-      }
+  //   //   if (conversation) {
+  //   //     return {
+  //   //       success: false,
+  //   //       message: 'Conversation already exists',
+  //   //       data: conversation,
+  //   //     };
+  //   //   }
 
-      conversation = await this.prisma.conversation.create({
-        select: {
-          id: true,
-          creator_id: true,
-          participant_id: true,
-          created_at: true,
-          updated_at: true,
-          creator: {
-            select: {
-              id: true,
-              name: true,
-              avatar: true,
-            },
-          },
-          participant: {
-            select: {
-              id: true,
-              name: true,
-              avatar: true,
-            },
-          },
-          messages: {
-            orderBy: {
-              created_at: 'desc',
-            },
-            take: 1,
-            select: {
-              id: true,
-              message: true,
-              created_at: true,
-            },
-          },
-        },
-        data: {
-          ...data,
-        },
-      });
+  //   //   conversation = await this.prisma.conversation.create({
+  //   //     select: {
+  //   //       id: true,
+  //   //       creator_id: true,
+  //   //       participant_id: true,
+  //   //       created_at: true,
+  //   //       updated_at: true,
+  //   //       creator: {
+  //   //         select: {
+  //   //           id: true,
+  //   //           name: true,
+  //   //           avatar: true,
+  //   //         },
+  //   //       },
+  //   //       participant: {
+  //   //         select: {
+  //   //           id: true,
+  //   //           name: true,
+  //   //           avatar: true,
+  //   //         },
+  //   //       },
+  //   //       messages: {
+  //   //         orderBy: {
+  //   //           created_at: 'desc',
+  //   //         },
+  //   //         take: 1,
+  //   //         select: {
+  //   //           id: true,
+  //   //           message: true,
+  //   //           created_at: true,
+  //   //         },
+  //   //       },
+  //   //     },
+  //   //     data: {
+  //   //       ...data,
+  //   //     },
+  //   //   });
 
-      // add image url
-      if (conversation.creator.avatar) {
-        conversation.creator['avatar_url'] = SojebStorage.url(
-          appConfig().storageUrl.avatar + conversation.creator.avatar,
-        );
-      }
-      if (conversation.participant.avatar) {
-        conversation.participant['avatar_url'] = SojebStorage.url(
-          appConfig().storageUrl.avatar + conversation.participant.avatar,
-        );
-      }
+  //   //   // add image url
+  //   //   if (conversation.creator.avatar) {
+  //   //     conversation.creator['avatar_url'] = SojebStorage.url(
+  //   //       appConfig().storageUrl.avatar + conversation.creator.avatar,
+  //   //     );
+  //   //   }
+  //   //   if (conversation.participant.avatar) {
+  //   //     conversation.participant['avatar_url'] = SojebStorage.url(
+  //   //       appConfig().storageUrl.avatar + conversation.participant.avatar,
+  //   //     );
+  //   //   }
 
-      // trigger socket event
-      this.messageGateway.server.to(data.creator_id).emit('conversation', {
-        from: data.creator_id,
-        data: conversation,
-      });
-      this.messageGateway.server.to(data.participant_id).emit('conversation', {
-        from: data.participant_id,
-        data: conversation,
-      });
+  //   //   // trigger socket event
+  //   //   this.messageGateway.server.to(data.creator_id).emit('conversation', {
+  //   //     from: data.creator_id,
+  //   //     data: conversation,
+  //   //   });
+  //   //   this.messageGateway.server.to(data.participant_id).emit('conversation', {
+  //   //     from: data.participant_id,
+  //   //     data: conversation,
+  //   //   });
 
-      // Send notification to participant about new conversation
-      await this.chatNotificationService.notifyNewConversation({
-        creatorId: data.creator_id,
-        participantId: data.participant_id,
-        conversationId: conversation.id,
-      });
+  //   //   // Send notification to participant about new conversation
+  //   //   await this.chatNotificationService.notifyNewConversation({
+  //   //     creatorId: data.creator_id,
+  //   //     participantId: data.participant_id,
+  //   //     conversationId: conversation.id,
+  //   //   });
 
-      return {
-        success: true,
-        message: 'Conversation created successfully',
-        data: conversation,
-      };
-    } catch (error) {
-      return {
-        success: false,
-        message: error.message,
-      };
-    }
-  }
+  //   //   return {
+  //   //     success: true,
+  //   //     message: 'Conversation created successfully',
+  //   //     data: conversation,
+  //   //   };
+  //   // } catch (error) {
+  //   //   return {
+  //   //     success: false,
+  //   //     message: error.message,
+  //   //   };
+  //   // }
+  // }
 
   /**
    * Create or fetch a conversation for a confirmed job between job owner and accepted helper
