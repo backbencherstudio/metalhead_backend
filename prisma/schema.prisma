@@ -112,8 +112,11 @@ model User {
   
   // User cards
   cards UserCard[]
+  Attachment Attachment[] @relation("attachment_sender")
   @@map("users")
 }
+  
+  
 
 model Ucode {
   id         String   @id @default(cuid())
@@ -316,7 +319,6 @@ model Message {
 
   conversation_id String?
   conversation    Conversation? @relation(fields: [conversation_id], references: [id], onDelete: Cascade)
-  attachments Attachment[] // One message can have multiple attachments
 
   message String? // Optional - can be null for image-only messages
 
@@ -335,13 +337,17 @@ model Attachment {
   file     String?
   file_alt String?
 
-  message_id String? // Optional - can be null for standalone attachments
-  message    Message? @relation(fields: [message_id], references: [id])
+  // NEW: Direct conversation relationship
+  conversation_id String?
+  conversation    Conversation? @relation(fields: [conversation_id], references: [id], onDelete: Cascade)
+  
+  // NEW: Track who sent the attachment
+  sender_id String?
+  sender    User? @relation("attachment_sender", fields: [sender_id], references: [id])
 
   @@map("attachments")
 }
 
-// this table stores conversation
 model Conversation {
   id         String    @id @default(cuid())
   created_at DateTime  @default(now())
@@ -355,10 +361,10 @@ model Conversation {
   participant    User?   @relation("participant", fields: [participant_id], references: [id])
 
   messages Message[]
+  attachments Attachment[] 
 
   @@map("conversations")
 }
-
 // ---------End Chat schema---------
 
 model Faq {

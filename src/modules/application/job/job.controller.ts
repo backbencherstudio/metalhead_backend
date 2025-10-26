@@ -406,25 +406,6 @@ export class JobController {
 
   @ApiOperation({ summary: 'Update a job posting (supports image replace)' })
   @ApiConsumes('multipart/form-data')
-  @ApiBody({
-    schema: {
-      type: 'object',
-      properties: {
-        title: { type: 'string' },
-        category: { type: 'string' },
-        date_and_time: { type: 'string', format: 'date-time' },
-        price: { type: 'number' },
-        payment_type: { type: 'string' },
-        job_type: { type: 'string' },
-        location: { type: 'string' },
-        estimated_time: { type: 'number' },
-        description: { type: 'string' },
-        requirements: { type: 'string' },
-        notes: { type: 'string' },
-        photoes: { type: 'string', format: 'binary' },
-      },
-    },
-  })
   @Patch(':id')
   @UseInterceptors(
     FileFieldsInterceptor(
@@ -509,16 +490,10 @@ export class JobController {
   @Patch(':id/auto-complete')
   async autoCompleteJob(@Param('id') id: string): Promise<{ message: string }> {
     // This would be called by a system process, not a user
-    // For now, return a placeholder message
+    
     return { message: 'Job auto-completed and payment released successfully' };
   }
 
-  // @ApiOperation({ summary: 'Get time tracking information for hourly jobs' })
-  // @Get(':id/time-tracking')
-  // async getTimeTracking(@Param('id') id: string, @Req() req: Request): Promise<any> {
-  //   const userId = (req as any).user.userId || (req as any).user.id;
-  //   return this.jobService.getTimeTracking(id, userId);
-  // }
 
   @ApiOperation({ 
     summary: 'Get job status timeline',
@@ -689,23 +664,6 @@ export class JobController {
   }
 
 
-  // Extra Time Request System Endpoints
-  // @Post(':id/request-extra-time')
-  // @UseGuards(JwtAuthGuard)
-  // @ApiBearerAuth()
-  // @ApiOperation({ summary: 'Helper requests extra time for ongoing job' })
-  // @ApiResponse({ status: 200, description: 'Extra time request submitted successfully' })
-  // @ApiResponse({ status: 400, description: 'Bad request - invalid data or job not eligible' })
-  // @ApiResponse({ status: 403, description: 'Forbidden - only assigned helpers can request' })
-  // @ApiResponse({ status: 404, description: 'Job not found' })
-  // async requestExtraTime(
-  //   @Param('id') jobId: string,
-  //   @Body() requestDto: RequestExtraTimeDto,
-  //   @Req() req: Request,
-  // ) {
-  //   const userId = (req.user as any).id;
-  //   return this.jobService.requestExtraTime(jobId, userId, requestDto);
-  // }
 
   @Put('approveOrRejectExtratime/:id')
   @UseGuards(JwtAuthGuard)
@@ -718,20 +676,7 @@ export class JobController {
     return this.jobService.approveOrDeclineExtraTime(jobId, userId, body.approved);
   }
 
-  // @Get(':id/extra-time-status')
-  // @UseGuards(JwtAuthGuard)
-  // @ApiBearerAuth()
-  // @ApiOperation({ summary: 'Get extra time request status for a job' })
-  // @ApiResponse({ status: 200, description: 'Extra time status retrieved successfully' })
-  // @ApiResponse({ status: 403, description: 'Forbidden - only job participants can view' })
-  // @ApiResponse({ status: 404, description: 'Job not found' })
-  // async getExtraTimeStatus(
-  //   @Param('id') jobId: string,
-  //   @Req() req: Request,
-  // ) {
-  //   const userId = (req.user as any).id;
-  //   return this.jobService.getExtraTimeStatus(jobId, userId);
-  // }
+
 
   // ===== JOB STATUS MANAGEMENT ENDPOINTS =====
 

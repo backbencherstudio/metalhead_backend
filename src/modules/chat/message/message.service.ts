@@ -466,13 +466,24 @@ export class MessageService {
       });
 
       // create message that references attachment
+      // Create attachment first
+      const createdAttachment = await this.prisma.attachment.create({
+        data: {
+          conversation_id: dto.conversation_id,
+          sender_id: user_id,
+          name: attachment.name,
+          type: attachment.type,
+          size: attachment.size,
+          file: attachment.file,
+        },
+      });
+
       const message = await this.prisma.message.create({
         data: {
           conversation_id: dto.conversation_id,
           receiver_id: dto.receiver_id,
           sender_id: user_id,
           status: MessageStatus.SENT,
-          attachment_id: attachment.id,
           message: dto.message,
         },
       });

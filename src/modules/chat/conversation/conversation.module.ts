@@ -4,9 +4,10 @@ import { ConversationController } from './conversation.controller';
 import { ChatNotificationService } from '../chat-notification.service';
 import { NotificationModule } from '../../application/notification/notification.module';
 import { FirebaseNotificationModule } from '../../application/firebase-notification/firebase-notification.module';
+import { PrismaModule } from '../../../prisma/prisma.module';
 
 @Module({
-  imports: [NotificationModule, FirebaseNotificationModule],
+  imports: [PrismaModule, NotificationModule, FirebaseNotificationModule],
   controllers: [ConversationController],
   providers: [ConversationService, ChatNotificationService],
   exports: [ChatNotificationService],
