@@ -12,6 +12,7 @@ import { GeocodingService } from '../../../common/lib/Geocoding/geocoding.servic
 import { CategoryService } from '../category/category.service';
 import { convertEnumToCategoryName } from './utils/category-mapper.util';
 import { jobType, PaymentType } from '@prisma/client';
+import { RequestExtraTimeDto } from './dto/request-extra-time.dto';
 
 @Injectable()
 export class JobService {
@@ -1416,42 +1417,47 @@ export class JobService {
    /**
    * Add extra time to an ongoing job
    */
-   async requestExtraTime(jobId, userId, hours){
-   
-    const job=await this.prisma.job.findFirst({
-      where:{
-        id:jobId,
+   async requestExtraTime(
+    jobId: string, 
+    userId: string, 
+    dto:RequestExtraTimeDto
+  ): Promise<any> {
+    const job = await this.prisma.job.findFirst({
+      where: {
+        id: jobId,
         status: 1,
         job_status: 'ongoing',
       },
-      select:{
+      select: {
         assigned_helper_id: true,
         user_id: true,
         job_status: true,
       }
-    })
+    });
     
-    if(!job){
+    if (!job) {
       throw new NotFoundException('Job not found or you do not have access to it');
     }
-
-    if(job.job_status!=='ongoing'){
+  
+    if (job.job_status !== 'ongoing') {
       throw new BadRequestException('Job is not ongoing');
     }
-    const updatedJob=await this.prisma.job.update({
+  
+    const updatedJob = await this.prisma.job.update({
       where: { id: jobId },
-      data:{
-        extra_time_requested:hours,
+      data: {
+        extra_time_requested: dto.hours, 
         extra_time_requested_at: new Date(),
+            
       }
-    })
+    });
+  
     return {
-      success:true,
+      success: true,
       message: 'Extra time request submitted successfully',
-      job:updatedJob,
-    }
-   }
-    
+      job: updatedJob,
+    };
+  }
   
   async getJobStatus(jobId: string, userId: string): Promise<any> {
     const job = await this.prisma.job.findFirst({
@@ -1493,152 +1499,92 @@ export class JobService {
     return this.mapToResponseDto(job);
   }
 
-  /**
-   * Request extra time for a job
-   */
-  // async requestExtraTime(
-  //   jobId: string,
-  //   userId: string,
-  //   requestDto: any,
-  // ): Promise<any> {
-  //   const job = await this.prisma.job.findFirst({
-  //     where: {
-  //       id: jobId,
-  //       user_id: userId,
-  //       status: 1,
-  //       deleted_at: null,
-  //     },
-  //   });
-
-  //   if (!job) {
-  //     throw new NotFoundException(
-  //       'Job not found or you do not have permission to request extra time',
-  //     );
-  //   }
-
-  //   if (job.job_status !== 'ongoing') {
-  //     throw new BadRequestException(
-  //       'Extra time can only be requested for ongoing jobs',
-  //     );
-  //   }
-
-  //   // This would typically create a request record
-  //   return {
-  //     message: 'Extra time request submitted successfully',
-  //     job_id: jobId,
-  //     request: requestDto,
-  //   };
-  // }
-
+  
   /**
    * Approve extra time for a job
    */
   async approveOrDeclineExtraTime(jobId: string, userId: string, approved: boolean) {
- 
-  const job = await this.prisma.job.findFirst({
-    where: {
-      id: jobId,
-      user_id: userId,
-      status: 1,
-      deleted_at: null,
-      extra_time_requested: {
-        not: null,
-      },
+    const job = await this.prisma.job.findFirst({
+      where: {
+        id: jobId,
+        user_id: userId,
+        status: 1,
+        deleted_at: null,
+        extra_time_requested: {
+          not: null,
+        },
+      }
+    });
+  
+    if (!job) {
+      throw new NotFoundException('Job not found or you do not have permission');
     }
-  });
-
-  if (!job) {
-    throw new NotFoundException('Job not found or you do not have permission');
-  }
-
-  if (!job.extra_time_requested) {
-    throw new BadRequestException('No extra time request found');
-  }
-
- if(approved){ const updatedJob = await this.prisma.job.update({
-  where: {
-    id: jobId,
-    user_id: userId,
-    status: 1,
-    deleted_at: null,
-    extra_time_requested: {
-      not: null,
-    },
-  },
-  data: {
-    extra_time_approved: true,
-    extra_time_approved_at: new Date(),
-  },
-  select: {
-    id: true,
-    title: true,
-    job_status: true,
-    extra_time_requested: true,
-    extra_time_approved: true,
-  }
-});
-
-return {
-  success:true,
-  message: 'Extra time approved successfully',
-  job: updatedJob
-};
-}else{
-  const updatedJob = await this.prisma.job.update({
-    where: {
-      id: jobId,
-      user_id: userId,
-      status: 1,
-      deleted_at: null,
-    },
-    data:{
-      extra_time_approved: false,
-      extra_time_approved_at: new Date(),
-    },
-    select: { 
-      id: true,
-      title: true,
-      job_status: true,
-      extra_time_requested: true,
-      extra_time_approved: true,
+  
+    if (!job.extra_time_requested) {
+      throw new BadRequestException('No extra time request found');
     }
-  })
-  return {
-    success:true,
-    message: 'Extra time rejected successfully',
-    job: updatedJob
-  };
-}
-}
+  
+    if (approved) {
+      const currentTotalHours = Number(job.total_approved_hours || 0);
+      const newTotalHours = currentTotalHours + Number(job.extra_time_requested);
+  
+      const updatedJob = await this.prisma.job.update({
+        where: {
+          id: jobId,
+          user_id: userId,
+          status: 1,
+          deleted_at: null,
+        },
+        data: {
+          extra_time_approved: true,
+          extra_time_approved_at: new Date(),
+          total_approved_hours: newTotalHours, 
+        },
+        select: {
+          id: true,
+          title: true,
+          job_status: true,
+          extra_time_requested: true,
+          extra_time_approved: true,
+          total_approved_hours: true,
+        }
+      });
+  
+      return {
+        success: true,
+        message: 'Extra time approved successfully',
+        job: updatedJob
+      };
+    } else {
+      const updatedJob = await this.prisma.job.update({
+        where: {
+          id: jobId,
+          user_id: userId,
+          status: 1,
+          deleted_at: null,
+        },
+        data: {
+          extra_time_approved: false,
+          extra_time_approved_at: new Date(),
+        },
+        select: { 
+          id: true,
+          title: true,
+          job_status: true,
+          extra_time_requested: true,
+          extra_time_approved: true,
+          total_approved_hours: true,
+        }
+      });
+  
+      return {
+        success: true,
+        message: 'Extra time rejected successfully',
+        job: updatedJob
+      };
+    }
+  }
 
-  /**
-   * Get extra time status for a job
-   */
-  // async getExtraTimeStatus(jobId: string, userId: string): Promise<any> {
-  //   const job = await this.prisma.job.findFirst({
-  //     where: {
-  //       id: jobId,
-  //       OR: [{ user_id: userId }, { assigned_helper_id: userId }],
-  //       status: 1,
-  //       deleted_at: null,
-  //     },
-  //   });
-
-  //   if (!job) {
-  //     throw new NotFoundException(
-  //       'Job not found or you do not have access to it',
-  //     );
-  //   }
-
-  //   // This would typically return the current extra time request status
-  //   return {
-  //     job_id: jobId,
-  //     status: 'no_request',
-  //     message: 'No extra time requests found',
-  //   };
-  // }
-
-  // Manage Jobs (User Interface)
 
   async upcomingEvents(userId: string, userType: string): Promise<any> {
     if (!userId) {

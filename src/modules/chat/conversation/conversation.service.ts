@@ -181,13 +181,10 @@ export class ConversationService {
     try {
       // find confirmed job with accepted offer
       const job = await this.prisma.job.findFirst({
-        where: { id: job_id, deleted_at: null },
+        where: { id: job_id, deleted_at: null },   
         include: {
           accepted_counter_offer: {
             select: { helper_id: true },
-          },
-          assigned_helper: {
-            select: { id: true },
           },
           user: { select: { id: true } },
         },

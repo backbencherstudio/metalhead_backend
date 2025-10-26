@@ -35,6 +35,7 @@ import { Request } from 'express';
 import { SojebStorage } from '../../../common/lib/Disk/SojebStorage';
 import { v4 as uuidv4 } from 'uuid';
 import { convertEnumToCategoryName } from './utils/category-mapper.util';
+import { RequestExtraTimeDto } from './dto/request-extra-time.dto';
 
 @ApiBearerAuth()
 @ApiTags('Jobs')
@@ -706,7 +707,7 @@ export class JobController {
   //   return this.jobService.requestExtraTime(jobId, userId, requestDto);
   // }
 
-  @Put('approve-extra-time/:id')
+  @Put('approveOrRejectExtratime/:id')
   @UseGuards(JwtAuthGuard)
   async approveOrDeclineExtraTime(
     @Param('id') jobId: string,
@@ -760,11 +761,11 @@ export class JobController {
   @Post('add-time/:id')
   async requestExtraTime(
     @Param('id') jobId: string,
-    @Body() hours: number,
+    @Body() dto: RequestExtraTimeDto,
     @Req() req: Request,
   ) {
-    const userId = (req.user as any).id;
-    return this.jobService.requestExtraTime(jobId, userId, hours);
+    const userId = req.user.userId;  // ✅ Consistent user ID
+    return this.jobService.requestExtraTime(jobId, userId, dto);
   }
   /**
    * Get job status for timeline

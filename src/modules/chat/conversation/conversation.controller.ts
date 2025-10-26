@@ -19,7 +19,7 @@ import { Roles } from '../../../common/guard/role/roles.decorator';
 @ApiBearerAuth()
 @ApiTags('conversation')
 @UseGuards(JwtAuthGuard)
-@Controller('/create')
+@Controller('/conversation')
 export class ConversationController {
   constructor(private readonly conversationService: ConversationService) {}
 

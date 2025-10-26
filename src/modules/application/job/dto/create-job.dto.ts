@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsOptional, IsString, IsNumber, IsDateString, IsArray, ValidateNested, IsDecimal, IsEnum } from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString, IsNumber, IsDateString, IsArray, ValidateNested, IsDecimal, IsEnum, min, Max } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { CreateJobRequirementDto } from './create-job-requirement.dto';
@@ -138,4 +138,5 @@ export class CreateJobDto {
     required: false,
   })
   urgent_note?: string;
+
 }
