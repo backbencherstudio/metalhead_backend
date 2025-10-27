@@ -48,54 +48,55 @@ export class ConversationService {
           ]
         }
       });
-  
-      if (existingConversation) {
+
+      if (!existingConversation) {
+        const newConversation = await this.prisma.conversation.create({
+          data: {
+            creator_id: job.user_id,
+            participant_id: job.assigned_helper_id
+          },
+          select: {
+            id: true,
+            creator_id: true,
+            participant_id: true,
+            created_at: true,
+            updated_at: true,
+            creator:{
+              select:{
+                first_name:true,
+                avatar:true,
+                username:true
+              }
+            },
+            participant:{
+              select:{
+                first_name:true,
+                avatar:true,
+                username:true
+              }
+            }
+          }
+        });
+        return {
+          success: true,
+          data: newConversation,
+          message: 'Conversation created successfully'
+        }
+       }
+      else{
         return {
           success: true,
           data: existingConversation,
           message: 'Conversation already exists'
         };
-      }
-      else{
-      const newConversation = await this.prisma.conversation.create({
-        data: {
-          creator_id: job.user_id,
-          participant_id: job.assigned_helper_id
-        },
-        select: {
-          id: true,
-          creator_id: true,
-          participant_id: true,
-          created_at: true,
-          updated_at: true,
-          creator:{
-            select:{
-              first_name:true,
-              avatar:true,
-              username:true
-            }
-          },
-          participant:{
-            select:{
-              first_name:true,
-              avatar:true,
-              username:true
-            }
-          }
-        }
-      });
-  
-      return {
-        success: true,
-        data: newConversation,
-        message: 'Conversation created successfully'
-      }
+      
     };
 
     } catch (error) {
       console.error('Error creating conversation:', error);
     }
   }
+  
   async deleteConversation(id: string) {
     try {
       const deleted = await this.prisma.conversation.delete({

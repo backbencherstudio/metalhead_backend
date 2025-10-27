@@ -91,6 +91,14 @@ model User {
   reviewer_reviews Review[]        @relation("ReviewerReviews")
   reviewee_reviews Review[]        @relation("RevieweeReviews")
 
+  total_reviews_as_user Int? @default(0)
+  total_reviews_as_helper Int? @default(0)
+  total_ratings_as_user Int? @default(0)
+  total_ratings_as_helper Int? @default(0)
+
+  avrg_rating_as_user Decimal? @default(0)
+  avrg_rating_as_helper Decimal? @default(0)
+
   stripe_connect_account_id String?       
   stripe_account_status String?    
   stripe_payouts_enabled      Boolean? @default(false)
@@ -310,18 +318,23 @@ model Message {
   deleted_at DateTime?
 
   status MessageStatus? @default(PENDING)
-
+  
+  // Message content
+  message String? // Text content (optional for attachment-only messages)
+  
+  // Relationships
   sender_id String?
   sender    User?   @relation("sender", fields: [sender_id], references: [id])
-
+  
   receiver_id String?
   receiver    User?   @relation("receiver", fields: [receiver_id], references: [id])
-
+  
   conversation_id String?
   conversation    Conversation? @relation(fields: [conversation_id], references: [id], onDelete: Cascade)
-
-  message String? // Optional - can be null for image-only messages
-
+  
+  // Attachments belong to this message
+  attachments Attachment[]
+  
   @@map("messages")
 }
 
@@ -331,20 +344,21 @@ model Attachment {
   updated_at DateTime  @default(now())
   deleted_at DateTime?
 
+  // File details
   name     String?
-  type     String?
+  type     String? // MIME type
   size     Int?
-  file     String?
+  file     String? // File path/URL
   file_alt String?
 
-  // NEW: Direct conversation relationship
-  conversation_id String?
-  conversation    Conversation? @relation(fields: [conversation_id], references: [id], onDelete: Cascade)
+  // Relationship to message (not conversation)
+  message_id String
+  message    Message? @relation(fields: [message_id], references: [id], onDelete: Cascade)
   
-  // NEW: Track who sent the attachment
+  // Track who sent the attachment
   sender_id String?
   sender    User? @relation("attachment_sender", fields: [sender_id], references: [id])
-
+  
   @@map("attachments")
 }
 
@@ -361,8 +375,7 @@ model Conversation {
   participant    User?   @relation("participant", fields: [participant_id], references: [id])
 
   messages Message[]
-  attachments Attachment[] 
-
+  
   @@map("conversations")
 }
 // ---------End Chat schema---------

@@ -33,6 +33,20 @@ async createCounterOffer(createCounterOfferDto: CreateCounterOfferDto, userId: s
       amount:createCounterOfferDto.amount,
       type:createCounterOfferDto.type,
       note:createCounterOfferDto.note,
+    },
+    include:{
+      job:{
+        select:{
+          assigned_helper:{
+            select:{
+              id:true,
+              avrg_rating_as_helper:true,
+              first_name:true,
+              avatar:true,
+            }
+          }
+        }
+      }
     }
   })
   await this.counterOfferNotificationService.notifyUserAboutCounterOffer(counterOffer.id);

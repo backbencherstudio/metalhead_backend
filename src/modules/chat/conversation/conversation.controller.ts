@@ -15,14 +15,13 @@ import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 
 
 @ApiBearerAuth()
-@ApiTags('conversation')
 @UseGuards(JwtAuthGuard)
 @Controller('conversation')
 export class ConversationController {
   constructor(private readonly conversationService: ConversationService) {}
 
 
-  @Post('create/all')
+  @Post('create')
   @ApiOperation({ summary: 'Create a conversation from a job' })
   async createConversation(@Body() dto: CreateConversationFromJobDto){
     return this.conversationService.createConversation(dto.job_id)
@@ -43,7 +42,6 @@ export class ConversationController {
   @Get('all')
   async findConversationByUser(@Req() req:Request){
     const userId= (req as any).user.userId
-    // const userType= (req as any).user.userType
     return await this.conversationService.findConversationByUser(userId)
   }
 

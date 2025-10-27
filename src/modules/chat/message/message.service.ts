@@ -1,202 +1,98 @@
 import { Injectable } from '@nestjs/common';
 import { MessageStatus } from '@prisma/client';
-import appConfig from '../../../config/app.config';
 import { CreateMessageDto } from './dto/create-message.dto';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { ChatRepository } from '../../../common/repository/chat/chat.repository';
 import { SojebStorage } from '../../../common/lib/Disk/SojebStorage';
 import { DateHelper } from '../../../common/helper/date.helper';
-import { MessageGateway } from './message.gateway';
-import { UserRepository } from '../../../common/repository/user/user.repository';
-import { Role } from '../../../common/guard/role/role.enum';
 import { StringHelper } from '../../../common/helper/string.helper';
-import { CreateAttachmentMessageDto } from './dto/create-message.dto';
 import { ChatNotificationService } from '../chat-notification.service';
+import { MessageGateway } from './message.gateway';
+import { v4 as uuidv4 } from 'uuid';
+import appConfig from '../../../config/app.config';
 
 @Injectable()
 export class MessageService {
   constructor(
     private prisma: PrismaService,
-    private readonly messageGateway: MessageGateway,
     private readonly chatNotificationService: ChatNotificationService,
+    private readonly messageGateway: MessageGateway,
   ) {}
 
-  async create(user_id: string, createMessageDto: CreateMessageDto) {
+  async createMessageWithFile(
+    userId: string,
+    body: { receiver_id: string; conversation_id: string; message?: string },
+    file?: Express.Multer.File,
+  ) {
     try {
-      const data: any = {};
+      // 1. Validate conversation and participants
+      const validation = await this.validateConversationAndParticipants(
+        userId,
+        body.conversation_id,
+        body.receiver_id,
+      );
+      if (!validation.success) return validation;
 
-      if (createMessageDto.conversation_id) {
-        data.conversation_id = createMessageDto.conversation_id;
-      }
-
-      if (createMessageDto.receiver_id) {
-        data.receiver_id = createMessageDto.receiver_id;
-      }
-
-      if (createMessageDto.message) {
-        data.message = createMessageDto.message;
-      }
-
-      // check if conversation exists and sender/receiver are participants
-      const conversation = await this.prisma.conversation.findFirst({
-        where: { id: data.conversation_id },
-        select: { id: true, creator_id: true, participant_id: true },
-      });
-
-      if (!conversation) {
-        return {
-          success: false,
-          message: 'Conversation not found',
-        };
-      }
-
-      // check if receiver exists
-      const receiver = await this.prisma.user.findFirst({ where: { id: data.receiver_id } });
-      
-      // validate sender/receiver are within conversation
-      const participants = [conversation.creator_id, conversation.participant_id];
-      if (!participants.includes(user_id) || !participants.includes(data.receiver_id)) {
-        return { 
-          success: false, 
-          message: 'You are not part of this conversation'
-        };
-      }
-
-      // ensure there is a confirmed/ongoing job linking these two users (owner/helper)
-      const ownerId = conversation.creator_id;
-      const otherId = conversation.participant_id;
-      
-      const maybeOwner = await this.prisma.user.findUnique({ where: { id: ownerId } });
-      const maybeOther = await this.prisma.user.findUnique({ where: { id: otherId } });
-
-      // check in both directions which one is job owner
-      const confirmedJob = await this.prisma.job.findFirst({
-        where: {
-          deleted_at: null,
-          job_status: { in: ['confirmed', 'ongoing'] },
-          OR: [
-            {
-              user_id: ownerId,
-              OR: [
-                {
-                  accepted_counter_offer: {
-                    helper_id: otherId,
-                  },
-                },
-                {
-                  assigned_helper_id: otherId,
-                },
-              ],
-            },
-            {
-              user_id: otherId,
-              OR: [
-                {
-                  accepted_counter_offer: {
-                    helper_id: ownerId,
-                  },
-                },
-                {
-                  assigned_helper_id: ownerId,
-                },
-              ],
-            },
-          ],
-        },
-        select: { id: true, job_status: true },
-      });
-
-      if (!confirmedJob) {
-        return {
-          success: false,
-          message: 'Chat is only allowed for confirmed/ongoing jobs between these users',
-        };
-      }
-
-      if (!receiver) {
-        return {
-          success: false,
-          message: 'Receiver not found',
-        };
-      }
-
+      // 2. Create message
       const message = await this.prisma.message.create({
         data: {
-          ...data,
+          conversation_id: body.conversation_id,
+          receiver_id: body.receiver_id,
+          sender_id: userId,
+          message: body.message,
           status: MessageStatus.SENT,
-          sender_id: user_id,
         },
       });
 
-      // Get comprehensive sender and receiver information
-      const [senderInfo, receiverInfo] = await Promise.all([
-        this.prisma.user.findUnique({
-          where: { id: user_id },
-          select: {
-            id: true,
-            name: true,
-            username: true,
-            type: true,
-            avatar: true,
+      // 3. Handle file upload if provided (like job photos)
+      let attachment = null;
+      if (file) {
+        // Validate file type and size
+        const validation = this.validateFile(file);
+        if (!validation.success) {
+          return { success: false, message: validation.message };
+        }
+
+        // Generate unique filename like job photos
+        const fileExtension = file.originalname.split('.').pop();
+        const uniqueFileName = `attachment/${uuidv4()}.${fileExtension}`;
+        
+        // Store file using SojebStorage (same as job photos)
+        await SojebStorage.put(uniqueFileName, file.buffer);
+
+        // Create attachment record
+        attachment = await this.prisma.attachment.create({
+          data: {
+            message_id: message.id,
+            sender_id: userId,
+            name: file.originalname,
+            type: file.mimetype,
+            size: file.size,
+            file: uniqueFileName,
           },
-        }),
-        this.prisma.user.findUnique({
-          where: { id: data.receiver_id },
-          select: {
-            id: true,
-            name: true,
-            username: true,
-            type: true,
-            avatar: true,
-          },
-        }),
-      ]);
+        });
+      }
 
-      // update conversation updated_at
-      await this.prisma.conversation.update({
-        where: {
-          id: data.conversation_id,
-        },
-        data: {
-          updated_at: DateHelper.now(),
-        },
-      });
+      // 4. Update conversation timestamp
+      await this.updateConversationTimestamp(body.conversation_id);
 
-      // Enhanced message data with sender and receiver info
-      const enhancedMessage = {
-        ...message,
-        conversation_id: data.conversation_id,
-        created_at: message.created_at,
-        sender: {
-          id: senderInfo.id,
-          name: senderInfo.name || senderInfo.username || 'Unknown',
-          username: senderInfo.username,
-          role: senderInfo.type,
-          avatar: senderInfo.avatar,
-        },
+      // 5. Get enhanced message data
+      const enhancedMessage = await this.getEnhancedMessageData(message.id);
 
-        receiver: {
-          id: receiverInfo.id,
-          name: receiverInfo.name || receiverInfo.username || 'Unknown',
-          username: receiverInfo.username,
-          role: receiverInfo.type,
-          avatar: receiverInfo.avatar,
-        },
-      };
+      // 6. Send notification
+      await this.sendNotification(userId, body.receiver_id, body.conversation_id, body.message, attachment ? [attachment] : []);
 
-      // Send notification to receiver
-      await this.chatNotificationService.notifyNewMessage({
-        senderId: user_id,
-        receiverId: data.receiver_id,
-        conversationId: data.conversation_id,
-        messageText: data.message,
-        messageType: 'text',
-      });
+      // 7. Emit WebSocket event
+      this.messageGateway.server
+        .to(body.conversation_id)
+        .emit('newMessage', {
+          message: enhancedMessage,
+          senderId: userId,
+        });
 
       return {
         success: true,
+        message: 'Message created successfully',
         data: enhancedMessage,
-        message: 'Message sent successfully',
       };
     } catch (error) {
       return {
@@ -206,68 +102,45 @@ export class MessageService {
     }
   }
 
-  async findAll({
-    user_id,
-    conversation_id,
-    limit = 20,
-    cursor,
-  }: {
-    user_id: string;
-    conversation_id: string;
-    limit?: number;
-    cursor?: string;
-  }) {
+  async getMessages(userId: string, conversationId: string, limit: number = 20, page: number = 1) {
     try {
-      const userDetails = await UserRepository.getUserDetails(user_id);
-
-      const where_condition = {
-        AND: [{ id: conversation_id }],
-      };
-
-      if (userDetails.type != Role.ADMIN) {
-        where_condition['OR'] = [
-          { creator_id: user_id },
-          { participant_id: user_id },
-        ];
-      }
-
+      // 1. Validate user is part of conversation
       const conversation = await this.prisma.conversation.findFirst({
-        where: {
-          ...where_condition,
+        where: { 
+          id: conversationId,
+          OR: [
+            { creator_id: userId },
+            { participant_id: userId }
+          ]
         },
+        select: { id: true, creator_id: true, participant_id: true },
       });
 
       if (!conversation) {
-        return {
-          success: false,
-          message: 'Conversation not found',
-        };
+        return { success: false, message: 'Conversation not found or you are not part of it' };
       }
 
-      // Fix pagination logic
-      const paginationData: any = {};
-      if (limit) {
-        paginationData['take'] = limit;
-      }
-      if (cursor) {
-        paginationData['skip'] = 1; // Skip the cursor message
-        paginationData['cursor'] = { id: cursor };
-      }
+      // 2. Calculate skip value for traditional pagination
+      const skip = (page - 1) * limit;
 
-      const messages = await this.prisma.message.findMany({
-        ...paginationData,
+      // 3. Get total count for pagination info
+      const totalCount = await this.prisma.message.count({
         where: {
-          conversation_id: conversation_id,
+          conversation_id: conversationId,
+          deleted_at: null,
         },
-        orderBy: {
-          created_at: 'asc',
+      });
+
+      // 4. Get messages with traditional pagination
+      const messages = await this.prisma.message.findMany({
+        skip: skip,
+        take: limit,
+        where: {
+          conversation_id: conversationId,
+          deleted_at: null, // Exclude soft-deleted messages
         },
-        select: {
-          id: true,
-          message: true,
-          created_at: true,
-          status: true,
-          conversation_id: true,
+        orderBy: { created_at: 'desc' },
+        include: {
           sender: {
             select: {
               id: true,
@@ -286,7 +159,14 @@ export class MessageService {
               avatar: true,
             },
           },
-          attachment: {
+        },
+      });
+
+      // 5. Get attachments for each message
+      const messagesWithAttachments = await Promise.all(
+        messages.map(async (message) => {
+          const attachments = await this.prisma.attachment.findMany({
+            where: { message_id: message.id },
             select: {
               id: true,
               name: true,
@@ -294,56 +174,52 @@ export class MessageService {
               size: true,
               file: true,
             },
-          },
-        },
-      });
+          });
 
-      // add attachment url
-      for (const message of messages) {
-        const msg = message as any;
-        if (msg.attachment) {
-          msg.attachment['file_url'] = SojebStorage.url(
-            appConfig().storageUrl.attachment + msg.attachment.file,
-          );
-        }
-      }
+          return {
+            ...message,
+            sender: {
+              id: (message as any).sender.id,
+              name: (message as any).sender.name || (message as any).sender.username || 'Unknown',
+              username: (message as any).sender.username,
+              role: (message as any).sender.type,
+              avatar: (message as any).sender.avatar,
+              avatar_url: (message as any).sender.avatar ? 
+                SojebStorage.url(appConfig().storageUrl.avatar + (message as any).sender.avatar) : null,
+            },
+            receiver: {
+              id: (message as any).receiver.id,
+              name: (message as any).receiver.name || (message as any).receiver.username || 'Unknown',
+              username: (message as any).receiver.username,
+              role: (message as any).receiver.type,
+              avatar: (message as any).receiver.avatar,
+              avatar_url: (message as any).receiver.avatar ? 
+                SojebStorage.url(appConfig().storageUrl.avatar + (message as any).receiver.avatar) : null,
+            },
+            attachments: attachments.map(attachment => ({
+              ...attachment,
+              file_url: SojebStorage.url(attachment.file),
+            })),
+          };
+        })
+      );
 
-      // enhance message data with proper sender/receiver info
-      for (const message of messages) {
-        const msg = message as any;
-        
-        // Enhance sender info
-        if (msg.sender) {
-          msg.sender = {
-            id: msg.sender.id,
-            name: msg.sender.name || msg.sender.username || 'Unknown',
-            username: msg.sender.username,
-            role: msg.sender.type,
-            avatar: msg.sender.avatar,
-            avatar_url: msg.sender.avatar ? SojebStorage.url(
-              appConfig().storageUrl.avatar + msg.sender.avatar,
-            ) : null,
-          };
-        }
-        
-        // Enhance receiver info
-        if (msg.receiver) {
-          msg.receiver = {
-            id: msg.receiver.id,
-            name: msg.receiver.name || msg.receiver.username || 'Unknown',
-            username: msg.receiver.username,
-            role: msg.receiver.type,
-            avatar: msg.receiver.avatar,
-            avatar_url: msg.receiver.avatar ? SojebStorage.url(
-              appConfig().storageUrl.avatar + msg.receiver.avatar,
-            ) : null,
-          };
-        }
-      }
+      // 6. Calculate pagination info
+      const totalPages = Math.ceil(totalCount / limit);
+      const hasNextPage = page < totalPages;
+      const hasPrevPage = page > 1;
 
       return {
         success: true,
-        data: messages,
+        data: messagesWithAttachments,
+        pagination: {
+          currentPage: page,
+          totalPages: totalPages,
+          totalCount: totalCount,
+          limit: limit,
+          hasNextPage: hasNextPage,
+          hasPrevPage: hasPrevPage,
+        },
       };
     } catch (error) {
       return {
@@ -353,58 +229,402 @@ export class MessageService {
     }
   }
 
-  async updateMessageStatus(message_id: string, status: MessageStatus) {
-    return await ChatRepository.updateMessageStatus(message_id, status);
-  }
-
-  async readMessage(message_id: string) {
-    return await ChatRepository.updateMessageStatus(
-      message_id,
-      MessageStatus.READ,
-    );
-  }
-
-  async updateUserStatus(user_id: string, status: string) {
-    return await ChatRepository.updateUserStatus(user_id, status);
-  }
-
-  async createAttachmentMessage(
-    user_id: string,
-    dto: CreateAttachmentMessageDto,
-    file: Express.Multer.File,
-  ) {
+  async getMessage(userId: string, messageId: string) {
     try {
-      if (!file) {
-        return { success: false, message: 'No file uploaded' };
+      // 1. Find message and verify access
+      const message = await this.prisma.message.findFirst({
+        where: { 
+          id: messageId,
+          deleted_at: null,
+        },
+        include: {
+          sender: {
+          select: {
+            id: true,
+            name: true,
+            username: true,
+            type: true,
+            avatar: true,
+          },
+          },
+          receiver: {
+          select: {
+            id: true,
+            name: true,
+            username: true,
+            type: true,
+            avatar: true,
+          },
+          },
+        },
+      });
+
+      if (!message) {
+        return { success: false, message: 'Message not found' };
       }
 
-      // Validate conversation and participants (reuse validation logic from create method)
+      // 2. Check if user has access to this message
       const conversation = await this.prisma.conversation.findFirst({
-        where: { id: dto.conversation_id },
-        select: { creator_id: true, participant_id: true },
+        where: {
+          id: message.conversation_id,
+          OR: [
+            { creator_id: userId },
+            { participant_id: userId }
+          ]
+        },
+      });
+
+      if (!conversation) {
+        return { success: false, message: 'You do not have access to this message' };
+      }
+
+      // 3. Get attachments
+      const attachments = await this.prisma.attachment.findMany({
+        where: { message_id: messageId },
+        select: {
+          id: true,
+          name: true,
+          type: true,
+          size: true,
+          file: true,
+        },
+      });
+
+      // 4. Enhance message data
+      const enhancedMessage = {
+        ...message,
+        sender: {
+          id: (message as any).sender.id,
+          name: (message as any).sender.name || (message as any).sender.username || 'Unknown',
+          username: (message as any).sender.username,
+          role: (message as any).sender.type,
+          avatar: (message as any).sender.avatar,
+          avatar_url: (message as any).sender.avatar ? 
+            SojebStorage.url(appConfig().storageUrl.avatar + (message as any).sender.avatar) : null,
+        },
+        receiver: {
+          id: (message as any).receiver.id,
+          name: (message as any).receiver.name || (message as any).receiver.username || 'Unknown',
+          username: (message as any).receiver.username,
+          role: (message as any).receiver.type,
+          avatar: (message as any).receiver.avatar,
+          avatar_url: (message as any).receiver.avatar ? 
+            SojebStorage.url(appConfig().storageUrl.avatar + (message as any).receiver.avatar) : null,
+        },
+        attachments: attachments.map(attachment => ({
+          ...attachment,
+          file_url: SojebStorage.url(attachment.file),
+        })),
+      };
+
+      return {
+        success: true,
+        data: enhancedMessage,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: error.message,
+      };
+    }
+  }
+
+  async markAsRead(userId: string, messageId: string) {
+    try {
+      // 1. Find message and verify access
+      const message = await this.prisma.message.findFirst({
+        where: { 
+          id: messageId,
+          deleted_at: null,
+        },
+      });
+
+      if (!message) {
+        return { success: false, message: 'Message not found' };
+      }
+
+      // 2. Check if user is the receiver
+      if (message.receiver_id !== userId) {
+        return { success: false, message: 'You can only mark messages sent to you as read' };
+      }
+
+      // 3. Update message status to READ
+      await this.prisma.message.update({
+        where: { id: messageId },
+        data: { status: MessageStatus.READ },
+      });
+
+      // 4. Emit WebSocket event for read receipt
+      this.messageGateway.server
+        .to(message.conversation_id)
+        .emit('messageRead', {
+          messageId: messageId,
+          readBy: userId,
+          readAt: new Date(),
+      });
+
+      return {
+        success: true,
+        message: 'Message marked as read',
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: error.message,
+      };
+    }
+  }
+
+  async updateMessageStatus(userId: string, messageId: string, status: MessageStatus) {
+    try {
+      // 1. Find message and verify access
+      const message = await this.prisma.message.findFirst({
+        where: { 
+          id: messageId,
+          deleted_at: null,
+        },
+      });
+
+      if (!message) {
+        return { success: false, message: 'Message not found' };
+      }
+
+      // 2. Check if user is sender or receiver
+      const isSender = message.sender_id === userId;
+      const isReceiver = message.receiver_id === userId;
+
+      if (!isSender && !isReceiver) {
+        return { success: false, message: 'You are not authorized to update this message' };
+      }
+
+      // 3. Update message status
+      await this.prisma.message.update({
+        where: { id: messageId },
+        data: { status },
+      });
+
+      // 4. Emit WebSocket event
+      this.messageGateway.server
+        .to(message.conversation_id)
+        .emit('messageStatusUpdated', {
+          messageId: messageId,
+          status: status,
+          updatedBy: userId,
+        });
+
+      return {
+        success: true,
+        message: 'Message status updated',
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: error.message,
+      };
+    }
+  }
+
+  async searchMessages(userId: string, query: string, conversationId?: string, limit: number = 20) {
+    try {
+      // 1. Build search conditions
+      const searchConditions: any = {
+        deleted_at: null,
+        message: {
+          contains: query,
+          mode: 'insensitive',
+        },
+      };
+
+      // 2. If conversationId provided, validate access
+      if (conversationId) {
+      const conversation = await this.prisma.conversation.findFirst({
+        where: {
+            id: conversationId,
+            OR: [
+              { creator_id: userId },
+              { participant_id: userId }
+            ]
+        },
+      });
+
+      if (!conversation) {
+          return { success: false, message: 'Conversation not found or you are not part of it' };
+        }
+
+        searchConditions.conversation_id = conversationId;
+      } else {
+        // If no conversationId, search in all user's conversations
+        const userConversations = await this.prisma.conversation.findMany({
+          where: {
+            OR: [
+              { creator_id: userId },
+              { participant_id: userId }
+            ]
+          },
+          select: { id: true },
+        });
+
+        const conversationIds = userConversations.map(conv => conv.id);
+        searchConditions.conversation_id = { in: conversationIds };
+      }
+
+      // 3. Search messages
+      const messages = await this.prisma.message.findMany({
+        where: searchConditions,
+        take: limit,
+        orderBy: { created_at: 'desc' },
+        include: {
+          sender: {
+            select: {
+              id: true,
+              name: true,
+              username: true,
+              type: true,
+              avatar: true,
+            },
+          },
+          receiver: {
+            select: {
+              id: true,
+              name: true,
+              username: true,
+              type: true,
+              avatar: true,
+            },
+          },
+        },
+      });
+
+      // 4. Enhance messages with attachments
+      const messagesWithAttachments = await Promise.all(
+        messages.map(async (message) => {
+          const attachments = await this.prisma.attachment.findMany({
+            where: { message_id: message.id },
+            select: {
+              id: true,
+              name: true,
+              type: true,
+              size: true,
+              file: true,
+        },
+      });
+
+          return {
+            ...message,
+            sender: {
+              id: (message as any).sender.id,
+              name: (message as any).sender.name || (message as any).sender.username || 'Unknown',
+              username: (message as any).sender.username,
+              role: (message as any).sender.type,
+              avatar: (message as any).sender.avatar,
+              avatar_url: (message as any).sender.avatar ? 
+                SojebStorage.url(appConfig().storageUrl.avatar + (message as any).sender.avatar) : null,
+            },
+            receiver: {
+              id: (message as any).receiver.id,
+              name: (message as any).receiver.name || (message as any).receiver.username || 'Unknown',
+              username: (message as any).receiver.username,
+              role: (message as any).receiver.type,
+              avatar: (message as any).receiver.avatar,
+              avatar_url: (message as any).receiver.avatar ? 
+                SojebStorage.url(appConfig().storageUrl.avatar + (message as any).receiver.avatar) : null,
+            },
+            attachments: attachments.map(attachment => ({
+              ...attachment,
+              file_url: SojebStorage.url(attachment.file),
+            })),
+          };
+        })
+      );
+
+      return {
+        success: true,
+        data: messagesWithAttachments,
+        query,
+        total: messages.length,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: error.message,
+      };
+    }
+  }
+
+  async deleteMessage(userId: string, messageId: string, deleteForAll: boolean = false) {
+    try {
+      // 1. Find message and verify ownership
+      const message = await this.prisma.message.findFirst({
+        where: { id: messageId },
+      });
+
+      if (!message) {
+        return { success: false, message: 'Message not found' };
+      }
+
+      // 2. Check if user is sender or receiver
+      const isSender = message.sender_id === userId;
+      const isReceiver = message.receiver_id === userId;
+      
+      if (!isSender && !isReceiver) {
+        return { success: false, message: 'You are not authorized to delete this message' };
+      }
+
+      // 3. Delete logic based on deleteForAll flag
+      if (deleteForAll) {
+        // Delete for everyone (only sender can do this)
+        if (!isSender) {
+          return { success: false, message: 'Only sender can delete message for everyone' };
+        }
+        
+        // Delete message and attachments (cascade will handle attachments)
+        await this.prisma.message.delete({ where: { id: messageId } });
+        
+        return { success: true, message: 'Message deleted for everyone' };
+      } else {
+        // Delete for current user only (soft delete by updating deleted_at)
+        await this.prisma.message.update({
+          where: { id: messageId },
+          data: { deleted_at: DateHelper.now() },
+        });
+        
+        return { success: true, message: 'Message deleted for you' };
+      }
+    } catch (error) {
+      return { success: false, message: error.message };
+    }
+  }
+
+  // Private helper methods
+  private async validateConversationAndParticipants(userId: string, conversationId: string, receiverId: string) {
+      const conversation = await this.prisma.conversation.findFirst({
+      where: { id: conversationId },
+        select: { id: true, creator_id: true, participant_id: true },
       });
 
       if (!conversation) {
         return { success: false, message: 'Conversation not found' };
       }
 
-      // check if receiver exists
-      const receiver = await this.prisma.user.findFirst({ where: { id: dto.receiver_id } });
+    const receiver = await this.prisma.user.findFirst({ where: { id: receiverId } });
       if (!receiver) {
         return { success: false, message: 'Receiver not found' };
       }
 
-      // validate sender/receiver are within conversation
+    // Validate participants
       const participants = [conversation.creator_id, conversation.participant_id];
-      if (!participants.includes(user_id) || !participants.includes(dto.receiver_id)) {
+    if (!participants.includes(userId) || !participants.includes(receiverId)) {
         return { success: false, message: 'You are not part of this conversation' };
       }
 
-      // ensure there is a confirmed/ongoing job linking these two users (owner/helper)
-      const ownerId = conversation.creator_id;
-      const otherId = conversation.participant_id;
+    // Validate job status
+    const jobValidation = await this.validateJobStatus(conversation.creator_id, conversation.participant_id);
+    if (!jobValidation.success) return jobValidation;
 
-      // check in both directions which one is job owner
+    return { success: true };
+  }
+
+  private async validateJobStatus(ownerId: string, otherId: string) {
       const confirmedJob = await this.prisma.job.findFirst({
         where: {
           deleted_at: null,
@@ -413,27 +633,15 @@ export class MessageService {
             {
               user_id: ownerId,
               OR: [
-                {
-                  accepted_counter_offer: {
-                    helper_id: otherId,
-                  },
-                },
-                {
-                  assigned_helper_id: otherId,
-                },
+              { accepted_counter_offer: { helper_id: otherId } },
+              { assigned_helper_id: otherId },
               ],
             },
             {
               user_id: otherId,
               OR: [
-                {
-                  accepted_counter_offer: {
-                    helper_id: ownerId,
-                  },
-                },
-                {
-                  assigned_helper_id: ownerId,
-                },
+              { accepted_counter_offer: { helper_id: ownerId } },
+              { assigned_helper_id: ownerId },
               ],
             },
           ],
@@ -442,56 +650,100 @@ export class MessageService {
       });
 
       if (!confirmedJob) {
-        return {
-          success: false,
-          message: 'Chat is only allowed for confirmed/ongoing jobs between these users',
-        };
+      return { success: false, message: 'Chat is only allowed for confirmed/ongoing jobs' };
+    }
+
+    return { success: true };
+  }
+
+  private async createAttachments(messageId: string, userId: string, attachments: any[]) {
+    const createdAttachments = [];
+
+    for (const attachment of attachments) {
+      // Validate file type and size
+      const validation = this.validateFileType(attachment);
+      if (!validation.success) {
+        throw new Error(validation.message);
       }
 
-      // store file
-      const fileName = `${StringHelper.randomString()}_${dto.name || file.originalname}`;
+      // Convert base64 to buffer and store file
+      const fileName = `${StringHelper.randomString()}_${attachment.name}`;
+      const fileBuffer = Buffer.from(attachment.content, 'base64');
+      
       await SojebStorage.put(
         appConfig().storageUrl.attachment + '/' + fileName,
-        file.buffer,
+        fileBuffer,
       );
 
-      // create attachment row
-      const attachment = await this.prisma.attachment.create({
+      // Create attachment record
+      const createdAttachment = await this.prisma.attachment.create({
         data: {
-          name: dto.name || file.originalname,
-          type: dto.type || file.mimetype,
-          size: file.size,
+          message_id: messageId,
+          sender_id: userId,
+          name: attachment.name,
+          type: attachment.type,
+          size: attachment.size || fileBuffer.length,
           file: fileName,
         },
       });
 
-      // create message that references attachment
-      // Create attachment first
-      const createdAttachment = await this.prisma.attachment.create({
-        data: {
-          conversation_id: dto.conversation_id,
-          sender_id: user_id,
-          name: attachment.name,
-          type: attachment.type,
-          size: attachment.size,
-          file: attachment.file,
-        },
+      createdAttachments.push({
+        ...createdAttachment,
+        file_url: SojebStorage.url(appConfig().storageUrl.attachment + '/' + fileName),
       });
+    }
 
-      const message = await this.prisma.message.create({
-        data: {
-          conversation_id: dto.conversation_id,
-          receiver_id: dto.receiver_id,
-          sender_id: user_id,
-          status: MessageStatus.SENT,
-          message: dto.message,
-        },
-      });
+    return createdAttachments;
+  }
 
-      // Get comprehensive sender and receiver information
-      const [senderInfo, receiverInfo] = await Promise.all([
-        this.prisma.user.findUnique({
-          where: { id: user_id },
+  private validateFile(file: Express.Multer.File) {
+    const allowedTypes = [
+      'image/jpeg', 'image/png', 'image/gif', 'image/webp',
+      'audio/mpeg', 'audio/wav', 'audio/ogg', 'audio/mp3'
+    ];
+
+    if (!allowedTypes.includes(file.mimetype)) {
+      return { success: false, message: 'Invalid file type. Only images and audio files are allowed.' };
+    }
+
+    const maxSize = 10 * 1024 * 1024; // 10MB
+    if (file.size > maxSize) {
+      return { success: false, message: 'File size too large. Maximum size is 10MB.' };
+    }
+
+    return { success: true };
+  }
+
+  private validateFileType(attachment: any) {
+    const allowedTypes = [
+      'image/jpeg', 'image/png', 'image/gif', 'image/webp',
+      'audio/mpeg', 'audio/wav', 'audio/ogg', 'audio/mp3'
+    ];
+
+    if (!allowedTypes.includes(attachment.type)) {
+      return { success: false, message: 'Invalid file type' };
+    }
+
+    const maxSize = 10 * 1024 * 1024; // 10MB
+    if (attachment.size && attachment.size > maxSize) {
+      return { success: false, message: 'File size too large' };
+    }
+
+    return { success: true };
+  }
+
+  private async updateConversationTimestamp(conversationId: string) {
+    await this.prisma.conversation.update({
+      where: { id: conversationId },
+      data: { updated_at: DateHelper.now() },
+    });
+  }
+
+  private async getEnhancedMessageData(messageId: string) {
+    const message = await this.prisma.message.findUnique({
+      where: { id: messageId },
+      include: {
+          sender: {
           select: {
             id: true,
             name: true,
@@ -499,9 +751,8 @@ export class MessageService {
             type: true,
             avatar: true,
           },
-        }),
-        this.prisma.user.findUnique({
-          where: { id: dto.receiver_id },
+          },
+          receiver: {
           select: {
             id: true,
             name: true,
@@ -509,56 +760,67 @@ export class MessageService {
             type: true,
             avatar: true,
           },
-        }),
-      ]);
+          },
+      },
+    });
 
-      // bump conversation update time
-      await this.prisma.conversation.update({
-        where: { id: dto.conversation_id },
-        data: { updated_at: DateHelper.now() },
+    // Get attachments separately
+    const attachments = await this.prisma.attachment.findMany({
+      where: { message_id: messageId },
+            select: {
+              id: true,
+              name: true,
+              type: true,
+              size: true,
+              file: true,
+        },
       });
 
-      // Enhanced message data with sender and receiver info
-      const enhancedMessage = {
+    // Enhance with URLs and formatted data
+      return {
         ...message,
-        conversation_id: dto.conversation_id,
-        created_at: message.created_at,
         sender: {
-          id: senderInfo.id,
-          name: senderInfo.name || senderInfo.username || 'Unknown',
-          username: senderInfo.username,
-          role: senderInfo.type,
-          avatar: senderInfo.avatar,
+        id: message.sender.id,
+        name: message.sender.name || message.sender.username || 'Unknown',
+        username: message.sender.username,
+        role: message.sender.type,
+        avatar: message.sender.avatar,
+        avatar_url: message.sender.avatar ? 
+          SojebStorage.url(appConfig().storageUrl.avatar + message.sender.avatar) : null,
         },
         receiver: {
-          id: receiverInfo.id,
-          name: receiverInfo.name || receiverInfo.username || 'Unknown',
-          username: receiverInfo.username,
-          role: receiverInfo.type,
-          avatar: receiverInfo.avatar,
-        },
-        attachment: {
-          id: attachment.id,
-          name: attachment.name,
-          type: attachment.type,
-          size: attachment.size,
-          file: attachment.file,
-          file_url: SojebStorage.url(appConfig().storageUrl.attachment + '/' + attachment.file),
-        },
+        id: message.receiver.id,
+        name: message.receiver.name || message.receiver.username || 'Unknown',
+        username: message.receiver.username,
+        role: message.receiver.type,
+        avatar: message.receiver.avatar,
+        avatar_url: message.receiver.avatar ? 
+          SojebStorage.url(appConfig().storageUrl.avatar + message.receiver.avatar) : null,
+      },
+      attachments: attachments.map(attachment => ({
+        ...attachment,
+        file_url: SojebStorage.url(attachment.file),
+      })),
       };
+  }
 
-      // Send notification to receiver
+  private async sendNotification(senderId: string, receiverId: string, conversationId: string, messageText: string, attachments: any[]) {
+    if (attachments.length > 0) {
       await this.chatNotificationService.notifyFileAttachment({
-        senderId: user_id,
-        receiverId: dto.receiver_id,
-        conversationId: dto.conversation_id,
-        fileName: dto.name,
-        fileType: file.mimetype,
+        senderId,
+        receiverId,
+        conversationId,
+        fileName: attachments[0].name,
+        fileType: attachments[0].type,
       });
-
-      return { success: true, message: 'Attachment sent', data: enhancedMessage };
-    } catch (error) {
-      return { success: false, message: error.message };
+    } else {
+      await this.chatNotificationService.notifyNewMessage({
+        senderId,
+        receiverId,
+        conversationId,
+        messageText,
+        messageType: 'text',
+      });
     }
   }
 }
