@@ -15,6 +15,7 @@ import { SojebStorage } from '../../common/lib/Disk/SojebStorage';
 import { DateHelper } from '../../common/helper/date.helper';
 import { StripePayment } from '../../common/lib/Payment/stripe/StripePayment';
 import { StringHelper } from '../../common/helper/string.helper';
+import { Prisma } from '@prisma/client';
 
 @Injectable()
 export class AuthService {

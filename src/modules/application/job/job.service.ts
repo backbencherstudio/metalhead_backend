@@ -1802,10 +1802,14 @@ export class JobService {
     );
 
     return {
-      job_id: job.id,
-      title: job.title,
-      current_status: job.job_status,
-      timeline: uniqueTimeline,
+      success: true,
+      message: 'Timeline retrieved successfully',
+      data: {
+        job_id: job.id,
+        title: job.title,
+        current_status: job.job_status,
+        timeline: uniqueTimeline,
+      },
     };
   }
 

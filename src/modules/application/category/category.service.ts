@@ -37,26 +37,27 @@ export class CategoryService {
 
   async getCategoriesWithCounts(): Promise<any[]> {
     const categories = await this.prisma.category.findMany({
-      where: {
-        status: 1,
-        deleted_at: null,
-      },
-      include: {
+      where: { status: 1, deleted_at: null },
+      select: {
+        id: true,
+        label: true,
+        name: true,
         _count: {
           select: {
             jobs: {
-              where: {
-                status: 1,
-                deleted_at: null,
-              }
-            }
-          }
-        }
+              where: { status: 1, deleted_at: null },
+            },
+          },
+        },
       },
       orderBy: { label: 'asc' },
     });
 
+
+    
+    
     return categories.map(category => ({
+      id: category.id,
       category: category.name,
       label: category.label,
       count: category._count.jobs,

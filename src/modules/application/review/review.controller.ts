@@ -60,10 +60,19 @@ export class ReviewController {
     return this.reviewService.getReviewOfJob(jobId);
   }
 
-  @Get()
+  @Get('my-stats')
   async myState(@Req() req:any){
     const userId=req.user.userId
     return this.reviewService.myReview(userId)
   }
 
+  @Get('my-earning-stats')
+async myEarningStats(@Req() req: any, @Query('days') days = '7') {
+  const nRaw = Number(days);
+  const daysInt = Number.isFinite(nRaw) ? Math.max(1, Math.min(nRaw, 365)) : 7;
+  return this.reviewService.myEarningStats(req.user.id, daysInt);
 }
+
+
+}
+

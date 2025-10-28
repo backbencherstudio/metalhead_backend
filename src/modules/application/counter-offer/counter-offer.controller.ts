@@ -1,5 +1,5 @@
 // src/modules/application/counter-offer/counter-offer.controller.ts
-import { Controller, Post, Body, Get, Param, Patch, Delete, UseGuards, Req } from '@nestjs/common';
+import { Controller, Post, Body, Get, Param, Patch, Delete, UseGuards, Req, Query, Logger } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CounterOfferService } from './counter-offer.service';
 import { CreateCounterOfferDto } from '../counter-offer/dtos/create-counter-offer.dto';
@@ -47,10 +47,30 @@ async declineCounterOffer(
   return this.counterOfferService.declineCounterOffer(userId, counterOfferId);
 }
 
+@Get('all-counter-offers')
+async getMyCounterOffers(
+  @Req() req: any,
+  @Query('page') page = '1',
+  @Query('limit') limit = '10',
+) {
+  const userId = req.user.id;      
+  const userType = req.user.type as 'user' | 'helper';
+  return this.counterOfferService.getMyCounterOffers(
+    userId,
+    userType,
+    Number(page),
+    Number(limit),
+  );
+}
+
+
 @Get(':jobId')
 async getCounterOffers(@Param('jobId') jobId: string, @Req() req:any){
   const userId = req.user.id;
   return this.counterOfferService.getCounterOffers(userId, jobId);
 }
+
+
+
 
 }

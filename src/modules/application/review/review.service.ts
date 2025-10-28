@@ -310,11 +310,56 @@ async myReview(userId: string) {
   if (!user) throw new NotFoundException('User not found');
 
   if (user.type === 'user') {
-    return 
-    Number(user.avrg_rating_as_user ?? 0);
+    return {
+      success: true,
+      data: {
+        rating: Number(user.avrg_rating_as_user ?? 0),
+      },
+    };
   } else {
     return Number(user.avrg_rating_as_helper ?? 0);
   }
 }
+
+async myEarningStats(userId: string, days: number) {
+  // Inclusive range: from start of the day (N days ago) to end of today
+  const now = new Date();
+
+  const startOfRange = new Date(now);
+  startOfRange.setHours(0, 0, 0, 0);
+  startOfRange.setDate(startOfRange.getDate() - days);
+
+  const endOfRange = new Date(now);
+  endOfRange.setHours(23, 59, 59, 999);
+
+  const jobs = await this.prisma.job.findMany({
+    where: {
+      assigned_helper_id: userId,
+      job_status: 'paid',
+      // use the correct timestamp: updated_at when job becomes paid, or created_at if you prefer
+      updated_at: {
+        gte: startOfRange,
+        lte: endOfRange,
+      },
+    },
+    select: { id: true, final_price: true, updated_at: true },
+  });
+
+  const total_jobs = jobs.length;
+  const total_earnings = jobs.reduce((s, j) => s + Number(j.final_price ?? 0), 0);
+
+  return {
+    success: true,
+    message: `Earnings for the last ${days} days`,
+    data: {
+      total_jobs,
+      total_earnings,
+      start_date: startOfRange, // for debugging/verification
+      end_date: endOfRange,
+    },
+  };
+}
+
+
 
 }

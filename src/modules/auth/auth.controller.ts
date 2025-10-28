@@ -492,12 +492,6 @@ async changeUsername(
   return this.authService.changeUsername({ user_id, token, new_username: username });
 }
 
-  
-
-
-
-
-
   // -------end change email address------
 
 

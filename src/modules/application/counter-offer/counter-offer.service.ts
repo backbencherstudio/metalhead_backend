@@ -1,6 +1,6 @@
 import { JobService } from './../job/job.service';
 import { AcceptCounterOfferDto } from './dtos/accept-counter-offer.dto';
-import { ForbiddenException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { ForbiddenException, Injectable, Logger, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CreateCounterOfferDto } from '../counter-offer/dtos/create-counter-offer.dto';
 import { CounterOfferNotificationService } from './counter-offer-notification.service';
@@ -140,6 +140,58 @@ async helperAcceptsJob(helperId: string, jobId: string) {
   };
 }
 
+async getMyCounterOffers(
+  userId: string,
+  userType: 'user' | 'helper',
+  page = 1,
+  limit = 10,
+) {
+  const take = Math.max(1, Math.min(Number(limit) || 10, 100));
+  const currentPage = Math.max(1, Number(page) || 1);
+  const skip = (currentPage - 1) * take;
+
+  let where: any;
+  if (userType === 'user') {
+    where = { user_id: userId, accepted_counter_offer_id: { not: null } };
+  } else if (userType === 'helper') {
+    where = { assigned_helper_id: userId };
+  } else {
+    throw new ForbiddenException('You are not authorized to get counter offers');
+  }
+
+  const total = await this.prisma.job.count({ where });
+
+  const rows = await this.prisma.job.findMany({
+    where,
+    orderBy: { created_at: 'desc' },
+    skip,
+    take,
+    include:
+      userType === 'user'
+        ? {
+            accepted_counter_offer: {
+              include: {
+                helper: { select: { id: true, name: true, avatar: true } },
+              },
+            },
+          }
+        : undefined,
+  });
+
+  const totalPages = total === 0 ? 0 : Math.ceil(total / take);
+
+  return {
+    success: true,
+    message: `Found ${total} jobs`,
+    data: {
+      jobs: rows,
+      total,
+      totalPages,
+      currentPage,
+    },
+  };
+}
+
 async getCounterOffers(userId: string, jobId: string){
   const counterOffers=await this.prisma.counterOffer.findMany({
     where:{
@@ -187,5 +239,9 @@ async declineCounterOffer(userId: string, counterOfferId: string){
     message:'Counter offer declined successfully',
   };
 }
+
+
+
+
 
 }

@@ -51,49 +51,17 @@ export class CategoryController {
   }
 
   @Get('with-counts')
-  @ApiOperation({ summary: 'Get all categories with job counts' })
-  @ApiResponse({
-    status: 200,
-    description: 'Categories with counts retrieved successfully',
-    schema: {
-      type: 'array',
-      items: {
-        type: 'object',
-        properties: {
-          category: { type: 'string', example: 'cleaning' },
-          label: { type: 'string', example: 'Cleaning Services' },
-          count: { type: 'number', example: 5 },
-        },
-      },
-    },
-  })
   async findAllWithCounts(): Promise<any[]> {
     return this.categoryService.getCategoriesWithCounts();
   }
 
   @Get(':id')
-  @ApiOperation({ summary: 'Get category by ID' })
-  @ApiResponse({
-    status: 200,
-    description: 'Category retrieved successfully',
-    type: CategoryResponseDto,
-  })
-  @ApiResponse({ status: 404, description: 'Category not found' })
   async findOne(@Param('id') id: string): Promise<CategoryResponseDto> {
     return this.categoryService.getCategoryById(id);
   }
 
   @Patch(':id')
   @Roles(Role.ADMIN)
-  @ApiOperation({ summary: 'Update category (Admin only)' })
-  @ApiResponse({
-    status: 200,
-    description: 'Category updated successfully',
-    type: CategoryResponseDto,
-  })
-  @ApiResponse({ status: 400, description: 'Bad request' })
-  @ApiResponse({ status: 403, description: 'Forbidden' })
-  @ApiResponse({ status: 404, description: 'Category not found' })
   async update(
     @Param('id') id: string,
     @Body() updateCategoryDto: UpdateCategoryDto,
@@ -103,11 +71,6 @@ export class CategoryController {
 
   @Delete(':id')
   @Roles(Role.ADMIN)
-  @ApiOperation({ summary: 'Delete category (Admin only)' })
-  @ApiResponse({ status: 200, description: 'Category deleted successfully' })
-  @ApiResponse({ status: 400, description: 'Bad request' })
-  @ApiResponse({ status: 403, description: 'Forbidden' })
-  @ApiResponse({ status: 404, description: 'Category not found' })
   async remove(@Param('id') id: string): Promise<{ message: string }> {
     await this.categoryService.deleteCategory(id);
     return { message: 'Category deleted successfully' };
