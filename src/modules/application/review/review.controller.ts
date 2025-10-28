@@ -60,4 +60,10 @@ export class ReviewController {
     return this.reviewService.getReviewOfJob(jobId);
   }
 
+  @Get()
+  async myState(@Req() req:any){
+    const userId=req.user.userId
+    return this.reviewService.myReview(userId)
+  }
+
 }

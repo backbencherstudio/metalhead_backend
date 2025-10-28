@@ -732,72 +732,72 @@ export class AuthService {
     }
   }
 
-  async requestEmailChange(user_id: string, email: string) {
-    try {
-      const user = await UserRepository.getUserDetails(user_id);
-      if (user) {
-        const token = await UcodeRepository.createToken({
-          userId: user.id,
-          isOtp: true,
-          email: email,
-        });
-
-        await this.mailService.sendOtpCodeToEmail({
-          email: email,
-          name: email,
-          otp: token,
-        });
-
-        return {
-          success: true,
-          message: 'We have sent an OTP code to your email',
-        };
-      } else {
-        return {
-          success: false,
-          message: 'User not found',
-        };
-      }
-    } catch (error) {
-      return {
-        success: false,
-        message: error.message,
-      };
-    }
-  }
-
-  //   async requestUsernameChange(user_id: string, email: string) {
+  // async requestEmailChange(user_id: string, email: string) {
   //   try {
-  //     const user = await UserRepository.getUserByEmail(email);
-  //     if (!user) {
+  //     const user = await UserRepository.getUserDetails(user_id);
+  //     if (user) {
+  //       const token = await UcodeRepository.createToken({
+  //         userId: user.id,
+  //         isOtp: true,
+  //         email: email,
+  //       });
+
+  //       await this.mailService.sendOtpCodeToEmail({
+  //         email: email,
+  //         name: email,
+  //         otp: token,
+  //       });
+
+  //       return {
+  //         success: true,
+  //         message: 'We have sent an OTP code to your email',
+  //       };
+  //     } else {
   //       return {
   //         success: false,
-  //         message: 'User with this email address does not exist', 
+  //         message: 'User not found',
   //       };
   //     }
-  //     const token = await UcodeRepository.createToken({
-  //       userId: user_id,
-  //       isOtp: true,
-  //       email: email, 
-  //     });
-
-  //     await this.mailService.sendOtpCodeToEmail({
-  //       email: email,
-  //       name: user.username, 
-  //       otp: token,
-  //     });
-
-  //     return {
-  //       success: true,
-  //       message: 'We have sent an OTP code to your email for username change', 
-  //     };
   //   } catch (error) {
   //     return {
   //       success: false,
-  //       message: error.message, 
+  //       message: error.message,
   //     };
   //   }
   // }
+
+    async requestUsernameChange(user_id: string, email: string) {
+    try {
+      const user = await UserRepository.getUserByEmail(email);
+      if (!user) {
+        return {
+          success: false,
+          message: 'User with this email address does not exist', 
+        };
+      }
+      const token = await UcodeRepository.createToken({
+        userId: user_id,
+        isOtp: true,
+        email: email, 
+      });
+
+      await this.mailService.sendOtpCodeToEmail({
+        email: email,
+        name: user.username, 
+        otp: token,
+      });
+
+      return {
+        success: true,
+        message: 'We have sent an OTP code to your email for username change', 
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: error.message, 
+      };
+    }
+  }
 
 
   async changeEmail({
@@ -859,61 +859,56 @@ export class AuthService {
 
   async changeUsername({
     user_id,
-    new_email,
     token,
     new_username,
   }: {
     user_id: string;
-    new_email: string;
     token: string;
     new_username: string;
   }) {
     try {
-      const user = await UserRepository.getUserDetails(user_id);
-
-      if (!user) {
-        return {
-          success: false,
-          message: 'User not found',
-        };
-      }
-
-      // Validate the token for email change
-      const existToken = await UcodeRepository.validateToken({
-        email: new_email,
-        token,
-        forEmailChange: true,
+      // 1) Load user and current email
+      const user = await this.prisma.user.findUnique({
+        where: { id: user_id },
+        select: { id: true, email: true },
       });
-
-      if (!existToken) {
-        return {
-          success: false,
-          message: 'Invalid token',
-        };
-      }
-
-      // Proceed with updating both email and username
+      if (!user) return { success: false, message: 'User not found' };
+      if (!user.email) return { success: false, message: 'User has no email on file' };
+  
+      // 2) Validate OTP against CURRENT email (purpose: username change)
+      const ok = await UcodeRepository.validateToken({
+        email: user.email,
+        token,
+        // if your Ucode supports purpose/forEmailChange flags, set appropriately
+        forEmailChange: false,
+        // purpose: 'username_change'
+      });
+      if (!ok) return { success: false, message: 'Invalid or expired token' };
+  
+      // 3) Update username
       const updatedUser = await this.prisma.user.update({
         where: { id: user_id },
-        data: {
-          username: new_username, // Update username
-        },
+        data: { username: new_username },
+        select: { id: true, username: true, email: true },
       });
-
+  
+      // 4) Optionally consume/invalidate the token
+      // await UcodeRepository.deleteToken({ email: user.email, token });
+  
       return {
         success: true,
-        message: 'username updated successfully',
+        message: 'Username updated successfully',
         data: updatedUser,
       };
-    } catch (error) {
-      return {
-        success: false,
-        message: error.message || 'Something went wrong',
-      };
+    } catch (error: any) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError) {
+        if (error.code === 'P2002') return { success: false, message: 'Username is already taken' };
+        if (error.code === 'P2025') return { success: false, message: 'User not found' };
+      }
+      return { success: false, message: error?.message || 'Something went wrong' };
     }
   }
-
-  // --------- 2FA ---------
+  
   async generate2FASecret(user_id: string) {
     try {
       return await UserRepository.generate2FASecret(user_id);

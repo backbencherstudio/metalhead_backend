@@ -229,29 +229,30 @@ export class ReviewService {
   }
 
   async getReviewOfJob(jobId: string) {
-    const job = await this.prisma.job.findMany({
-      where: { id: jobId, 
-        job_status:{in:["completed","paid"]}
+    const job = await this.prisma.job.findFirst({
+      where: {
+        id: jobId,
+        job_status: { in: ["completed", "paid"] },
       },
-      include: {
+      select: {
+        id: true,
+        created_at: true,
+        updated_at: true,
+        status: true,
+        job_status: true,
+        title: true,
+        start_time: true,
+        user_id: true,
+        assigned_helper_id: true,
         reviews: {
-          include:{
-            reviewee:{
-              select:{
-                id:true,
-                first_name:true,
-                avatar:true,
-                
-              }
+          include: {
+            reviewee: {
+              select: { id: true, first_name: true, avatar: true,type:true },
             },
-            reviewer:{
-              select:{
-                id:true,
-                first_name:true,
-                avatar:true,
-              }
-            }
-          }
+            reviewer: {
+              select: { id: true, first_name: true, avatar: true,type:true  },
+            },
+          },
         },
       },
     });
@@ -295,4 +296,25 @@ export class ReviewService {
       job_id: review.job_id,
     };
   }
+
+async myReview(userId: string) {
+  const user = await this.prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      type: true,
+      avrg_rating_as_helper: true,
+      avrg_rating_as_user: true,
+    },
+  });
+
+  if (!user) throw new NotFoundException('User not found');
+
+  if (user.type === 'user') {
+    return 
+    Number(user.avrg_rating_as_user ?? 0);
+  } else {
+    return Number(user.avrg_rating_as_helper ?? 0);
+  }
+}
+
 }
