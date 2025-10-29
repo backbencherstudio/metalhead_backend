@@ -26,7 +26,7 @@ import { JobResponseDto } from './dto/job-response.dto';
 import { JobCreateResponseDto } from './dto/job-create-response.dto';
 import { JobListResponseDto } from './dto/job-list-response.dto';
 import { JobSingleResponseDto } from './dto/job-single-response.dto';
-import { UpdateHelperPreferencesDto } from './dto/update-helper-preferences.dto';
+import { HelperPreferencesDto } from './dto/helper-preferences-shared.dto';
 import { CategoriesListResponseDto, CategoryResponseDto } from './dto/category-response.dto';
 import { LatestJobResponseDto } from './dto/latest-job-response.dto';
 import { CategoryService } from '../category/category.service';
@@ -515,7 +515,7 @@ export class JobController {
   @ApiOperation({ summary: 'Update helper notification preferences' })
   @Patch('helper/preferences')
   async updateHelperPreferences(
-    @Body() dto: UpdateHelperPreferencesDto,
+    @Body() dto: HelperPreferencesDto,
     @Req() req: Request,
   ): Promise<{ message: string }> {
     try {

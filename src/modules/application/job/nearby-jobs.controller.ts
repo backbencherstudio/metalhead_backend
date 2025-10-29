@@ -11,7 +11,8 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags, ApiQuery, ApiBody, ApiParam } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
-import { NearbyJobsService, HelperNotificationPreferences } from './nearby-jobs.service';
+import { NearbyJobsService } from './nearby-jobs.service';
+import { HelperPreferencesDto, HelperPreferencesResponse } from './dto/helper-preferences-shared.dto';
 import { Request } from 'express';
 
 @ApiBearerAuth()
@@ -100,16 +101,15 @@ export class NearbyJobsController {
 
 
   @Get('preferences')
-  async getNotificationPreferences(@Req() req: Request) {
+  async getNotificationPreferences(@Req() req: Request): Promise<HelperPreferencesResponse> {
       const userId = (req as any).user.userId
       return this.nearbyJobsService.getHelperNotificationPreferences(userId);
-
   }
 
 
   @Put('preferences')
   async updateNotificationPreferences(
-    @Body() preferences: Partial<HelperNotificationPreferences>,
+    @Body() preferences: HelperPreferencesDto,
     @Req() req: Request,
   ) {
       const userId = (req as any).user.userId;

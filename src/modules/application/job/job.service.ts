@@ -13,6 +13,7 @@ import { CategoryService } from '../category/category.service';
 import { convertEnumToCategoryName } from './utils/category-mapper.util';
 import { jobType, PaymentType } from '@prisma/client';
 import { RequestExtraTimeDto } from './dto/request-extra-time.dto';
+import { StripePayment } from 'src/common/lib/Payment/stripe/StripePayment';
 
 @Injectable()
 export class JobService {
@@ -999,7 +1000,6 @@ export class JobService {
       where: {
         id,
         user_id: userId,
-        status: 1,
         deleted_at: null,
         job_status: { not: { in: ['confirm', 'completed', 'cancelled'] } },
       },
@@ -1099,7 +1099,7 @@ export class JobService {
   // Get job counts by category
   async getJobCountsByCategory(): Promise<any> {
     // Get all categories with their job counts
-    const categories = await (this.prisma as any).category.findMany({
+    const categories = await this.prisma.category.findMany({
       where: {
         status: 1,
         deleted_at: null,
@@ -1306,6 +1306,16 @@ export class JobService {
             updatedJob,
           };
         } else {
+
+
+          // Payment Transaction
+
+          // const paymentIntent=await StripePayment.createPaymentIntent({
+          //   amount: job.price,
+          //   currency: 'usd',
+          //   customer_id: job.user.stripe_connect_account_id,
+          // });
+
           const updatedJob = await this.prisma.job.update({
             where: { id: jobId },
             data: {
@@ -1378,6 +1388,9 @@ export class JobService {
         `Job must be completed by helper before you can finish it. Current status: ${jobExists.job_status}`,
       );
     }
+
+
+    // Anik Payment Transaction
 
     const updatedJob = await this.prisma.job.update({
       where: { 
@@ -1973,6 +1986,20 @@ export class JobService {
           return convertEnumToCategoryName(category);
         },
       );
+
+      // Validate category names against seeded categories
+      const validCategories = await this.prisma.category.findMany({
+        select: { name: true }
+      });
+      const validCategoryNames = validCategories.map(c => c.name);
+      
+      const invalidCategories = dto.preferredCategories.filter(
+        (cat: string) => !validCategoryNames.includes(cat)
+      );
+      
+      if (invalidCategories.length > 0) {
+        throw new Error(`Invalid categories: ${invalidCategories.join(', ')}. Valid categories are: ${validCategoryNames.join(', ')}`);
+      }
     }
 
     // Update user preferences in database

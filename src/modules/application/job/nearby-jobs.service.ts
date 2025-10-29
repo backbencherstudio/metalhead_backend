@@ -3,6 +3,7 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { FirebaseNotificationService } from '../firebase-notification/firebase-notification.service';
 import { convertEnumArrayToCategoryNames } from './utils/category-mapper.util';
 import { NotificationRepository } from '../../../common/repository/notification/notification.repository';
+import { HelperPreferencesDto, HelperPreferencesResponse } from './dto/helper-preferences-shared.dto';
 
 export interface NearbyJobNotification {
   jobId: string;
@@ -23,14 +24,7 @@ export interface NearbyJobNotification {
   };
 }
 
-export interface HelperNotificationPreferences {
-  maxDistanceKm: number;
-  minJobPrice?: number;
-  maxJobPrice?: number;
-  preferredCategories: string[];
-  isActive: boolean;
-  notificationTypes: string[];
-}
+// Remove the old interface - now using shared HelperPreferencesResponse
 
 @Injectable()
 export class NearbyJobsService {
@@ -294,6 +288,11 @@ export class NearbyJobsService {
               name: true,
             },
           },
+          category: {
+            select: {
+              name: true,
+            },
+          },
         },
       });
 
@@ -372,7 +371,8 @@ export class NearbyJobsService {
 
         // Check category preferences
         if (helper.preferred_categories && helper.preferred_categories.length > 0) {
-          if (!helper.preferred_categories.includes(job.category)) {
+          const jobCategoryName = job.category?.name || 'other';
+          if (!helper.preferred_categories.includes(jobCategoryName)) {
             continue;
           }
         }
@@ -428,7 +428,7 @@ export class NearbyJobsService {
    */
   async updateHelperNotificationPreferences(
     userId: string,
-    preferences: Partial<HelperNotificationPreferences>
+    preferences: HelperPreferencesDto
   ): Promise<void> {
     try {
       const updateData: any = {};
@@ -444,7 +444,23 @@ export class NearbyJobsService {
       }
       if (preferences.preferredCategories !== undefined) {
         // Convert old enum values to new category names for backward compatibility
-        updateData.preferred_categories = convertEnumArrayToCategoryNames(preferences.preferredCategories);
+        const convertedCategories = convertEnumArrayToCategoryNames(preferences.preferredCategories);
+        
+        // Validate category names against seeded categories
+        const validCategories = await this.prisma.category.findMany({
+          select: { name: true }
+        });
+        const validCategoryNames = validCategories.map(c => c.name);
+        
+        const invalidCategories = convertedCategories.filter(
+          (cat: string) => !validCategoryNames.includes(cat)
+        );
+        
+        if (invalidCategories.length > 0) {
+          throw new Error(`Invalid categories: ${invalidCategories.join(', ')}. Valid categories are: ${validCategoryNames.join(', ')}`);
+        }
+        
+        updateData.preferred_categories = convertedCategories;
       }
 
       await this.prisma.user.update({
@@ -462,7 +478,7 @@ export class NearbyJobsService {
   /**
    * Get user's current notification preferences
    */
-  async getHelperNotificationPreferences(userId: string): Promise<HelperNotificationPreferences> {
+  async getHelperNotificationPreferences(userId: string): Promise<HelperPreferencesResponse> {
     try {
       const user = await this.prisma.user.findUnique({
         where: { id: userId },
