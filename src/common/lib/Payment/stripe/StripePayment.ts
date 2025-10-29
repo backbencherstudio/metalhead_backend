@@ -2,6 +2,7 @@ import stripe from 'stripe';
 import * as fs from 'fs';
 import appConfig from '../../../../config/app.config';
 import { Fetch } from '../../Fetch';
+import { Decimal } from '@prisma/client/runtime/library';
 
 const STRIPE_SECRET_KEY = appConfig().payment.stripe.secret_key;
 
@@ -131,13 +132,13 @@ export class StripePayment {
     customer_id,
     metadata,
   }: {
-    amount: number;
+    amount: Decimal;
     currency: string;
     customer_id: string;
     metadata?: stripe.MetadataParam;
   }): Promise<stripe.PaymentIntent> {
     return Stripe.paymentIntents.create({
-      amount: amount * 100, // amount in cents
+      amount: amount.toNumber() * 100, // amount in cents
       currency: currency,
       customer: customer_id,
       metadata: metadata,

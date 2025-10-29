@@ -1,9 +1,10 @@
 import { JobService } from './../job/job.service';
 import { AcceptCounterOfferDto } from './dtos/accept-counter-offer.dto';
-import { ForbiddenException, Injectable, Logger, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CreateCounterOfferDto } from '../counter-offer/dtos/create-counter-offer.dto';
 import { CounterOfferNotificationService } from './counter-offer-notification.service';
+import { StripePayment } from 'src/common/lib/Payment/stripe/StripePayment';
 
 @Injectable()
 
@@ -81,9 +82,25 @@ const updatedJob= await this.prisma.job.update({
     accepted_counter_offer_id:counterOffer.id,
     assigned_helper_id:counterOffer.helper_id, // Assign the helper to the job
     final_price:counterOffer.amount,
+  },
+  select:{
+    id: true,
+    final_price: true,
+    user: {
+      select: {
+        billing_id: true,
+      },
+    },
+    assigned_helper: {
+      select: {
+        id: true,
+        stripe_connect_account_id: true,
+      },
+    },
+    title: true,
+
   }
 })
-
 
 await this.prisma.counterOffer.deleteMany({
   where: {
@@ -91,13 +108,29 @@ await this.prisma.counterOffer.deleteMany({
     id: { not: acceptCounterOfferDto.counter_offer_id },
   },
 });
-
 const modifiedUpdatedjob=this.jobService.mapToResponseDto(updatedJob);
+
+  // Payment Intent
+  if(!updatedJob.final_price) throw new BadRequestException('Job price is not set');
+  if(!updatedJob.user.billing_id) throw new BadRequestException('User billing id is not set');
+  if(!updatedJob.assigned_helper.stripe_connect_account_id) throw new BadRequestException('Helper stripe connect account id is not set');
+  
+  const paymentIntent=await StripePayment.createPaymentIntent({
+    amount: updatedJob.final_price,
+    currency: 'usd',
+    customer_id: updatedJob.user.billing_id,
+    metadata: {                         
+      job_id: updatedJob.id,
+      helper_id: updatedJob.assigned_helper.id,
+      job_title: updatedJob.title
+    }
+  });
 
 return{
   message:'Counter offer accepted successfully',
   success:true,
   job:modifiedUpdatedjob,
+  paymentIntent:paymentIntent,
 }
 }
 
@@ -128,15 +161,41 @@ async helperAcceptsJob(helperId: string, jobId: string) {
       job_status: 'confirmed',
       assigned_helper_id: helperId,
       final_price: job.price, // Use original price for direct acceptance
+    },
+    select:{
+      id: true,
+      final_price: true,
+      user: {
+        select: {
+          billing_id: true,
+        },
+      },
+      assigned_helper_id: true,
+      title: true,
     }
   });
 
   const modifiedUpdatedjob=this.jobService.mapToResponseDto(updatedJob);
 
+  
+  const paymentIntent=await StripePayment.createPaymentIntent({
+    amount: updatedJob.final_price,
+    currency: 'usd',
+    customer_id: updatedJob.user.billing_id,
+    metadata: {                         
+      job_id: updatedJob.id,
+      helper_id: updatedJob.assigned_helper_id,
+      job_title: updatedJob.title
+    }
+  });
+
+
+
   return {
     success:true,
     message: 'Job accepted successfully',
     job: modifiedUpdatedjob,
+    paymentIntent:paymentIntent,
   };
 }
 

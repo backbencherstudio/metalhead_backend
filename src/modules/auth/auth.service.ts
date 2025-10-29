@@ -992,7 +992,31 @@ export class AuthService {
   async convertUserType(userId: string, type: string) {
     try {
       const result = await UserRepository.convertTo(userId, type);
-      return result;
+      if (!result?.success) {
+        return result;
+      }
+
+      // Reload user details to build JWT with updated type and name
+      const user = await UserRepository.getUserDetails(userId);
+      const fullName = `${user.first_name || ''} ${user.last_name || ''}`.trim() || user.name || 'User';
+      const payload = {
+        email: user.email,
+        sub: userId,
+        type: user.type, 
+        name: fullName,
+      };
+
+      const accessToken = this.jwtService.sign(payload, { expiresIn: '1h' });
+
+      return {
+        success: true,
+        message: `converted to ${user.type} successfully`,
+        authorization: {
+          type: 'bearer',
+          access_token: accessToken,
+        },
+        type: user.type,
+      };
     } catch (error) {
       return {
         success: false,

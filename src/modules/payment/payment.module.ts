@@ -5,5 +5,6 @@ import { CardModule } from './card/card.module';
 
 @Module({
   imports: [StripeModule, HelperOnboardingModule, CardModule],
+  exports: [StripeModule],
 })
 export class PaymentModule {}

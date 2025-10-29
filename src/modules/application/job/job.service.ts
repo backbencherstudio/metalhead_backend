@@ -14,6 +14,7 @@ import { convertEnumToCategoryName } from './utils/category-mapper.util';
 import { jobType, PaymentType } from '@prisma/client';
 import { RequestExtraTimeDto } from './dto/request-extra-time.dto';
 import { StripePayment } from 'src/common/lib/Payment/stripe/StripePayment';
+import { StripeMarketplaceService } from 'src/modules/payment/stripe/stripe-marketplace.service';
 
 @Injectable()
 export class JobService {
@@ -22,6 +23,7 @@ export class JobService {
     private jobNotificationService: JobNotificationService,
     private geocodingService: GeocodingService,
     private categoryService: CategoryService,
+    private stripeMarketplaceService: StripeMarketplaceService,
   ) {}
 
   async create(
@@ -1306,16 +1308,6 @@ export class JobService {
             updatedJob,
           };
         } else {
-
-
-          // Payment Transaction
-
-          // const paymentIntent=await StripePayment.createPaymentIntent({
-          //   amount: job.price,
-          //   currency: 'usd',
-          //   customer_id: job.user.stripe_connect_account_id,
-          // });
-
           const updatedJob = await this.prisma.job.update({
             where: { id: jobId },
             data: {
@@ -1390,7 +1382,46 @@ export class JobService {
     }
 
 
-    // Anik Payment Transaction
+  //Payment Intent and Transaction
+
+    const Job = await this.prisma.job.findFirst({
+      where: { id: jobId },
+      select: {
+        id: true,
+        title: true,
+        job_status: true,
+        actual_start_time: true,
+        actual_end_time: true,
+        actual_hours: true,
+        final_price: true,
+        updated_at: true,
+        hourly_rate: true,
+        payment_type: true,
+        total_approved_hours: true,
+        user: {
+          select: {
+            id: true,
+            billing_id: true,
+          },
+        },
+        assigned_helper:{
+          select: {
+            id: true,
+            stripe_connect_account_id: true,
+          },
+        }
+      },
+    });
+    // Payment Intent
+
+    const paymentIntent=await this.stripeMarketplaceService.createMarketplacePaymentIntent({
+      jobId: jobId,
+      finalPrice: Job.final_price,
+      buyerBillingId: Job.user.billing_id,
+      helperStripeAccountId: Job.assigned_helper.stripe_connect_account_id,
+      jobTitle: Job.title,
+    });
+
 
     const updatedJob = await this.prisma.job.update({
       where: { 
