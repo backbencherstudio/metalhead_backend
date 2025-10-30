@@ -84,47 +84,49 @@ model User {
   age                  Int?
   bio                  String?
   skills               String[] // Array of skill strings
-  jobs                 Job[]
 
-  helper_offers    CounterOffer[]  @relation("UserHelperOffers")
-  assigned_jobs    Job[]           @relation("AssignedHelper")
-  reviewer_reviews Review[]        @relation("ReviewerReviews")
-  reviewee_reviews Review[]        @relation("RevieweeReviews")
+  owner_jobs    Job[] @relation("OwnerJobs") // was `jobs Job[]`
+  assigned_jobs Job[] @relation("AssignedHelper") // already present
+  pending_jobs  Job[] @relation("PendingHelper")
 
-  total_reviews_as_user Int? @default(0)
+  helper_offers CounterOffer[] @relation("UserHelperOffers")
+
+  reviewer_reviews Review[] @relation("ReviewerReviews")
+  reviewee_reviews Review[] @relation("RevieweeReviews")
+
+  total_reviews_as_user   Int? @default(0)
   total_reviews_as_helper Int? @default(0)
-  total_ratings_as_user Int? @default(0)
+  total_ratings_as_user   Int? @default(0)
   total_ratings_as_helper Int? @default(0)
 
-  avrg_rating_as_user Decimal? @default(0)
+  avrg_rating_as_user   Decimal? @default(0)
   avrg_rating_as_helper Decimal? @default(0)
 
-  stripe_connect_account_id String?       
-  stripe_account_status String?    
+  stripe_connect_account_id   String?
+  stripe_account_status       String?
   stripe_payouts_enabled      Boolean? @default(false)
   stripe_onboarding_completed Boolean? @default(false)
-  
+
   // Location coordinates for distance calculation
   latitude  Float? // User's latitude
   longitude Float? // User's longitude
-  
+
   // Helper notification preferences
   notification_preferences Json? // Store helper's job notification settings
-  max_distance_km Int? @default(20) // Maximum distance for job notifications (default 20km)
-  min_job_price Decimal? // Minimum job price to get notified
-  max_job_price Decimal? // Maximum job price to get notified
-  preferred_categories String[] // Categories helper wants to be notified about
-  
+  max_distance_km          Int?     @default(20) // Maximum distance for job notifications (default 20km)
+  min_job_price            Decimal? // Minimum job price to get notified
+  max_job_price            Decimal? // Maximum job price to get notified
+  preferred_categories     String[] // Categories helper wants to be notified about
+
   // Firebase push notification tokens
   device_tokens String[] // Array of Firebase device tokens for push notifications
-  
+
   // User cards
-  cards UserCard[]
+  cards      UserCard[]
   Attachment Attachment[] @relation("attachment_sender")
+
   @@map("users")
 }
-  
-  
 
 model Ucode {
   id         String   @id @default(cuid())
@@ -275,6 +277,9 @@ model PaymentTransaction {
   user_id String?
   user    User?   @relation(fields: [user_id], references: [id])
 
+  // Stripe customer id (e.g., cus_123) for the buyer
+  customer_id String?
+
   order_id         String?
   type             String?  @default("order")
   withdraw_via     String?  @default("wallet")
@@ -309,7 +314,6 @@ enum PaymentType {
   FIXED
 }
 
-
 // message is used for conversation
 model Message {
   id         String    @id @default(cuid())
@@ -318,23 +322,23 @@ model Message {
   deleted_at DateTime?
 
   status MessageStatus? @default(PENDING)
-  
+
   // Message content
   message String? // Text content (optional for attachment-only messages)
-  
+
   // Relationships
   sender_id String?
   sender    User?   @relation("sender", fields: [sender_id], references: [id])
-  
+
   receiver_id String?
   receiver    User?   @relation("receiver", fields: [receiver_id], references: [id])
-  
+
   conversation_id String?
   conversation    Conversation? @relation(fields: [conversation_id], references: [id], onDelete: Cascade)
-  
+
   // Attachments belong to this message
   attachments Attachment[]
-  
+
   @@map("messages")
 }
 
@@ -354,11 +358,11 @@ model Attachment {
   // Relationship to message (not conversation)
   message_id String
   message    Message? @relation(fields: [message_id], references: [id], onDelete: Cascade)
-  
+
   // Track who sent the attachment
   sender_id String?
-  sender    User? @relation("attachment_sender", fields: [sender_id], references: [id])
-  
+  sender    User?   @relation("attachment_sender", fields: [sender_id], references: [id])
+
   @@map("attachments")
 }
 
@@ -375,9 +379,10 @@ model Conversation {
   participant    User?   @relation("participant", fields: [participant_id], references: [id])
 
   messages Message[]
-  
+
   @@map("conversations")
 }
+
 // ---------End Chat schema---------
 
 model Faq {
@@ -478,75 +483,83 @@ model UserSetting {
 
 // Job posting models
 model Job {
-  id              String             @id @default(cuid())
-  created_at      DateTime           @default(now())
-  updated_at      DateTime           @default(now())
-  deleted_at      DateTime?
-  status          Int?               @default(1) @db.SmallInt
-  job_status      String?            @default("posted") // posted, counter_offer, confirmed, ongoing, completed, paid
-  title           String?
-  category_id     String?
-  category        Category? @relation(fields: [category_id], references: [id])
-  date_and_time   DateTime? 
-  price           Decimal? // Original price set by user
-  final_price     Decimal? // Price after counter offer accepted
-  payment_type    PaymentType?
-         
-  location        String?
-  latitude        Float? // Job location latitude
-  longitude       Float? // Job location longitude
-  description     String?            @db.Text
-  job_type    jobType?       @default(ANYTIME) // Urgency type: FIXED or ANYTIME
-  urgent_note     String?            @db.Text // Urgent note for urgent jobs
-  
+  id            String       @id @default(cuid())
+  created_at    DateTime     @default(now())
+  updated_at    DateTime     @default(now())
+  deleted_at    DateTime?
+  status        Int?         @default(1) @db.SmallInt
+  job_status    String?      @default("posted") // posted, counter_offer, confirmed, ongoing, completed, paid
+  title         String?
+  category_id   String?
+  category      Category?    @relation(fields: [category_id], references: [id])
+  date_and_time DateTime?
+  price         Decimal? // Original price set by user
+  final_price   Decimal? // Price after counter offer accepted
+  payment_type  PaymentType?
+
+  location    String?
+  latitude    Float? // Job location latitude
+  longitude   Float? // Job location longitude
+  description String?  @db.Text
+  job_type    jobType? @default(ANYTIME) // Urgency type: FIXED or ANYTIME
+  urgent_note String?  @db.Text // Urgent note for urgent jobs
+
   // Job scheduling
-  start_time      DateTime? // When job should start
-  end_time        DateTime? // When job should end
-  estimated_time  String?   // Auto-calculated from start_time and end_time
-  
+  start_time     DateTime? // When job should start
+  end_time       DateTime? // When job should end
+  estimated_time String? // Auto-calculated from start_time and end_time
+
   // Time tracking for hourly jobs
   actual_start_time DateTime? // When helper actually started the job
   actual_end_time   DateTime? // When job was actually completed
-  actual_hours      Decimal?  // Calculated actual hours worked
-  hourly_rate       Decimal?  // Rate per hour for hourly jobs
-  estimated_hours   Decimal?  // Calculated from estimated_time
-  
+  actual_hours      Decimal? // Calculated actual hours worked
+  hourly_rate       Decimal? // Rate per hour for hourly jobs
+  estimated_hours   Decimal? // Calculated from estimated_time
+
   // Extra time request system
-  extra_time_requested    Decimal?  // Extra time requested by helper (in hours)
-  extra_time_approved     Boolean?  // Whether client approved the extra time
+  extra_time_requested    Decimal? // Extra time requested by helper (in hours)
+  extra_time_approved     Boolean? // Whether client approved the extra time
   extra_time_requested_at DateTime? // When extra time was requested
   extra_time_approved_at  DateTime? // When extra time was approved/rejected
-  total_approved_hours    Decimal?  // Original estimated + approved extra time
-  requirements    JobRequirement[]
-  notes           JobNote[] //only be enabled if user selects the job type as urgent
-  photos          String?
-  user_id         String?
-  user            User?              @relation(fields: [user_id], references: [id])
-  counter_offers  CounterOffer[]     @relation("JobCounterOffers")
-  
+  total_approved_hours    Decimal? // Original estimated + approved extra time
+  requirements            JobRequirement[]
+  notes                   JobNote[] //only be enabled if user selects the job type as urgent
+  photos                  String?
+  user_id                 String?
+  user                    User?            @relation("OwnerJobs", fields: [user_id], references: [id])
+  counter_offers          CounterOffer[]   @relation("JobCounterOffers")
+
   // For counter offer acceptance
-  accepted_counter_offer_id String?  // ID of the accepted counter offer
+  accepted_counter_offer_id String? // ID of the accepted counter offer
   accepted_counter_offer    CounterOffer? @relation("AcceptedCounterOffer", fields: [accepted_counter_offer_id], references: [id])
-  
+
+  pending_helper_id String?
+  pending_helper    User?   @relation("PendingHelper", fields: [pending_helper_id], references: [id])
+
   // For direct job acceptance (optional)
-  assigned_helper_id String?  // Direct helper assignment
-  assigned_helper    User?    @relation("AssignedHelper", fields: [assigned_helper_id], references: [id])
-  
-  reviews         Review[]
-  status_history  JobStatusHistory[]
-  timeline        JobTimeline[]
+  assigned_helper_id String? // Direct helper assignment
+  assigned_helper    User?   @relation("AssignedHelper", fields: [assigned_helper_id], references: [id])
+
+  reviews        Review[]
+  status_history JobStatusHistory[]
+  timeline       JobTimeline[]
+
+  payment_intent_id String?
+  last_transfer_id  String?
+  paid_at           DateTime?
+
   @@map("jobs")
 }
 
 model JobTimeline {
-  id         String    @id @default(cuid())
+  id         String   @id @default(cuid())
   job_id     String
   status     String
-  timestamp  DateTime  @default(now())
-  created_at DateTime  @default(now())
-  
-  job        Job       @relation(fields: [job_id], references: [id], onDelete: Cascade)
-  
+  timestamp  DateTime @default(now())
+  created_at DateTime @default(now())
+
+  job Job @relation(fields: [job_id], references: [id], onDelete: Cascade)
+
   @@map("job_timeline")
 }
 
@@ -599,10 +612,9 @@ model CounterOffer {
 
   // Relation for accepted counter offers
   accepted_by_jobs Job[] @relation("AcceptedCounterOffer")
-
+  // @@unique([job_id, helper_id])
   @@map("counter_offers")
 }
-
 
 model Review {
   id         String    @id @default(cuid())
@@ -676,14 +688,14 @@ model UserCard {
   cvv             String? // Encrypted CVV - Optional for Stripe cards
   card_type       String? // Visa, MasterCard, etc.
   last_four       String // Last 4 digits for display
-  
+
   // Card status
-  is_default      Boolean @default(false)
-  is_expired      Boolean @default(false)
-  
+  is_default Boolean @default(false)
+  is_expired Boolean @default(false)
+
   // Stripe integration
   stripe_payment_method_id String? // Stripe payment method ID
-  
+
   // User relationship
   user_id String
   user    User   @relation(fields: [user_id], references: [id], onDelete: Cascade)

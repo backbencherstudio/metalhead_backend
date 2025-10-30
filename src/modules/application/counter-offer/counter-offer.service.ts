@@ -5,6 +5,7 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { CreateCounterOfferDto } from '../counter-offer/dtos/create-counter-offer.dto';
 import { CounterOfferNotificationService } from './counter-offer-notification.service';
 import { StripePayment } from 'src/common/lib/Payment/stripe/StripePayment';
+import { StripeMarketplaceService } from 'src/modules/payment/stripe/stripe-marketplace.service';
 
 @Injectable()
 
@@ -12,7 +13,8 @@ export class CounterOfferService {
   constructor(
     private prisma: PrismaService,
     private counterOfferNotificationService: CounterOfferNotificationService,
-    readonly jobService: JobService
+    readonly jobService: JobService,
+    private stripeMarketplaceService: StripeMarketplaceService
   ) {}
 
 async createCounterOffer(createCounterOfferDto: CreateCounterOfferDto, userId: string){
@@ -59,6 +61,8 @@ async createCounterOffer(createCounterOfferDto: CreateCounterOfferDto, userId: s
 }
 
 
+// user accepts counter offer
+
 async acceptCounterOffer(acceptCounterOfferDto: AcceptCounterOfferDto, userId: string){
 const counterOffer=await this.prisma.counterOffer.findUnique({
   where:{
@@ -69,7 +73,6 @@ const counterOffer=await this.prisma.counterOffer.findUnique({
     helper:true,
   }
 })
-
 
 if(!counterOffer) throw new NotFoundException('Counter offer not found')
 if(counterOffer.helper_id===userId) throw new UnauthorizedException('You are not authorized to accept this offer');
@@ -83,11 +86,14 @@ const updatedJob= await this.prisma.job.update({
     assigned_helper_id:counterOffer.helper_id, // Assign the helper to the job
     final_price:counterOffer.amount,
   },
+ 
   select:{
     id: true,
+    title: true,
     final_price: true,
     user: {
       select: {
+        id: true,
         billing_id: true,
       },
     },
@@ -97,10 +103,26 @@ const updatedJob= await this.prisma.job.update({
         stripe_connect_account_id: true,
       },
     },
-    title: true,
-
   }
 })
+
+const paymentIntent=await this.stripeMarketplaceService.createMarketplacePaymentIntent({
+  jobId: updatedJob.id,
+  finalPrice: updatedJob.final_price,
+  buyerBillingId: updatedJob.user.billing_id,
+  buyerUserId: updatedJob.user.id,
+  helperStripeAccountId: updatedJob.assigned_helper.stripe_connect_account_id,
+  jobTitle: updatedJob.title,
+});
+
+// 2) Capture immediately (money moves to your platform balance)
+await this.stripeMarketplaceService.capturePaymentIntent(paymentIntent.payment_intent_id);
+
+// 3) Persist for reconciliation
+await this.prisma.job.update({
+  where: { id: updatedJob.id },
+  data: { payment_intent_id: paymentIntent.payment_intent_id, job_status: 'confirmed' },
+});
 
 await this.prisma.counterOffer.deleteMany({
   where: {
@@ -110,92 +132,56 @@ await this.prisma.counterOffer.deleteMany({
 });
 const modifiedUpdatedjob=this.jobService.mapToResponseDto(updatedJob);
 
-  // Payment Intent
-  if(!updatedJob.final_price) throw new BadRequestException('Job price is not set');
-  if(!updatedJob.user.billing_id) throw new BadRequestException('User billing id is not set');
-  if(!updatedJob.assigned_helper.stripe_connect_account_id) throw new BadRequestException('Helper stripe connect account id is not set');
-  
-  const paymentIntent=await StripePayment.createPaymentIntent({
-    amount: updatedJob.final_price,
-    currency: 'usd',
-    customer_id: updatedJob.user.billing_id,
-    metadata: {                         
-      job_id: updatedJob.id,
-      helper_id: updatedJob.assigned_helper.id,
-      job_title: updatedJob.title
-    }
-  });
-
 return{
   message:'Counter offer accepted successfully',
   success:true,
   job:modifiedUpdatedjob,
-  paymentIntent:paymentIntent,
+  payment_intent: paymentIntent,
 }
 }
 
 async helperAcceptsJob(helperId: string, jobId: string) {
-  // Validate that the helper exists and is a helper
-  const helper = await this.prisma.user.findUnique({
-    where: { id: helperId },
-    select: { id: true, type: true }
-  });
-  if (!helper) throw new NotFoundException('Helper not found');
-  if (helper.type !== 'helper') throw new ForbiddenException('Only helpers can accept jobs');
+  // ...existing validations (helper exists, job exists, not own job, not already assigned)...
 
-  // Validate job exists and is available
-  const job = await this.prisma.job.findUnique({
-    where: { id: jobId }
-  });
+  const job = await this.prisma.job.findUnique({ where: { id: jobId } });
   if (!job) throw new NotFoundException('Job not found');
-  if (job.user_id === helperId) throw new ForbiddenException('You cannot accept your own job');
-  if (job.job_status !== 'posted') throw new ForbiddenException('Job is not available for acceptance');
   if (job.accepted_counter_offer_id || job.assigned_helper_id) {
     throw new ForbiddenException('Job has already been assigned');
   }
 
-  // Assign the helper directly to the job
+  // Optional: prevent duplicate offers from the same helper on the same job
+  const existing = await this.prisma.counterOffer.findFirst({
+    where: { job_id: jobId, helper_id: helperId },
+  });
+  if (existing) {
+    return { success: true, message: 'Offer already submitted', offer_id: existing.id };
+  }
+
+  // Create a counter offer representing the direct accept at job.price
+  const offer = await this.prisma.counterOffer.create({
+    data: {
+      job_id: jobId,
+      helper_id: helperId,
+      amount: job.price!,     
+      type: job.payment_type, 
+    },
+    select: { id: true, amount: true, type: true, note: true, created_at: true, updated_at: true }
+  });
+
+  // Put job into counter_offer state (or 'awaiting_user_approval' if you prefer)
   const updatedJob = await this.prisma.job.update({
     where: { id: jobId },
-    data: {
-      job_status: 'confirmed',
-      assigned_helper_id: helperId,
-      final_price: job.price, // Use original price for direct acceptance
-    },
-    select:{
-      id: true,
-      final_price: true,
-      user: {
-        select: {
-          billing_id: true,
-        },
-      },
-      assigned_helper_id: true,
-      title: true,
-    }
+    data: { job_status: 'counter_offer', price: job.price },
+    select: { id: true, title: true, job_status: true, price: true, user_id: true },
   });
 
-  const modifiedUpdatedjob=this.jobService.mapToResponseDto(updatedJob);
-
-  
-  const paymentIntent=await StripePayment.createPaymentIntent({
-    amount: updatedJob.final_price,
-    currency: 'usd',
-    customer_id: updatedJob.user.billing_id,
-    metadata: {                         
-      job_id: updatedJob.id,
-      helper_id: updatedJob.assigned_helper_id,
-      job_title: updatedJob.title
-    }
-  });
-
-
-
+  const dto = this.jobService.mapToResponseDto(updatedJob);
   return {
-    success:true,
-    message: 'Job accepted successfully',
-    job: modifiedUpdatedjob,
-    paymentIntent:paymentIntent,
+    success: true,
+    message: 'Direct acceptance submitted as a counter offer. Awaiting user decision.',
+    offer,
+    job: dto,
+    
   };
 }
 
@@ -209,43 +195,44 @@ async getMyCounterOffers(
   const currentPage = Math.max(1, Number(page) || 1);
   const skip = (currentPage - 1) * take;
 
-  let where: any;
-  if (userType === 'user') {
-    where = { user_id: userId, accepted_counter_offer_id: { not: null } };
-  } else if (userType === 'helper') {
-    where = { assigned_helper_id: userId };
-  } else {
-    throw new ForbiddenException('You are not authorized to get counter offers');
-  }
+  // Build where by requester type
+  const where =
+    userType === 'user'
+      ? { job: { user_id: userId } } // all offers against the user's jobs
+      : { helper_id: userId };       // all offers made by the helper
 
-  const total = await this.prisma.job.count({ where });
-
-  const rows = await this.prisma.job.findMany({
-    where,
-    orderBy: { created_at: 'desc' },
-    skip,
-    take,
-    include:
-      userType === 'user'
-        ? {
-            accepted_counter_offer: {
-              include: {
-                helper: { select: { id: true, name: true, avatar: true } },
-              },
-            },
-          }
-        : undefined,
-  });
-
-  const totalPages = total === 0 ? 0 : Math.ceil(total / take);
+  const [total, rows] = await Promise.all([
+    this.prisma.counterOffer.count({ where }),
+    this.prisma.counterOffer.findMany({
+      where,
+      orderBy: { created_at: 'desc' },
+      skip,
+      take,
+      include: {
+        job: {
+          select: {
+            id: true,
+            title: true,
+            price: true,
+            job_status: true,
+            user_id: true,
+            
+          },
+        },
+        helper: {
+          select: { id: true, name: true, avatar: true,},
+        },
+      },
+    }),
+  ]);
 
   return {
     success: true,
-    message: `Found ${total} jobs`,
+    message: `Found ${total} counter offers`,
     data: {
-      jobs: rows,
+      counter_offers: rows,
       total,
-      totalPages,
+      totalPages: total === 0 ? 0 : Math.ceil(total / take),
       currentPage,
     },
   };
@@ -274,6 +261,7 @@ async getCounterOffers(userId: string, jobId: string){
     counter_offers:counterOffers,
   };
 }
+
 
 async declineCounterOffer(userId: string, counterOfferId: string){
   const counterOffer=await this.prisma.counterOffer.findUnique({

@@ -308,84 +308,95 @@ export class AuthController {
     }
   }
 
-  // reset password if user forget the password
-  @ApiOperation({ summary: 'Reset password' })
-  @Post('reset-password')
-  async resetPassword(
-    @Body() data: { email: string; token: string; password: string },
+
+  // Step 3: set new password using temporary JWT
+  @ApiOperation({ summary: 'Set new password using temporary JWT' })
+  @ApiBearerAuth()
+  @UseGuards(TemporaryJwtAuthGuard)
+  @Post('password/set')
+  async setPassword(
+    @Req() req: Request,
+    @Body() body: { new_password: string; confirm_password: string },
   ) {
     try {
-      const email = data.email;
-      const token = data.token;
-      const password = data.password;
-      if (!email) {
-        throw new HttpException('Email not provided', HttpStatus.UNAUTHORIZED);
+      const userId = req.user.userId;
+      // optional sanity check: req.user.type should be 'temporary'
+      if ((req.user as any).type && (req.user as any).type !== 'temporary') {
+        throw new HttpException('Temporary token required', HttpStatus.UNAUTHORIZED);
       }
-      if (!token) {
-        throw new HttpException('Token not provided', HttpStatus.UNAUTHORIZED);
-      }
-      if (!password) {
-        throw new HttpException(
-          'Password not provided',
-          HttpStatus.UNAUTHORIZED,
-        );
-      }
-      return await this.authService.resetPassword({
-        email: email,
-        token: token,
-        password: password,
-      });
+      return await this.authService.setPasswordWithTemporaryJwt(
+        userId,
+        body.new_password,
+        body.confirm_password,
+      );
     } catch (error) {
-      return {
-        success: false,
-        message: 'Something went wrong',
-      };
+      return { success: false, message: 'Failed to set password' };
+    }
+  }
+
+  // Set username using temporary JWT (after OTP-verified email flow)
+  @ApiOperation({ summary: 'Set username using temporary JWT' })
+  @ApiBearerAuth()
+  @UseGuards(TemporaryJwtAuthGuard)
+  @Post('reset-username')
+  async setUsername(
+    @Req() req: Request,
+    @Body() body: { new_username: string },
+  ) {
+    try {
+      const userId = req.user.userId;
+      if (!body?.new_username) {
+        throw new HttpException('new_username is required', HttpStatus.BAD_REQUEST);
+      }
+      return await this.authService.setUsernameWithTemporaryJwt(userId, body.new_username);
+    } catch (error) {
+      return { success: false, message: 'Failed to set username' };
     }
   }
 
   // change password if user want to change the password
-  @ApiOperation({ summary: 'Change password' })
-  @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard)
-  @Post('change-password')
-  async changePassword(
-    @Req() req: Request,
-    @Body() data: { email: string; old_password: string; new_password: string },
-  ) {
-    try {
-      // const email = data.email;
-      const user_id = req.user.userId;
+  // @ApiOperation({ summary: 'Change password' })
+  // @ApiBearerAuth()
+  // @UseGuards(JwtAuthGuard)
+  // @Post('change-password')
+  // async changePassword(
+  //   @Req() req: Request,
+  //   @Body() data: { email: string; old_password: string; new_password: string },
+  // ) {
+  //   try {
+  //     // const email = data.email;
+  //     const user_id = req.user.userId;
 
-      const oldPassword = data.old_password;
-      const newPassword = data.new_password;
-      // if (!email) {
-      //   throw new HttpException('Email not provided', HttpStatus.UNAUTHORIZED);
-      // }
-      if (!oldPassword) {
-        throw new HttpException(
-          'Old password not provided',
-          HttpStatus.UNAUTHORIZED,
-        );
-      }
-      if (!newPassword) {
-        throw new HttpException(
-          'New password not provided',
-          HttpStatus.UNAUTHORIZED,
-        );
-      }
-      return await this.authService.changePassword({
-        // email: email,
-        user_id: user_id,
-        oldPassword: oldPassword,
-        newPassword: newPassword,
-      });
-    } catch (error) {
-      return {
-        success: false,
-        message: 'Failed to change password',
-      };
-    }
-  }
+  //     const oldPassword = data.old_password;
+  //     const newPassword = data.new_password;
+  //     // if (!email) {
+  //     //   throw new HttpException('Email not provided', HttpStatus.UNAUTHORIZED);
+  //     // }
+  //     if (!oldPassword) {
+  //       throw new HttpException(
+  //         'Old password not provided',
+  //         HttpStatus.UNAUTHORIZED,
+  //       );
+  //     }
+  //     if (!newPassword) {
+  //       throw new HttpException(
+  //         'New password not provided',
+  //         HttpStatus.UNAUTHORIZED,
+  //       );
+  //     }
+  //     return await this.authService.changePassword({
+  //       // email: email,
+  //       user_id: user_id,
+  //       oldPassword: oldPassword,
+  //       newPassword: newPassword,
+  //     });
+  //   } catch (error) {
+  //     return {
+  //       success: false,
+  //       message: 'Failed to change password',
+  //     };
+  //   }
+  // }
 
   // --------------end change password---------
 
@@ -567,7 +578,7 @@ async changeUsername(
   @ApiOperation({ summary: 'Convert user type between user and helper' })
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
-  @Post('convert-role')
+  @Post('switch-role')
   async convertRole(@Req() req: Request, @Body() body: { type: string }) {
     try {
       const user_id = req.user.userId;
@@ -633,23 +644,7 @@ async changeUsername(
     }
   }
 
-  // Debug endpoint to test authentication
-  @ApiOperation({ summary: 'Test authentication (for debugging)' })
-  @ApiBearerAuth()
-  @UseGuards(TemporaryJwtAuthGuard)
-  @Get('debug/auth-test')
-  async debugAuthTest(@Req() req: Request) {
-    return {
-      success: true,
-      message: 'Authentication is working!',
-      user: {
-        id: req.user.userId,
-        email: req.user.email,
-        isTemporary: (req.user as any).isTemporary,
-      },
-      timestamp: new Date().toISOString(),
-    };
-  }
+
   
 }
 

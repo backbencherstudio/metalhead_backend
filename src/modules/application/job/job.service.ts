@@ -1380,48 +1380,7 @@ export class JobService {
         `Job must be completed by helper before you can finish it. Current status: ${jobExists.job_status}`,
       );
     }
-
-
-  //Payment Intent and Transaction
-
-    const Job = await this.prisma.job.findFirst({
-      where: { id: jobId },
-      select: {
-        id: true,
-        title: true,
-        job_status: true,
-        actual_start_time: true,
-        actual_end_time: true,
-        actual_hours: true,
-        final_price: true,
-        updated_at: true,
-        hourly_rate: true,
-        payment_type: true,
-        total_approved_hours: true,
-        user: {
-          select: {
-            id: true,
-            billing_id: true,
-          },
-        },
-        assigned_helper:{
-          select: {
-            id: true,
-            stripe_connect_account_id: true,
-          },
-        }
-      },
-    });
-    // Payment Intent
-
-    const paymentIntent=await this.stripeMarketplaceService.createMarketplacePaymentIntent({
-      jobId: jobId,
-      finalPrice: Job.final_price,
-      buyerBillingId: Job.user.billing_id,
-      helperStripeAccountId: Job.assigned_helper.stripe_connect_account_id,
-      jobTitle: Job.title,
-    });
-
+    
 
     const updatedJob = await this.prisma.job.update({
       where: { 
@@ -1441,10 +1400,16 @@ export class JobService {
         actual_end_time: true,
         updated_at: true,
         user_id: true,
-        assigned_helper_id: true,
+        final_price: true,
+    payment_intent_id: true,
+        assigned_helper: {
+          select:{
+            id: true,
+            stripe_connect_account_id: true,
+          }
+        },
         actual_start_time: true,
         actual_hours: true,
-        final_price: true,
         price: true,
       }
     });

@@ -551,7 +551,7 @@ export class AuthService {
     }
   }
 
-  async resetPassword({ email, token, password }) {
+  async resetPassword({ email, token }) {
     try {
       const user = await UserRepository.exist({
         field: 'email',
@@ -565,20 +565,16 @@ export class AuthService {
         });
 
         if (existToken) {
-          await UserRepository.changePassword({
-            email: email,
-            password: password,
-          });
+          // Consume OTP
+          await UcodeRepository.deleteToken({ email: email, token: token });
 
-          // delete otp code
-          await UcodeRepository.deleteToken({
-            email: email,
-            token: token,
-          });
-
+          // Issue temporary JWT to allow password change
+          const temporaryJwt = await this.generateTemporaryJwt(user.id);
           return {
             success: true,
-            message: 'Password updated successfully',
+            message: 'OTP verified. Use temporary JWT to set a new password',
+            temporary_jwt: temporaryJwt,
+            user_id: user.id,
           };
         } else {
           return {
@@ -597,6 +593,49 @@ export class AuthService {
         success: false,
         message: error.message,
       };
+    }
+  }
+
+  async setPasswordWithTemporaryJwt(user_id: string, new_password: string, confirm_password: string) {
+    try {
+      if (!new_password || !confirm_password) {
+        return { success: false, message: 'Both new_password and confirm_password are required' };
+      }
+      if (new_password !== confirm_password) {
+        return { success: false, message: 'Passwords do not match' };
+      }
+
+      const user = await UserRepository.getUserDetails(user_id);
+      if (!user) return { success: false, message: 'User not found' };
+
+      await UserRepository.changePassword({ email: user.email, password: new_password });
+
+      return { success: true, message: 'Password updated successfully' };
+    } catch (error) {
+      return { success: false, message: error.message };
+    }
+  }
+
+  async setUsernameWithTemporaryJwt(user_id: string, new_username: string) {
+    try {
+      if (!new_username) return { success: false, message: 'new_username is required' };
+
+      // Ensure the user exists
+      const user = await this.prisma.user.findUnique({ where: { id: user_id }, select: { id: true } });
+      if (!user) return { success: false, message: 'User not found' };
+
+      const updated = await this.prisma.user.update({
+        where: { id: user_id },
+        data: { username: new_username },
+        select: { id: true, username: true },
+      });
+
+      return { success: true, message: 'Username updated successfully', data: updated };
+    } catch (error: any) {
+      if (error?.code === 'P2002') {
+        return { success: false, message: 'Username is already taken' };
+      }
+      return { success: false, message: error?.message || 'Failed to update username' };
     }
   }
 
@@ -629,14 +668,16 @@ export class AuthService {
             token: token,
           });
 
-          // Generate temporary JWT for profile completion
+          // Generate temporary JWT for profile completion and return as bearer token
           const temporaryJwt = await this.generateTemporaryJwt(user.id);
 
           return {
             success: true,
             message: 'Email verified successfully',
-            temporary_jwt: temporaryJwt,
-            user_id: user.id,
+            authorization: {
+              type: 'bearer',
+              access_token: temporaryJwt,
+            },
           };
         } else {
           return {

@@ -4,8 +4,8 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CounterOfferService } from './counter-offer.service';
 import { CreateCounterOfferDto } from '../counter-offer/dtos/create-counter-offer.dto';
 import { AcceptCounterOfferDto } from './dtos/accept-counter-offer.dto';
-import { UserCounterOfferDto } from './dtos/user-counter-offer.dto';
-import { HelperAcceptCounterOfferDto } from './dtos/helper-accept-counter-offer.dto';
+// import { UserCounterOfferDto } from './dtos/user-counter-offer.dto';
+// import { HelperAcceptCounterOfferDto } from './dtos/helper-accept-counter-offer.dto';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { Request } from 'express';
 
@@ -18,6 +18,10 @@ export class CounterOfferController {
 
   @Post()
   async createCounterOffer(@Body() createCounterOfferDto: CreateCounterOfferDto, @Req() req:any, ) {
+    // Only helpers can create counter offers
+    if (!req?.user || req.user.type !== 'helper') {
+      throw new (await import('@nestjs/common')).ForbiddenException('Only helpers can create counter offers');
+    }
     const userId=req.user.id;
     return this.counterOfferService.createCounterOffer(createCounterOfferDto, userId);
 }
@@ -34,6 +38,10 @@ async acceptCounterOffer(
 async directAcceptJob(
 @Param('jobId') jobId: string, 
 @Req() req:any){
+  // Only helpers can directly accept jobs
+  if (!req?.user || req.user.type !== 'helper') {
+    throw new (await import('@nestjs/common')).ForbiddenException('Only helpers can accept jobs');
+  }
   const userId = req.user.id;
   return this.counterOfferService.helperAcceptsJob(userId, jobId);
 }
@@ -48,7 +56,7 @@ async declineCounterOffer(
 }
 
 @Get('all-counter-offers')
-async getMyCounterOffers(
+async getMyCounterOffers( 
   @Req() req: any,
   @Query('page') page = '1',
   @Query('limit') limit = '10',
@@ -64,11 +72,11 @@ async getMyCounterOffers(
 }
 
 
-@Get(':jobId')
-async getCounterOffers(@Param('jobId') jobId: string, @Req() req:any){
-  const userId = req.user.id;
-  return this.counterOfferService.getCounterOffers(userId, jobId);
-}
+// @Get(':jobId')
+// async getCounterOffers(@Param('jobId') jobId: string, @Req() req:any){
+//   const userId = req.user.id;
+//   return this.counterOfferService.getCounterOffers(userId, jobId);
+// }
 
 
 

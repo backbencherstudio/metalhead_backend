@@ -17,14 +17,16 @@ export class StripeMarketplaceService {
     jobId,
     finalPrice,
     buyerBillingId,
+    buyerUserId,
     helperStripeAccountId,
     jobTitle,
-    platformFeePercent = 0.10, // default 10%
+    platformFeePercent = 0.1, // default 10%
   }: {
     jobId: string;
     finalPrice: number | Decimal;
     buyerBillingId: string;
-    helperStripeAccountId: string;
+    buyerUserId?: string; // internal user id
+    helperStripeAccountId?: string;
     jobTitle: string;
     platformFeePercent?: number;
   }) {
@@ -32,26 +34,38 @@ export class StripeMarketplaceService {
     const platformFeeCents = Math.round(amountCents * platformFeePercent);
 
     if (!buyerBillingId) throw new Error('Buyer has no Stripe customer ID');
-    if (!helperStripeAccountId) throw new Error('Helper has no Stripe Connect account');
+
+    // Fetch and require a default payment method on the customer
+    const customer = (await this.stripe.customers.retrieve(buyerBillingId)) as Stripe.Customer;
+    let defaultPm = (customer.invoice_settings?.default_payment_method as any)?.id;
+    if (!defaultPm) {
+      // Attempt to use the first attached card and set it as default
+      const list = await this.stripe.paymentMethods.list({ customer: buyerBillingId, type: 'card' });
+      const firstPm = list.data[0]?.id;
+      if (!firstPm) {
+        throw new Error('Customer has no attached card');
+      }
+      await this.stripe.customers.update(buyerBillingId, {
+        invoice_settings: { default_payment_method: firstPm },
+      });
+      defaultPm = firstPm;
+    }
 
     const paymentIntent = await this.stripe.paymentIntents.create(
       {
         amount: amountCents,
         currency: 'usd',
         customer: buyerBillingId,
-        capture_method: 'manual',
-        application_fee_amount: platformFeeCents,
-        transfer_data: {
-          destination: helperStripeAccountId,
-        },
-        payment_method_types: ['card'],
-        metadata: {
-          job_id: jobId,
-          job_title: jobTitle,
-        },
+        payment_method: defaultPm,
+        capture_method:"manual",
+        off_session: true,
+        automatic_payment_methods: { enabled: true },
+        metadata: { job_id: jobId, job_title: jobTitle },
+        confirm: true, // confirm in the same call
       },
       { idempotencyKey: `pi_create_${jobId}` },
     );
+    // Do NOT confirm twice
 
     // Save reference to DB (optional but recommended)
     await this.prisma.paymentTransaction.create({
@@ -63,7 +77,8 @@ export class StripeMarketplaceService {
         paid_amount: finalPrice,
         paid_currency: 'usd',
         provider: 'stripe',
-        user_id: buyerBillingId,
+        user_id: buyerUserId ?? null,
+        customer_id: buyerBillingId,
         order_id: jobId,
       },
     });
@@ -74,5 +89,26 @@ export class StripeMarketplaceService {
       client_secret: paymentIntent.client_secret,
       payment_intent_id: paymentIntent.id,
     };
+  }
+
+  async capturePaymentIntent(paymentIntentId: string) {
+    return this.stripe.paymentIntents.capture(paymentIntentId);
+  }
+  
+  async transferToHelper(opts: {
+    jobId: string;
+    finalPrice: number | Decimal;
+    helperStripeAccountId: string;
+    platformFeePercent?: number; // default 0.10
+  }) {
+    const amountCents = Math.round(Number(opts.finalPrice) * 100);
+    const helperAmountCents = Math.round(amountCents * (1 - (opts.platformFeePercent ?? 0.10)));
+  
+    return this.stripe.transfers.create({
+      amount: helperAmountCents,
+      currency: 'usd',
+      destination: opts.helperStripeAccountId,
+      metadata: { job_id: opts.jobId },
+    });
   }
 }
