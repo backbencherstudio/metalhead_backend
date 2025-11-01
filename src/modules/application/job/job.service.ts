@@ -2157,7 +2157,11 @@ export class JobService {
     maxDistanceKm?: number;
     minJobPrice?: number;
     maxJobPrice?: number;
-    preferredCategoryIds?: string[];
+    preferredCategoryIds?: Array<{
+      id: string;
+      category: string;
+      label: string;
+    }>;
     latitude?: number;
     longitude?: number;
   }> {
@@ -2177,8 +2181,8 @@ export class JobService {
       throw new Error('User not found');
     }
 
-    // Convert category names to category IDs
-    let preferredCategoryIds: string[] | undefined = undefined;
+    // Convert category names to category details (id, name, label)
+    let preferredCategoryIds: Array<{ id: string; category: string; label: string }> | undefined = undefined;
     if (user.preferred_categories && user.preferred_categories.length > 0) {
       const categories = await this.prisma.category.findMany({
         where: {
@@ -2187,25 +2191,31 @@ export class JobService {
         select: {
           id: true,
           name: true,
+          label: true,
         },
       });
 
-      // Map category names to IDs
-      const nameToIdMap = new Map(categories.map(c => [c.name, c.id]));
+      // Map category names to full category details
+      const nameToCategoryMap = new Map(categories.map(c => [c.name, c]));
       preferredCategoryIds = (user.preferred_categories as string[])
-        .map(name => nameToIdMap.get(name))
-        .filter((id): id is string => id !== undefined);
+        .map(name => nameToCategoryMap.get(name))
+        .filter((cat): cat is { id: string; name: string; label: string } => cat !== undefined)
+        .map(cat => ({
+          id: cat.id,
+          category: cat.name,
+          label: cat.label,
+        }));
     }
 
     return {
       maxDistanceKm: user.max_distance_km ? Number(user.max_distance_km) : undefined,
       // minJobPrice: user.min_job_price ? Number(user.min_job_price) : undefined,
       // maxJobPrice: user.max_job_price ? Number(user.max_job_price) : undefined,
+      latitude: user.latitude ? Number(user.latitude) : undefined,
+      longitude: user.longitude ? Number(user.longitude) : undefined,
       preferredCategoryIds: preferredCategoryIds && preferredCategoryIds.length > 0 
         ? preferredCategoryIds 
         : undefined,
-      latitude: user.latitude ? Number(user.latitude) : undefined,
-      longitude: user.longitude ? Number(user.longitude) : undefined,
     };
   }
 
@@ -2320,15 +2330,38 @@ export class JobService {
       },
     });
 
+    // Fetch category details for response (same format as GET)
+    let preferredCategoryIds: Array<{ id: string; category: string; label: string }> | undefined = undefined;
+    if (categoryNames && categoryNames.length > 0) {
+      const categories = await this.prisma.category.findMany({
+        where: {
+          name: { in: categoryNames },
+        },
+        select: {
+          id: true,
+          name: true,
+          label: true,
+        },
+      });
+
+      // Map to the response format
+      preferredCategoryIds = categories.map(cat => ({
+        id: cat.id,
+        category: cat.name,
+        label: cat.label,
+      }));
+    }
+
     return {
       success: true,
       message: 'Preferences updated successfully',
-      userId,
-      preferences: {
+      data: {
         maxDistanceKm: dto.maxDistanceKm,
-        preferredCategoryIds: dto.preferredCategoryIds,
         latitude: dto.latitude,
         longitude: dto.longitude,
+        preferredCategoryIds: preferredCategoryIds && preferredCategoryIds.length > 0 
+          ? preferredCategoryIds 
+          : undefined,
       },
     };
   }

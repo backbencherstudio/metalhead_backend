@@ -517,9 +517,28 @@ export class JobController {
 
   @ApiOperation({ summary: 'Get saved preferences' })
   @Get('settings/preferences')
-  async getPreferences(@Req() req: Request): Promise<any> {
+  async getPreferences(@Req() req: Request): Promise<{
+    success: boolean;
+    message: string;
+    data: {
+      maxDistanceKm?: number;
+      latitude?: number;
+      longitude?: number;
+      preferredCategoryIds?: Array<{
+        id: string;
+        category: string;
+        label: string;
+      }>;
+    };
+  }> {
     const userId = (req as any).user.userId || (req as any).user.id;
-    return this.jobService.getUserPreferences(userId);
+    const preferences = await this.jobService.getUserPreferences(userId);
+    
+    return {
+      success: true,
+      message: 'Preferences retrieved successfully',
+      data: preferences,
+    };
   }
 
   @ApiOperation({ summary: 'Update helper notification preferences' })
