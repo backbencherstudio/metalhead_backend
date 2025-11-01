@@ -27,7 +27,7 @@ export class CreateUserDto {
 
   @IsNotEmpty()  
   @ApiProperty({ description: 'Phone number of the user' })
-  phone_number: string;
+  phone: string;
 
   @IsOptional()
   @IsEnum(Role)

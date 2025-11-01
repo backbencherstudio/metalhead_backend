@@ -7,6 +7,6 @@ export class VerifyEmailDto {
   email: string;
 
   @IsNotEmpty()
-  @ApiProperty()
-  token: string;
+  @ApiProperty({ description: 'OTP (One-Time Password) for email verification' })
+  otp: string;
 }

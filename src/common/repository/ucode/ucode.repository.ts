@@ -47,16 +47,16 @@ export class UcodeRepository {
   }
 
   /**
-   * validate ucode token
+   * validate ucode token (OTP)
    * @returns
    */
   static async validateToken({
     email,
-    token,
+    otp,
     forEmailChange = false,
   }: {
     email: string;
-    token: string;
+    otp: string;
     forEmailChange?: boolean;
   }) {
     const userDetails = await UserRepository.exist({
@@ -78,7 +78,7 @@ export class UcodeRepository {
       const existToken = await prisma.ucode.findFirst({
         where: {
           AND: {
-            token: token,
+            token: otp,
             email: email,
           },
         },
@@ -90,7 +90,7 @@ export class UcodeRepository {
             where: {
               AND: [
                 {
-                  token: token,
+                  token: otp,
                 },
                 {
                   email: email,

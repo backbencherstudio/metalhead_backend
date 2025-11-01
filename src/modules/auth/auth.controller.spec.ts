@@ -133,7 +133,7 @@ describe('AuthController', () => {
   });
 
   it('should verify email', async () => {
-    const result = await controller.verifyEmail({ email: 'john@example.com', token: '1234' });
+    const result = await controller.verifyEmail({ email: 'john@example.com', otp: '1234' });
     expect(result.success).toBe(true);
   });
 

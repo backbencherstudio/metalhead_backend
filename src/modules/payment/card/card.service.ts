@@ -79,7 +79,20 @@ export class CardService {
           is_expired: false,
         } as any, // Type assertion until Prisma client is regenerated
       });
-  
+
+      // Sync with Stripe: Set as default payment method in Stripe if this card is default
+      if (createCardDto.is_default && customerId) {
+        try {
+          await StripePayment.setCustomerDefaultPaymentMethodId({
+            customer_id: customerId,
+            payment_method_id: paymentMethod.id,
+          });
+        } catch (error) {
+          console.error('Failed to set default payment method in Stripe:', error);
+          // Continue execution even if Stripe update fails
+        }
+      }
+
       return this.mapToResponseDto(cardRecord);
     });
   }
@@ -133,6 +146,13 @@ export class CardService {
         status: 1,
         deleted_at: null,
       },
+      include: {
+        user: {
+          select: {
+            billing_id: true,
+          },
+        },
+      },
     });
 
     if (!card) {
@@ -153,6 +173,19 @@ export class CardService {
         where: { id: cardId },
         data: updateCardDto,
       });
+
+      // Sync with Stripe: Set as default payment method in Stripe if this card is being set as default
+      if (updateCardDto.is_default && card.stripe_payment_method_id && card.user?.billing_id) {
+        try {
+          await StripePayment.setCustomerDefaultPaymentMethodId({
+            customer_id: card.user.billing_id,
+            payment_method_id: card.stripe_payment_method_id,
+          });
+        } catch (error) {
+          console.error('Failed to set default payment method in Stripe:', error);
+          // Continue execution even if Stripe update fails
+        }
+      }
 
       return this.mapToResponseDto(updatedCard);
     });

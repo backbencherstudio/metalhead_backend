@@ -37,11 +37,11 @@ export class HelperPreferencesDto {
   @IsArray()
   @IsString({ each: true })
   @ApiProperty({
-    description: 'Preferred job categories to get notified about (category names)',
-    example: ['cleaning', 'plumbing', 'technology'],
+    description: 'Preferred job category IDs to get notified about',
+    example: ['clx123456789', 'clx987654321'],
     required: false,
   })
-  preferredCategories?: string[];
+  preferredCategoryIds?: string[];
 
   @IsOptional()
   @IsNumber()

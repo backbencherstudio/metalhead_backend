@@ -15,6 +15,13 @@ export class JobListResponseDto {
   message: string;
 
   @ApiProperty({
+    description: 'Preference status message: "Preferences are saved and applied", "Preferences are saved", or "Preferences are not saved"',
+    example: 'Preferences are not saved',
+    required: false,
+  })
+  preferenceMessage?: string;
+
+  @ApiProperty({
     description: 'Job list data with pagination',
     type: 'object',
     properties: {

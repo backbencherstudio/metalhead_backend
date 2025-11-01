@@ -62,7 +62,7 @@ export class AuthController {
       const email = data.email;
       const password = data.password;
       const type = data.type;
-      const phone_number = data.phone_number;
+      const phone = data.phone;
 
       if (!username) {
         throw new HttpException('Name not provided', HttpStatus.UNAUTHORIZED);
@@ -82,7 +82,7 @@ export class AuthController {
           HttpStatus.UNAUTHORIZED,
         );
       }
-      if (!phone_number) {
+      if (!phone) {
         throw new HttpException(
           'Phone number not provided',
           HttpStatus.UNAUTHORIZED,
@@ -95,7 +95,7 @@ export class AuthController {
         last_name: last_name,
         email: email,
         password: password,
-        phone_number: phone_number,
+        phone: phone,
         type: type,
       });
 
@@ -271,16 +271,16 @@ export class AuthController {
   async verifyEmail(@Body() data: VerifyEmailDto) {
     try {
       const email = data.email;
-      const token = data.token;
+      const otp = data.otp;
       if (!email) {
         throw new HttpException('Email not provided', HttpStatus.UNAUTHORIZED);
       }
-      if (!token) {
-        throw new HttpException('Token not provided', HttpStatus.UNAUTHORIZED);
+      if (!otp) {
+        throw new HttpException('OTP not provided', HttpStatus.UNAUTHORIZED);
       }
       return await this.authService.verifyEmail({
         email: email,
-        token: token,
+        otp: otp,
       });
     } catch (error) {
       return {

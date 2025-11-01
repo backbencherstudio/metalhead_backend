@@ -49,7 +49,7 @@ export class JobManageService {
               first_name: true,
               last_name: true,
               email: true,
-              phone_number: true
+              phone: true
             }
           },
           accepted_counter_offer: {
@@ -61,7 +61,7 @@ export class JobManageService {
                   first_name: true,
                   last_name: true,
                   email: true,
-                  phone_number: true
+                  phone: true
                 }
               }
             }

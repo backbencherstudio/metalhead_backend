@@ -38,7 +38,7 @@ export class AuthService {
           username: true,
           email: true,
           avatar: true,
-          phone_number: true,
+          phone: true,
           type: true,
           gender: true,
           address: true,
@@ -373,14 +373,14 @@ export class AuthService {
     email,
     password,
     type,
-    phone_number,
+    phone,
   }: {
     username: string;
     first_name: string;
     last_name: string;
     email: string;
     password: string;
-    phone_number: string;
+    phone: string;
     type: string;
   }) {
     try {
@@ -388,7 +388,7 @@ export class AuthService {
       const validationResult = await this.validateUserRegistration({
         username,
         email,
-        phone_number,
+        phone,
       });
 
       if (!validationResult.isValid) {
@@ -408,7 +408,7 @@ export class AuthService {
           last_name: last_name,
           email: email,
           password: password,
-          phone_number: phone_number,
+          phone: phone,
           type: type,
         });
 
@@ -561,7 +561,7 @@ export class AuthService {
       if (user) {
         const existToken = await UcodeRepository.validateToken({
           email: email,
-          token: token,
+          otp: token,
         });
 
         if (existToken) {
@@ -639,7 +639,7 @@ export class AuthService {
     }
   }
 
-  async verifyEmail({ email, token }) {
+  async verifyEmail({ email, otp }) {
     try {
       const user = await UserRepository.exist({
         field: 'email',
@@ -649,7 +649,7 @@ export class AuthService {
       if (user) {
         const existToken = await UcodeRepository.validateToken({
           email: email,
-          token: token,
+          otp: otp,
         });
 
         if (existToken) {
@@ -665,7 +665,7 @@ export class AuthService {
           // delete otp code
           await UcodeRepository.deleteToken({
             email: email,
-            token: token,
+            token: otp,
           });
 
           // Generate temporary JWT for profile completion and return as bearer token
@@ -857,7 +857,7 @@ export class AuthService {
       if (user) {
         const existToken = await UcodeRepository.validateToken({
           email: new_email,
-          token: token,
+          otp: token,
           forEmailChange: true,
         });
 
@@ -920,7 +920,7 @@ export class AuthService {
       // 2) Validate OTP against CURRENT email (purpose: username change)
       const ok = await UcodeRepository.validateToken({
         email: user.email,
-        token,
+        otp: token,
         // if your Ucode supports purpose/forEmailChange flags, set appropriately
         forEmailChange: false,
         // purpose: 'username_change'
@@ -1210,11 +1210,11 @@ export class AuthService {
   private async validateUserRegistration({
     username,
     email,
-    phone_number,
+    phone,
   }: {
     username: string;
     email: string;
-    phone_number: string;
+    phone: string;
   }): Promise<{
     isValid: boolean;
     message: string;
@@ -1250,17 +1250,17 @@ export class AuthService {
       }
 
       // Check if phone number already exists
-      if (phone_number) {
+      if (phone) {
         const phoneExists = await UserRepository.exist({
-          field: 'phone_number',
-          value: phone_number,
+          field: 'phone',
+          value: phone,
         });
 
         if (phoneExists) {
           return {
             isValid: false,
             message: 'Phone number already exists',
-            field: 'phone_number',
+            field: 'phone',
           };
         }
       }
@@ -1282,11 +1282,11 @@ export class AuthService {
         };
       }
 
-      if (phone_number && !this.isValidPhoneNumber(phone_number)) {
+      if (phone && !this.isValidPhoneNumber(phone)) {
         return {
           isValid: false,
           message: 'Invalid phone number format',
-          field: 'phone_number',
+          field: 'phone',
         };
       }
 

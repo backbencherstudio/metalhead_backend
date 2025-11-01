@@ -227,18 +227,19 @@ export class JobController {
 
   @ApiOperation({ 
     summary: 'Ultra-Dynamic Job Search API (Common for Users and Helpers)',
-    description: 'Single API for ALL job searching needs - supports ANY combination of filters. Each parameter is optional - use any combination you need for dynamic filtering.'
+    description: 'Single API for ALL job searching needs - supports ANY combination of filters. Each parameter is optional - use any combination you need for dynamic filtering. For helpers, preference settings (max_distance_km, preferred_categories, min_job_price, max_job_price) are automatically applied when filters are not provided.'
   })
   @ApiResponse({ status: 200, description: 'Jobs retrieved successfully', type: JobListResponseDto })
   @Get()
   async searchJobs(
+    @Req() req: Request,
     // Pagination
     @Query('page') page?: string,
     @Query('limit') limit?: string,
     
     // Category & Location Filters
-    @Query('category') category?: string, // Single category name
-    @Query('categories') categories?: string, // Comma-separated categories (e.g., "cleaning,plumbing")
+    @Query('category') category?: string, // Single category name or ID
+    @Query('categories') categories?: string, // Comma-separated categories (e.g., "cleaning,plumbing" or "clx123,clx456" or mixed "cleaning,clx123")
     @Query('location') location?: string, // Text-based location search
     @Query('lat') lat?: string, // Latitude for location-based filtering
     @Query('lng') lng?: string, // Longitude for location-based filtering
@@ -266,6 +267,7 @@ export class JobController {
     @Query('search') search?: string, // Search in title and description
     @Query('sortBy') sortBy?: string, // Sort options: price_asc, price_desc, rating_asc, rating_desc, distance, urgency, urgency_recent, created_at
   ): Promise<JobListResponseDto> {
+    const userId = (req as any).user.userId || (req as any).user.id;
     const result = await this.jobService.searchJobsWithValidation({
       // Raw query parameters - let service handle parsing and validation
       page,
@@ -290,18 +292,19 @@ export class JobController {
       createdBefore,
       search,
       sortBy,
-    });
+    }, userId);
 
     return {
       success: true,
       message: `Found ${result.jobs.length} jobs`,
+      preferenceMessage: (result as any).preferenceMessage || '',
       data: {
         jobs: result.jobs,
         total: result.total,
         totalPages: result.totalPages,
         currentPage: result.currentPage,
       },
-    };
+    } as JobListResponseDto & { preferenceMessage?: string };
   }
 
 
@@ -475,7 +478,7 @@ export class JobController {
   @ApiOperation({ summary: 'Mark job as started (Helper only)' })
   @Patch('startOrComplete/:id')
   async startJob(@Param('id') id: string, @Req() req: Request): Promise<any> {
-    const helperId = req.user.userId
+    const helperId = (req as any).user.userId || (req as any).user.id;
     return this.jobService.startOrCompleteJob(id, helperId);
   }
 
@@ -512,24 +515,21 @@ export class JobController {
     return { message: 'Job deleted successfully' };
   }
 
+  @ApiOperation({ summary: 'Get saved preferences' })
+  @Get('settings/preferences')
+  async getPreferences(@Req() req: Request): Promise<any> {
+    const userId = (req as any).user.userId || (req as any).user.id;
+    return this.jobService.getUserPreferences(userId);
+  }
+
   @ApiOperation({ summary: 'Update helper notification preferences' })
-  @Patch('helper/preferences')
+  @Patch('settings/update-preferences')
   async updateHelperPreferences(
     @Body() dto: HelperPreferencesDto,
     @Req() req: Request,
-  ): Promise<{ message: string }> {
-    try {
-      const userId = (req as any).user.userId || (req as any).user.id;
-      
-      if (!userId) {
-        throw new Error('User ID not found in request');
-      }
-
-      await this.jobService.updateHelperPreferences(userId, dto);
-      return { message: 'Helper preferences updated successfully' };
-    } catch (error) {
-      throw new Error(`Failed to update helper preferences: ${error.message}`);
-    }
+  ): Promise<any> {
+    const userId = (req as any).user.userId || (req as any).user.id;
+    return this.jobService.updateHelperPreferences(userId, dto);
   }
 
 
@@ -642,8 +642,8 @@ export class JobController {
   //   }
   // }
 
-  @ApiOperation({ summary: 'Get weekly earnings breakdown' })
-  @ApiResponse({ status: 200, description: 'Weekly earnings breakdown retrieved successfully' })
+  @ApiOperation({ summary: 'Get weekly earnings breakdown with day-by-day chart' })
+  @ApiResponse({ status: 200, description: 'Weekly earnings fetched successfully' })
   @Get('earnings/weekly')
   async getWeeklyEarnings(@Req() req: Request) {
     try {
@@ -652,7 +652,7 @@ export class JobController {
       const weeklyData = await this.jobService.getWeeklyEarnings(userId, userType);
       return {
         success: true,
-        message: 'Weekly earnings breakdown retrieved successfully',
+        message: 'Weekly earnings fetched successfully',
         data: weeklyData
       };
     } catch (error) {

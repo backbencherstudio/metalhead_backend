@@ -194,6 +194,7 @@ export class JobService {
   }
   /**
    * Ultra-dynamic job search with pagination - supports ANY combination of filters
+   * For helpers, automatically applies preference settings when filters are not provided
    */
   async searchJobsWithValidation(rawParams: {
     // Raw query parameters
@@ -219,7 +220,7 @@ export class JobService {
     createdBefore?: string;
     search?: string;
     sortBy?: string;
-  }): Promise<{
+  }, userId?: string): Promise<{
     jobs: any[];
     total: number;
     totalPages: number;
@@ -251,14 +252,83 @@ export class JobService {
       sortBy,
     } = rawParams;
 
+    // Load user preferences (universal for all users)
+    // Only load: maxDistanceKm, preferredCategories, latitude, longitude
+    let userPreferences: {
+      max_distance_km?: number;
+      preferred_categories?: string[];
+      latitude?: number;
+      longitude?: number;
+    } | null = null;
+
+    if (userId) {
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: {
+          max_distance_km: true,
+          preferred_categories: true,
+          latitude: true,
+          longitude: true,
+        },
+      });
+
+      // Load preferences for all users (universal)
+      if (user) {
+        userPreferences = {
+          max_distance_km: user.max_distance_km ? Number(user.max_distance_km) : undefined,
+          preferred_categories: user.preferred_categories && user.preferred_categories.length > 0 
+            ? (user.preferred_categories as string[]) 
+            : undefined,
+          latitude: user.latitude ? Number(user.latitude) : undefined,
+          longitude: user.longitude ? Number(user.longitude) : undefined,
+        };
+      }
+    }
+
     // Parse pagination parameters
     const pageNum = page ? parseInt(page) : 1;
     const limitNum = limit ? parseInt(limit) : 10;
 
-    // Parse location parameters
-    const searchLat = lat ? parseFloat(lat) : undefined;
-    const searchLng = lng ? parseFloat(lng) : undefined;
-    const maxDistance = maxDistanceKm ? parseFloat(maxDistanceKm) : undefined;
+    // Parse location parameters - use user preferences if not provided
+    let searchLat = lat ? parseFloat(lat) : undefined;
+    let searchLng = lng ? parseFloat(lng) : undefined;
+    let maxDistance = maxDistanceKm ? parseFloat(maxDistanceKm) : undefined;
+
+    // Track if preferences are set and being used
+    let preferencesSet = false;
+    let preferencesUsed = false;
+
+    // Check if user has preferences set
+    if (userPreferences) {
+      preferencesSet = !!(
+        userPreferences.max_distance_km ||
+        userPreferences.preferred_categories ||
+        (userPreferences.latitude && userPreferences.longitude)
+      );
+    }
+
+    // Apply user preferences for location if not provided
+    // Use user's latitude/longitude from their profile (where they created account)
+    if (userPreferences && !searchLat && !searchLng) {
+      if (userPreferences.latitude && userPreferences.longitude) {
+        searchLat = userPreferences.latitude;
+        searchLng = userPreferences.longitude;
+        preferencesUsed = true;
+      }
+    }
+
+    // Apply user preference for max distance if not provided
+    // If user has updated max_distance_km preference, use it; otherwise default to 30km
+    if (userPreferences && !maxDistance) {
+      if (userPreferences.max_distance_km) {
+        // Use user's updated preference
+        maxDistance = userPreferences.max_distance_km;
+        preferencesUsed = true;
+      } else if (searchLat && searchLng) {
+        // If user has location but no distance preference, default to 30km
+        maxDistance = 30;
+      }
+    }
 
     // Parse price parameters
     let parsedPriceRange = null;
@@ -291,23 +361,40 @@ export class JobService {
       };
     }
 
-    // Parse categories
-    const categoriesArray = categories
+    // Parse categories - use user preferences if not provided
+    let categoriesArray = categories
       ? categories.split(',').map((c) => c.trim())
       : undefined;
 
-    // Validate category if provided
+    // Apply user preferences for categories if not provided
+    if (!category && !categoriesArray && userPreferences && userPreferences.preferred_categories) {
+      categoriesArray = userPreferences.preferred_categories;
+      preferencesUsed = true;
+    }
+
+    // Validate category if provided (can be either name or ID)
     if (category) {
-      const categoryRecord = await this.prisma.category.findUnique({
-        where: { name: category },
-      });
+      // Check if it's an ID (CUID format) or name
+      const isId = category.length >= 20 && category.match(/^[a-z0-9]{20,}$/i);
+      
+      let categoryRecord;
+      if (isId) {
+        categoryRecord = await this.prisma.category.findUnique({
+          where: { id: category },
+        });
+      } else {
+        categoryRecord = await this.prisma.category.findUnique({
+          where: { name: category },
+        });
+      }
+      
       if (!categoryRecord) {
         throw new BadRequestException(`Invalid category: ${category}`);
       }
     }
 
     // Call the existing searchJobsWithPagination method with parsed parameters
-    return this.searchJobsWithPagination(
+    const searchResult = await this.searchJobsWithPagination(
       {
         // Location filters
         category,
@@ -338,6 +425,24 @@ export class JobService {
       pageNum,
       limitNum,
     );
+
+    // Determine preference message (universal for all users)
+    let preferenceMessage = '';
+    if (userId) {
+      // If user is logged in, check their preferences
+      if (preferencesSet) {
+        preferenceMessage = preferencesUsed 
+          ? 'Preferences are saved and applied' 
+          : 'Preferences are saved';
+      } else {
+        preferenceMessage = 'Preferences are not saved';
+      }
+    }
+
+    return {
+      ...searchResult,
+      preferenceMessage,
+    } as typeof searchResult & { preferenceMessage: string };
   }
 
   async searchJobsWithPagination(
@@ -399,11 +504,21 @@ export class JobService {
       deleted_at: null,
     };
 
-    // Category filter (single category)
+    // Category filter (single category) - accepts both name and ID
     if (category) {
-      const categoryRecord = await (this.prisma as any).category.findUnique({
-        where: { name: category },
-      });
+      // Check if it's an ID (CUID format) or name
+      const isId = category.length >= 20 && category.match(/^[a-z0-9]{20,}$/i);
+      
+      let categoryRecord;
+      if (isId) {
+        categoryRecord = await (this.prisma as any).category.findUnique({
+          where: { id: category },
+        });
+      } else {
+        categoryRecord = await (this.prisma as any).category.findUnique({
+          where: { name: category },
+        });
+      }
 
       if (categoryRecord) {
         whereClause.category_id = categoryRecord.id;
@@ -412,16 +527,42 @@ export class JobService {
       }
     }
 
-    // Multiple categories filter
+    // Multiple categories filter - accepts both names and IDs
     if (categories && categories.length > 0) {
-      const categoryRecords = await (this.prisma as any).category.findMany({
-        where: { name: { in: categories } },
+      // Separate IDs from names
+      const categoryIds: string[] = [];
+      const categoryNames: string[] = [];
+      
+      categories.forEach((cat: string) => {
+        const isId = cat.length >= 20 && cat.match(/^[a-z0-9]{20,}$/i);
+        if (isId) {
+          categoryIds.push(cat);
+        } else {
+          categoryNames.push(cat);
+        }
       });
+      
+      // Build where clause for finding categories
+      const whereConditions: any[] = [];
+      if (categoryIds.length > 0) {
+        whereConditions.push({ id: { in: categoryIds } });
+      }
+      if (categoryNames.length > 0) {
+        whereConditions.push({ name: { in: categoryNames } });
+      }
+      
+      if (whereConditions.length > 0) {
+        const categoryRecords = await (this.prisma as any).category.findMany({
+          where: {
+            OR: whereConditions,
+          },
+        });
 
-      if (categoryRecords.length > 0) {
-        whereClause.category_id = { in: categoryRecords.map((c) => c.id) };
-      } else {
-        return { jobs: [], total: 0, totalPages: 0, currentPage: 1 };
+        if (categoryRecords.length > 0) {
+          whereClause.category_id = { in: categoryRecords.map((c) => c.id) };
+        } else {
+          return { jobs: [], total: 0, totalPages: 0, currentPage: 1 };
+        }
       }
     }
 
@@ -434,6 +575,7 @@ export class JobService {
     }
 
     // Location-based filtering with lat/lng
+    // Only apply if we have both coordinates AND distance (for helper preferences, distance is required)
     if (searchLat && searchLng && maxDistanceKm) {
       // This will be handled in post-processing since Prisma doesn't have built-in distance calculations
       // We'll filter by approximate bounding box first, then calculate exact distances
@@ -449,6 +591,9 @@ export class JobService {
         gte: searchLng - lngRange,
         lte: searchLng + lngRange,
       };
+    } else if (searchLat && searchLng && !maxDistanceKm) {
+      // If location is provided but no distance, don't filter by location
+      // This allows helpers to search without distance restriction
     }
 
     // Job type filter
@@ -759,7 +904,7 @@ export class JobService {
                 first_name: true,
                 last_name: true,
                 email: true,
-                phone_number: true,
+                phone: true,
               },
             },
           },
@@ -773,7 +918,7 @@ export class JobService {
                 first_name: true,
                 last_name: true,
                 email: true,
-                phone_number: true,
+                phone: true,
               },
             },
           },
@@ -785,7 +930,7 @@ export class JobService {
             first_name: true,
             last_name: true,
             email: true,
-            phone_number: true,
+            phone: true,
           },
         },
       },
@@ -1077,7 +1222,7 @@ export class JobService {
                       .filter(Boolean)
                       .join(' '),
                   email: accepted.helper.email ?? '',
-                  phone_number: accepted.helper.phone_number ?? undefined,
+                  phone: accepted.helper.phone ?? undefined,
                 }
               : undefined,
           }
@@ -1223,7 +1368,7 @@ export class JobService {
       where: {
         id: jobId,
         assigned_helper_id: helperId,
-        status: 1,
+        // status: 1,
         deleted_at: null,
       },
       select:{
@@ -1351,7 +1496,73 @@ export class JobService {
     // First, check if job exists at all
     const jobExists = await this.prisma.job.findUnique({
       where: { id: jobId, job_status: 'completed',user_id:userId },
+      select: {
+        id: true,
+        final_price: true,
+        payment_intent_id: true,
+        assigned_helper: { select: { id: true, stripe_connect_account_id: true } },
+        title: true,
+        user_id: true,
+        status: true,
+        deleted_at: true,
+      },
     });
+
+
+
+    if (!jobExists?.assigned_helper?.stripe_connect_account_id) {
+      throw new BadRequestException('Helper has no Stripe Connect account.');
+    }
+    
+    // 2) Compute amounts
+    const total = Number(jobExists.final_price || 0);
+    const platformFeePct = 0.10; // or pull from settings
+    const helperAmountCents = Math.round(total * (1 - platformFeePct) * 100);
+    const commissionCents = Math.round(total * platformFeePct * 100);
+    
+    // 3) Transfer helper share from platform balance
+    const transfer = await this.stripeMarketplaceService.transferToHelper({
+      jobId: jobExists.id,
+      finalPrice: total,
+      helperStripeAccountId: jobExists.assigned_helper.stripe_connect_account_id,
+      platformFeePercent: platformFeePct,
+    });
+    
+    // 4) Persist payout/commission records (optional but recommended)
+    await this.prisma.paymentTransaction.create({
+      data: {
+        provider: 'stripe',
+        type: 'payout',
+        reference_number: transfer.id,
+        status: 'paid',
+        amount: (helperAmountCents / 100).toFixed(2) as any,
+        currency: 'usd',
+        paid_amount: (helperAmountCents / 100).toFixed(2) as any,
+        paid_currency: 'usd',
+        user_id: jobExists.assigned_helper.id, // receiver (helper)
+        order_id: jobExists.id,
+      },
+    });
+    // Optionally record commission as a row (if you track it separately)
+    await this.prisma.paymentTransaction.create({
+      data: {
+        provider: 'stripe',
+        type: 'commission',
+        reference_number: jobExists.payment_intent_id ?? undefined,
+        status: 'captured',
+        amount: (commissionCents / 100).toFixed(2) as any,
+        currency: 'usd',
+        paid_amount: (commissionCents / 100).toFixed(2) as any,
+        paid_currency: 'usd',
+        user_id: null, // platform
+        order_id: jobExists.id,
+      },
+    });
+
+
+
+
+
 
     if (!jobExists) {
       throw new NotFoundException(`Job with ID ${jobId} not found`);
@@ -1375,20 +1586,14 @@ export class JobService {
     }
 
     // Check job status
-    if (jobExists.job_status !== 'completed') {
+    if (jobExists.status !== 1) {
       throw new BadRequestException(
-        `Job must be completed by helper before you can finish it. Current status: ${jobExists.job_status}`,
+        `Job must be active before you can finish it. Current status: ${jobExists.status}`,
       );
     }
-    
 
     const updatedJob = await this.prisma.job.update({
-      where: { 
-        id: jobId,
-        user_id: userId,
-        status: 1,
-        deleted_at: null,
-       },
+      where: { id: jobId },
       data: {
         job_status: 'paid',
         status: 0,
@@ -1632,7 +1837,7 @@ export class JobService {
                   first_name: true,
                   last_name: true,
                   email: true,
-                  phone_number: true,
+                  phone: true,
                   type: true,
                 },
               },
@@ -1646,7 +1851,7 @@ export class JobService {
               first_name: true,
               last_name: true,
               email: true,
-              phone_number: true,
+              phone: true,
             },
           },
         },
@@ -1690,7 +1895,7 @@ export class JobService {
                   first_name: true,
                   last_name: true,
                   email: true,
-                  phone_number: true,
+                  phone: true,
                 },
               },
             },
@@ -1704,7 +1909,7 @@ export class JobService {
                   first_name: true,
                   last_name: true,
                   email: true,
-                  phone_number: true,
+                  phone: true,
                 },
               },
             },
@@ -1824,112 +2029,87 @@ export class JobService {
 
   // Earnings and payments
 
+
   /**
-   * Get historical earnings
-   */
-
-  // async getHistoricalEarnings(
-  //   userId: string,
-  //   userType: string,
-  //   period: string,
-  //   days: number,
-  // ): Promise<any> {
-  //   const startDate = new Date();
-  //   startDate.setDate(startDate.getDate() - days);
-
-  //   const whereClause: any = {
-  //     job_status: 'completed',
-  //     status: 1,
-  //     deleted_at: null,
-  //     created_at: { gte: startDate },
-  //   };
-
-  //   if (userType === 'user') {
-  //     whereClause.user_id = userId;
-  //   } else if (userType === 'helper') {
-  //     whereClause.OR = [
-  //       { accepted_counter_offer: { helper_id: userId } },
-  //       { assigned_helper_id: userId },
-  //     ];
-  //   }
-
-  //   const jobs = await this.prisma.job.findMany({
-  //     where: whereClause,
-  //     select: {
-  //       id: true,
-  //       title: true,
-  //       final_price: true,
-  //       created_at: true,
-  //       updated_at: true,
-  //     },
-  //   });
-
-  //   const totalEarnings = jobs.reduce(
-  //     (sum, job) => sum + Number(job.final_price || 0),
-  //     0,
-  //   );
-
-  //   return {
-  //     period,
-  //     days,
-  //     total_earnings: totalEarnings,
-  //     job_count: jobs.length,
-  //     jobs: jobs.map((job) => ({
-  //       id: job.id,
-  //       title: job.title,
-  //       amount: Number(job.final_price || 0),
-  //       completed_at: job.updated_at,
-  //     })),
-  //   };
-  // }
-  /**
-   * Get weekly earnings
+   * Get weekly earnings with day-by-day breakdown
    */
   async getWeeklyEarnings(userId: string, userType: string): Promise<any> {
-    const startDate = new Date();
-    startDate.setDate(startDate.getDate() - 7);
+    // Calculate the start of the week (Sunday 00:00:00)
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const dayOfWeek = today.getDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+    const startOfWeek = new Date(today);
+    startOfWeek.setDate(today.getDate() - dayOfWeek);
+    startOfWeek.setHours(0, 0, 0, 0);
+
+    // End of the week (Saturday 23:59:59)
+    const endOfWeek = new Date(startOfWeek);
+    endOfWeek.setDate(startOfWeek.getDate() + 6);
+    endOfWeek.setHours(23, 59, 59, 999);
 
     const whereClause: any = {
-      job_status: 'completed',
+      job_status: 'paid', // Use 'paid' status as earnings are only realized when paid
       status: 1,
       deleted_at: null,
-      created_at: { gte: startDate },
+      updated_at: { gte: startOfWeek, lte: endOfWeek }, // When job was marked as paid
     };
 
     if (userType === 'user') {
       whereClause.user_id = userId;
     } else if (userType === 'helper') {
-      whereClause.OR = [
-        { accepted_counter_offer: { helper_id: userId } },
-        { assigned_helper_id: userId },
-      ];
+      whereClause.assigned_helper_id = userId;
     }
 
     const jobs = await this.prisma.job.findMany({
       where: whereClause,
       select: {
         id: true,
-        title: true,
         final_price: true,
-        created_at: true,
+        updated_at: true, // When the job was paid
       },
     });
 
+    // Initialize day earnings map (Sun = 0, Mon = 1, ..., Sat = 6)
+    const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const dayEarnings: { [key: number]: number } = {};
+    
+    // CRITICAL: Initialize ALL 7 days with 0 to ensure full week structure
+    // This ensures that even if helper signed up mid-week, all days are present
+    for (let i = 0; i < 7; i++) {
+      dayEarnings[i] = 0;
+    }
+
+    // Group earnings by day of week (only adds to days that have paid jobs)
+    jobs.forEach((job) => {
+      const jobDate = new Date(job.updated_at);
+      const dayOfWeek = jobDate.getDay(); // 0 = Sunday, 6 = Saturday
+      dayEarnings[dayOfWeek] += Number(job.final_price || 0);
+    });
+
+    // Calculate total earnings from all jobs in the week
     const totalEarnings = jobs.reduce(
       (sum, job) => sum + Number(job.final_price || 0),
       0,
     );
 
+    // Calculate average daily earnings (total / 7 days of the week)
+    // Always divide by 7 to get average per day of the week, regardless of when user signed up
+    const averageDaily = totalEarnings / 7;
+
+    // Build chart array - ALWAYS returns all 7 days (Sun → Sat) with 0 for missing days
+    // Example: Helper signs up Wed → Returns: [Sun: 0, Mon: 0, Tue: 0, Wed: X, Thu: Y, Fri: Z, Sat: 0]
+    const chart = dayNames.map((dayName, index) => ({
+      day: dayName,
+      amount: dayEarnings[index],
+    }));
+
     return {
-      period: 'weekly',
-      total_earnings: totalEarnings,
-      job_count: jobs.length,
-      jobs: jobs.map((job) => ({
-        id: job.id,
-        title: job.title,
-        amount: Number(job.final_price || 0),
-        date: job.created_at,
-      })),
+      summary: {
+        total_earnings: totalEarnings,
+        average_daily: Math.round(averageDaily * 100) / 100, // Round to 2 decimal places
+        currency: 'USD',
+      },
+      chart: chart,
     };
   }
 
@@ -1971,30 +2151,159 @@ export class JobService {
     };
   }
   /**
+   * Get user preferences
+   */
+  async getUserPreferences(userId: string): Promise<{
+    maxDistanceKm?: number;
+    minJobPrice?: number;
+    maxJobPrice?: number;
+    preferredCategoryIds?: string[];
+    latitude?: number;
+    longitude?: number;
+  }> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        max_distance_km: true,
+        min_job_price: true,
+        max_job_price: true,
+        preferred_categories: true,
+        latitude: true,
+        longitude: true,
+      },
+    });
+
+    if (!user) {
+      throw new Error('User not found');
+    }
+
+    // Convert category names to category IDs
+    let preferredCategoryIds: string[] | undefined = undefined;
+    if (user.preferred_categories && user.preferred_categories.length > 0) {
+      const categories = await this.prisma.category.findMany({
+        where: {
+          name: { in: user.preferred_categories as string[] },
+        },
+        select: {
+          id: true,
+          name: true,
+        },
+      });
+
+      // Map category names to IDs
+      const nameToIdMap = new Map(categories.map(c => [c.name, c.id]));
+      preferredCategoryIds = (user.preferred_categories as string[])
+        .map(name => nameToIdMap.get(name))
+        .filter((id): id is string => id !== undefined);
+    }
+
+    return {
+      maxDistanceKm: user.max_distance_km ? Number(user.max_distance_km) : undefined,
+      // minJobPrice: user.min_job_price ? Number(user.min_job_price) : undefined,
+      // maxJobPrice: user.max_job_price ? Number(user.max_job_price) : undefined,
+      preferredCategoryIds: preferredCategoryIds && preferredCategoryIds.length > 0 
+        ? preferredCategoryIds 
+        : undefined,
+      latitude: user.latitude ? Number(user.latitude) : undefined,
+      longitude: user.longitude ? Number(user.longitude) : undefined,
+    };
+  }
+
+  /**
    * Update helper preferences
    */
   async updateHelperPreferences(userId: string, dto: any): Promise<any> {
-    // Convert old enum values to new category names for backward compatibility
-    if (dto.preferredCategories && Array.isArray(dto.preferredCategories)) {
-      dto.preferredCategories = dto.preferredCategories.map(
-        (category: string) => {
-          // Convert old enum values to new category names
-          return convertEnumToCategoryName(category);
-        },
-      );
+    let categoryNames: string[] | undefined = undefined;
 
-      // Validate category names against seeded categories
-      const validCategories = await this.prisma.category.findMany({
-        select: { name: true }
-      });
-      const validCategoryNames = validCategories.map(c => c.name);
-      
-      const invalidCategories = dto.preferredCategories.filter(
-        (cat: string) => !validCategoryNames.includes(cat)
+    // Determine if we're receiving category IDs or names
+    // Priority: preferredCategoryIds > preferredCategories
+    let categoryIds: string[] | undefined = undefined;
+    
+    if (dto.preferredCategoryIds !== undefined && Array.isArray(dto.preferredCategoryIds)) {
+      categoryIds = dto.preferredCategoryIds;
+    } else if (dto.preferredCategories !== undefined && Array.isArray(dto.preferredCategories)) {
+      // Check if preferredCategories contains IDs (CUID format) or names
+      // CUIDs typically start with 'c' and are 25 characters long
+      const mightBeIds = dto.preferredCategories.every((val: string) => 
+        typeof val === 'string' && val.length >= 20 && val.match(/^[a-z0-9]{20,}$/i)
       );
       
-      if (invalidCategories.length > 0) {
-        throw new Error(`Invalid categories: ${invalidCategories.join(', ')}. Valid categories are: ${validCategoryNames.join(', ')}`);
+      if (mightBeIds && dto.preferredCategories.length > 0) {
+        // Check if these are valid category IDs
+        const categoriesById = await this.prisma.category.findMany({
+          where: {
+            id: { in: dto.preferredCategories },
+          },
+          select: {
+            id: true,
+            name: true,
+          },
+        });
+        
+        // If we found categories by ID, treat them as IDs
+        if (categoriesById.length > 0) {
+          categoryIds = dto.preferredCategories;
+        }
+      }
+    }
+
+    // Process category IDs if we have them
+    if (categoryIds !== undefined) {
+      // Handle empty array - clear preferences
+      if (categoryIds.length === 0) {
+        categoryNames = [];
+      } else {
+        // Validate category IDs exist and get their names
+        const categories = await this.prisma.category.findMany({
+          where: {
+            id: { in: categoryIds },
+          },
+          select: {
+            id: true,
+            name: true,
+          },
+        });
+
+        // Check if all provided IDs are valid
+        const foundIds = new Set(categories.map(c => c.id));
+        const invalidIds = categoryIds.filter((id: string) => !foundIds.has(id));
+        
+        if (invalidIds.length > 0) {
+          throw new Error(`Invalid category IDs: ${invalidIds.join(', ')}`);
+        }
+
+        // Convert IDs to names for storage
+        const idToNameMap = new Map(categories.map(c => [c.id, c.name]));
+        categoryNames = categoryIds
+          .map((id: string) => idToNameMap.get(id))
+          .filter((name): name is string => name !== undefined);
+      }
+    } else if (dto.preferredCategories !== undefined && Array.isArray(dto.preferredCategories)) {
+      // Backward compatibility: if preferredCategories (names) are provided, use them
+      if (dto.preferredCategories.length === 0) {
+        categoryNames = [];
+      } else {
+        // Convert old enum values to new category names for backward compatibility
+        categoryNames = dto.preferredCategories.map(
+          (category: string) => {
+            // Convert old enum values to new category names
+            return convertEnumToCategoryName(category);
+          },
+        );
+
+        // Validate category names against seeded categories
+        const validCategories = await this.prisma.category.findMany({
+          select: { name: true }
+        });
+        const validCategoryNames = validCategories.map(c => c.name);
+        
+        const invalidCategories = categoryNames.filter(
+          (cat: string) => !validCategoryNames.includes(cat)
+        );
+        
+        if (invalidCategories.length > 0) {
+          throw new Error(`Invalid categories: ${invalidCategories.join(', ')}. Valid categories are: ${validCategoryNames.join(', ')}`);
+        }
       }
     }
 
@@ -2005,16 +2314,22 @@ export class JobService {
         max_distance_km: dto.maxDistanceKm,
         min_job_price: dto.minJobPrice,
         max_job_price: dto.maxJobPrice,
-        preferred_categories: dto.preferredCategories,
+        preferred_categories: categoryNames,
         latitude: dto.latitude,
         longitude: dto.longitude,
       },
     });
 
     return {
-      message: 'Helper preferences updated successfully',
+      success: true,
+      message: 'Preferences updated successfully',
       userId,
-      preferences: dto,
+      preferences: {
+        maxDistanceKm: dto.maxDistanceKm,
+        preferredCategoryIds: dto.preferredCategoryIds,
+        latitude: dto.latitude,
+        longitude: dto.longitude,
+      },
     };
   }
 }

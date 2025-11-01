@@ -49,7 +49,7 @@ model User {
   domain     String? @unique
   avatar     String?
 
-  phone_number  String?
+  phone  String?
   country       String?
   state         String?
   city          String?

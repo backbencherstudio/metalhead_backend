@@ -218,13 +218,13 @@ export class ReviewService {
         total_ratings_as_user: user.total_ratings_as_user ?? 0,
         total_ratings_as_helper: user.total_ratings_as_helper ?? 0,
       },
+      reviews: reviews.map((r) => this.mapToResponseDto(r)),
       pagination: {
         page,
         limit,
         total_reviews: totalReviews,
         total_pages: Math.ceil(totalReviews / limit),
       },
-      reviews: reviews.map((r) => this.mapToResponseDto(r)),
     };
   }
 

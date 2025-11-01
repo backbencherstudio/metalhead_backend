@@ -67,11 +67,15 @@ export class ReviewController {
   }
 
   @Get('my-earning-stats')
-async myEarningStats(@Req() req: any, @Query('days') days = '7') {
-  const nRaw = Number(days);
-  const daysInt = Number.isFinite(nRaw) ? Math.max(1, Math.min(nRaw, 365)) : 7;
-  return this.reviewService.myEarningStats(req.user.id, daysInt);
-}
+  async myEarningStats(
+    @Req() req: any,
+    @Query('days', new DefaultValuePipe(7), ParseIntPipe) days: number
+  ) {
+    const userId = req.user.userId || req.user.id;
+    // Clamp days between 1 and 365
+    const daysInt = Math.max(1, Math.min(days, 365));
+    return this.reviewService.myEarningStats(userId, daysInt);
+  }
 
 
 }

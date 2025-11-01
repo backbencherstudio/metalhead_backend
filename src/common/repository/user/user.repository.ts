@@ -196,7 +196,7 @@ export class UserRepository {
     last_name,
     email,
     password,
-    phone_number,
+    phone,
     role_id = null,
     type = 'user',
   }: {
@@ -205,7 +205,7 @@ export class UserRepository {
     last_name?: string;
     email: string;
     password: string;
-    phone_number?: string;
+    phone?: string;
     role_id?: string;
     type?: string;
   }) {
@@ -220,8 +220,8 @@ export class UserRepository {
       if (last_name) {
         data['last_name'] = last_name;
       }
-      if (phone_number) {
-        data['phone_number'] = phone_number;
+      if (phone) {
+        data['phone'] = phone;
       }
       if (email) {
         data['email'] = email;
