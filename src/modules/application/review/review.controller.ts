@@ -56,8 +56,12 @@ export class ReviewController {
   }
 
   @Get('job-review/:jobId')
-  async getReviewOfJob(@Param('jobId') jobId: string): Promise<any> {
-    return this.reviewService.getReviewOfJob(jobId);
+  async getReviewOfJob(
+    @Param('jobId') jobId: string,
+    @Req() req: any,
+  ): Promise<any> {
+    const userId = req.user.userId || req.user.id;
+    return this.reviewService.getReviewOfJob(jobId, userId);
   }
 
   @Get('my-stats')

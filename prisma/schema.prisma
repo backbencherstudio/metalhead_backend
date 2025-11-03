@@ -542,7 +542,7 @@ model Job {
 
   reviews        Review[]
   status_history JobStatusHistory[]
-  timeline       JobTimeline[]
+  timeline       JobTimeline?
 
   payment_intent_id String?
   last_transfer_id  String?
@@ -552,16 +552,20 @@ model Job {
 }
 
 model JobTimeline {
-  id         String   @id @default(cuid())
-  job_id     String
-  status     String
-  timestamp  DateTime @default(now())
-  created_at DateTime @default(now())
+  id               String   @id @default(cuid())
+  job_id           String   @unique
+  job              Job      @relation(fields: [job_id], references: [id])
 
-  job Job @relation(fields: [job_id], references: [id], onDelete: Cascade)
+  posted        DateTime?
+  counter_offer DateTime?
+  confirmed     DateTime?
+  ongoing       DateTime?
+  completed     DateTime?
+  paid          DateTime?
 
   @@map("job_timeline")
 }
+
 
 model JobRequirement {
   id         String    @id @default(cuid())

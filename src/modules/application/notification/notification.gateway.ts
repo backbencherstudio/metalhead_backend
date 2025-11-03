@@ -131,4 +131,19 @@ export class NotificationGateway
   remove(@MessageBody() data: { id: string; userId: string }) {
     return this.notificationService.remove(data.id, data.userId);
   }
+
+  /**
+   * Emit preferences update to user
+   */
+  emitPreferencesUpdate(userId: string, preferences: any) {
+    const targetSocketId = this.clients.get(userId);
+    if (targetSocketId) {
+      this.server.to(targetSocketId).emit('preferencesUpdated', {
+        userId,
+        preferences,
+        timestamp: new Date().toISOString(),
+      });
+      console.log(`Preferences update emitted to user ${userId}`);
+    }
+  }
 }

@@ -10,6 +10,7 @@ import { StripeMarketplaceService } from 'src/modules/payment/stripe/stripe-mark
 @Injectable()
 
 export class CounterOfferService {
+  authService: any;
   constructor(
     private prisma: PrismaService,
     private counterOfferNotificationService: CounterOfferNotificationService,
@@ -27,6 +28,32 @@ async createCounterOffer(createCounterOfferDto: CreateCounterOfferDto, userId: s
   // Check if job already has an accepted counter offer
   if(job.accepted_counter_offer_id) {
     throw new ForbiddenException('This job has already been accepted')
+  }
+  
+  const IsFirstCounterOffer=await this.prisma.counterOffer.findFirst({
+    where:{
+      job_id:createCounterOfferDto.job_id
+    }
+  })
+
+  // const checkHelperOnboardingStatus=await this.prisma.user.findUnique({
+  //   where:{
+  //     id:userId,
+  //   },
+  //   select:{
+  //     stripe_onboarding_completed:true,
+  //   }
+  // })
+  // if(!checkHelperOnboardingStatus) throw new ForbiddenException('You are not connected to a stripe account')
+  // if(!checkHelperOnboardingStatus.stripe_onboarding_completed) throw new ForbiddenException('You are not onboarded to a stripe account, Complete your onboarding to continue')
+
+  if(!IsFirstCounterOffer){
+    await this.prisma.jobTimeline.update({
+      where:{job_id:createCounterOfferDto.job_id},
+      data:{
+        counter_offer:new Date(),
+      }
+    })
   }
   
   const counterOffer= await this.prisma.counterOffer.create({
@@ -52,6 +79,7 @@ async createCounterOffer(createCounterOfferDto: CreateCounterOfferDto, userId: s
       }
     }
   })
+
   await this.counterOfferNotificationService.notifyUserAboutCounterOffer(counterOffer.id);
   return {
     success:true,
@@ -106,6 +134,7 @@ const updatedJob= await this.prisma.job.update({
   }
 })
 
+
 const paymentIntent=await this.stripeMarketplaceService.createMarketplacePaymentIntent({
   jobId: updatedJob.id,
   finalPrice: updatedJob.final_price,
@@ -124,6 +153,12 @@ await this.prisma.job.update({
   data: { payment_intent_id: paymentIntent.payment_intent_id, job_status: 'confirmed' },
 });
 
+await this.prisma.jobTimeline.update({
+  where:{job_id:counterOffer.job_id},
+  data:{
+    confirmed:new Date(),
+  }
+})
 await this.prisma.counterOffer.deleteMany({
   where: {
     job_id: counterOffer.job_id,
@@ -141,7 +176,6 @@ return{
 }
 
 async helperAcceptsJob(helperId: string, jobId: string) {
-  // ...existing validations (helper exists, job exists, not own job, not already assigned)...
 
   const job = await this.prisma.job.findUnique({ where: { id: jobId } });
   if (!job) throw new NotFoundException('Job not found');
@@ -156,6 +190,17 @@ async helperAcceptsJob(helperId: string, jobId: string) {
   if (existing) {
     return { success: true, message: 'Offer already submitted', offer_id: existing.id };
   }
+
+  // const checkHelperOnboardingStatus=await this.prisma.user.findUnique({
+  //   where:{
+  //     id:helperId,
+  //   },
+  //   select:{
+  //     stripe_onboarding_completed:true,
+  //   }
+  // })
+  // if(!checkHelperOnboardingStatus) throw new ForbiddenException('You are not connected to a stripe account')
+  // if(!checkHelperOnboardingStatus.stripe_onboarding_completed) throw new ForbiddenException('You are not onboarded to a stripe account, Complete your onboarding to continue')
 
   // Create a counter offer representing the direct accept at job.price
   const offer = await this.prisma.counterOffer.create({
@@ -174,6 +219,14 @@ async helperAcceptsJob(helperId: string, jobId: string) {
     data: { job_status: 'counter_offer', price: job.price },
     select: { id: true, title: true, job_status: true, price: true, user_id: true },
   });
+
+  await this.prisma.jobTimeline.update({
+    where:{job_id:jobId},
+    data:{
+      counter_offer:new Date(),
+    }
+  })
+  
 
   const dto = this.jobService.mapToResponseDto(updatedJob);
   return {

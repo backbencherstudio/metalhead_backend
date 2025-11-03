@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ScheduleModule } from '@nestjs/schedule';
 import { JobController } from './job.controller';
 import { JobService } from './job.service';
 import { JobNotificationService } from './job-notification.service';
@@ -14,7 +15,7 @@ import { CategoryModule } from '../category/category.module';
 import { PaymentModule } from '../../payment/payment.module';
 
 @Module({
-  imports: [PrismaModule, FirebaseNotificationModule, CategoryModule, PaymentModule],
+  imports: [ScheduleModule.forRoot(), PrismaModule, FirebaseNotificationModule, CategoryModule, PaymentModule],
   controllers: [
     JobManageController,
     JobController, 

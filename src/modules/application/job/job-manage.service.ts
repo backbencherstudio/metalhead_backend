@@ -30,55 +30,53 @@ export class JobManageService {
             { accepted_counter_offer: { helper_id: userId } }
           ],
           deleted_at: null,
-          
+          job_status:{not:{in:["confirm","completed","cancelled"]}}
         },
-        include: {
-          user: {
-            select: {
-              id: true,
-              name: true,
-              username: true,
-              email: true,
-              avatar: true,
+        select:{
+          id:true,
+          title:true,
+          price:true,
+          final_price:true,
+          payment_type:true,
+          job_type:true,
+          location:true,
+          latitude:true,
+          longitude:true,
+          description:true,
+          start_time:true,
+          end_time:true,
+          category:{
+            select:{
+              name:true,
             }
           },
-          assigned_helper: {
-            select: {
-              id: true,
-              name: true,
-              first_name: true,
-              last_name: true,
-              email: true,
-              phone: true
-            }
-          },
-          accepted_counter_offer: {
-            include: {
-              helper: {
-                select: {
-                  id: true,
-                  name: true,
-                  first_name: true,
-                  last_name: true,
-                  email: true,
-                  phone: true
+          reviews:{
+            select:{
+              id:true,
+              rating:true,
+              comment:true,
+              created_at:true,
+              updated_at:true,
+              reviewer:{
+                select:{
+                  id:true,
+                  first_name:true,
+                  avatar:true,
+                  type:true,
                 }
-              }
-            }
-          },
-          counter_offers: {
-            include: {
-              helper: {
-                select: {
-                  id: true,
-                  name: true,
-                  avatar: true
+              },
+              reviewee:{
+                select:{
+                  id:true,
+                  first_name:true,
+                  avatar:true,
+                  type:true,
                 }
               }
             }
           }
-        },
-        orderBy: { created_at: 'desc' }
+        }
+        
       });
       
       return jobs;

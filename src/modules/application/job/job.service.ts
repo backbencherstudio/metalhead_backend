@@ -3,6 +3,7 @@ import {
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
+import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CreateJobDto } from './dto/create-job.dto';
 import { JobCreateResponseDto } from './dto/job-create-response.dto';
@@ -14,6 +15,7 @@ import { convertEnumToCategoryName } from './utils/category-mapper.util';
 import { jobType, PaymentType } from '@prisma/client';
 import { RequestExtraTimeDto } from './dto/request-extra-time.dto';
 import { StripePayment } from 'src/common/lib/Payment/stripe/StripePayment';
+import { NotificationGateway } from '../notification/notification.gateway';
 import { StripeMarketplaceService } from 'src/modules/payment/stripe/stripe-marketplace.service';
 
 @Injectable()
@@ -24,6 +26,7 @@ export class JobService {
     private geocodingService: GeocodingService,
     private categoryService: CategoryService,
     private stripeMarketplaceService: StripeMarketplaceService,
+    private notificationGateway: NotificationGateway,
   ) {}
 
   async create(
@@ -109,6 +112,7 @@ export class JobService {
       throw new BadRequestException(`Category '${jobData.category}' not found`);
     }
 
+
     const job = await (this.prisma as any).job.create({
       data: {
         title: jobData.title,
@@ -163,6 +167,12 @@ export class JobService {
       },
     });
 
+    await this.prisma.jobTimeline.create({
+      data: {
+        job_id: job.id,
+        posted: new Date(),
+      },
+    });
     // record posted history
     await (this.prisma as any).jobStatusHistory?.create({
       data: {
@@ -671,7 +681,11 @@ export class JobService {
     }
 
     // Build orderBy clause
-    let orderBy: any = { created_at: 'desc' }; // Default sorting
+    // Default sorting: Recent start_time first (upcoming jobs), then by created_at
+    let orderBy: any = [
+      { start_time: 'asc' }, // Upcoming/earlier start times first
+      { created_at: 'desc' }, // Most recently created first as secondary sort
+    ];
 
     if (sortBy) {
       switch (sortBy) {
@@ -683,15 +697,24 @@ export class JobService {
           break;
         case 'rating_asc':
           // Rating sorting will be handled in post-processing
-          orderBy = { created_at: 'desc' };
+          orderBy = [
+            { start_time: 'asc' },
+            { created_at: 'desc' },
+          ];
           break;
         case 'rating_desc':
           // Rating sorting will be handled in post-processing
-          orderBy = { created_at: 'desc' };
+          orderBy = [
+            { start_time: 'asc' },
+            { created_at: 'desc' },
+          ];
           break;
         case 'distance':
           // Distance sorting will be handled in post-processing
-          orderBy = { created_at: 'desc' };
+          orderBy = [
+            { start_time: 'asc' },
+            { created_at: 'desc' },
+          ];
           break;
         case 'title':
           orderBy = { title: 'asc' };
@@ -702,13 +725,15 @@ export class JobService {
         case 'urgency':
           orderBy = [
             { job_type: 'desc' }, // URGENT first
+            { start_time: 'asc' }, // Then by start time
             { created_at: 'desc' },
           ];
           break;
         case 'urgency_recent':
-          // Combined sorting: URGENT jobs first, then by most recent
+          // Combined sorting: URGENT jobs first, then by start time, then most recent
           orderBy = [
             { job_type: 'desc' }, // URGENT first (URGENT > ANYTIME)
+            { start_time: 'asc' }, // Then by start time
             { created_at: 'desc' }, // Most recent first within each job type
           ];
           break;
@@ -716,7 +741,11 @@ export class JobService {
           orderBy = { created_at: 'desc' };
           break;
         default:
-          orderBy = { created_at: 'desc' };
+          // Default: start_time first, then created_at
+          orderBy = [
+            { start_time: 'asc' },
+            { created_at: 'desc' },
+          ];
       }
     }
 
@@ -1389,6 +1418,12 @@ export class JobService {
 
     try {
       if(job.job_status==='confirmed'){
+        await this.prisma.jobTimeline.update({
+          where:{job_id:jobId},
+          data:{
+            ongoing:new Date(),
+          }
+        })
         const updatedJob = await this.prisma.job.update({
           where: { id: jobId },
           data: {
@@ -1396,18 +1431,26 @@ export class JobService {
             actual_start_time: new Date(),
           },
         });
+        
         return {
+          success: true,
           message: 'Job started successfully',
           job: updatedJob,
         };
       }else{
-      
+
         if (job.job_status !== 'ongoing') {
           throw new BadRequestException(
             'Job must be ongoing before you can complete it',
           );
         }
-    
+        await this.prisma.jobTimeline.update({
+          where:{job_id:jobId},
+          data:{
+            completed:new Date(),
+          }
+        })
+        
         if (job.payment_type === PaymentType.HOURLY) {
           const startTime = new Date(job.actual_start_time);
           const endTime = new Date();
@@ -1426,6 +1469,8 @@ export class JobService {
           const hourlyRate = Number(job.hourly_rate);
     
           const finalPrice = hourlyRate * (actualHours+Number(approvedExtraHours?.total_approved_hours||0));
+         
+
           const updatedJob = await this.prisma.job.update({
             where: { id: jobId },
             data: {
@@ -1446,7 +1491,7 @@ export class JobService {
               updated_at: true,
             },
           });
-    
+         
           return {
             success: true,
             message: 'Job completed successfully',
@@ -1487,6 +1532,316 @@ export class JobService {
       };
     }
     
+  }
+
+
+// TODO: Change back to '0 * * * *' for production (runs every hour at minute 0)
+@Cron('0 * * * *') // Runs every minute for testing
+async checkAndAutoCompleteJobs() {
+  console.log('[CRON] Starting auto-complete job check at', new Date().toISOString());
+  
+  const TEST_MODE = false; // Set to false for production
+  const now = new Date();
+  const threshold = TEST_MODE 
+    ? new Date(now.getTime() - 3 * 60 * 1000) // 3 minutes ago for testing
+    : new Date(now.getTime() - 24 * 60 * 60 * 1000); // 24 hours ago for production
+
+  // Process ALL eligible jobs - this is correct
+  // First get all completed jobs with their timelines
+  const jobs = await this.prisma.job.findMany({
+    where: {
+      job_status: 'completed',
+      timeline: {
+        isNot: null, // Ensure timeline exists
+      },
+    },
+    select: { 
+      id: true,
+      timeline: {
+        select: {
+          completed: true,
+          paid: true,
+        },
+      },
+    },
+  });
+
+  // Filter jobs that meet the criteria
+  const eligibleJobs = jobs.filter(job => {
+    const timeline = job.timeline;
+    if (!timeline || !timeline.completed) return false;
+    if (timeline.paid) return false; // Already paid
+    const completedDate = new Date(timeline.completed);
+    return completedDate <= threshold;
+  });
+
+  console.log(`[CRON] Found ${eligibleJobs.length} eligible jobs to process (out of ${jobs.length} completed jobs)`);
+
+  for (const job of eligibleJobs) {
+    try {
+      await this.autoCompleteJob(job.id);
+    } catch (error) {
+      console.error(`[CRON] Error processing job ${job.id}:`, error.message);
+    }
+  }
+  
+  console.log('[CRON] Finished auto-complete job check');
+}
+
+  /**
+   * Auto-complete a single job - checks timing and marks as paid
+   * @param jobId - The job ID to process
+   */
+  async autoCompleteJob(jobId: string): Promise<any> {
+    console.log(`[AUTO-COMPLETE] Starting auto-complete for job: ${jobId}`);
+    
+    try {
+      // Fetch job with timeline
+      const job = await this.prisma.job.findFirst({
+        where: { 
+          id: jobId, 
+          job_status: 'completed' 
+        },
+        select: {
+          id: true,
+          user_id: true,
+          title: true,
+          final_price: true,
+          assigned_helper: {
+            select: {
+              id: true,
+              stripe_connect_account_id: true,
+            },
+          },
+          payment_intent_id: true,
+
+          timeline: {
+            select: {
+              completed: true,
+              paid: true,
+              job_id: true,
+            },
+          },
+        },
+      });
+
+      if (!job) {
+        throw new NotFoundException(`Job ${jobId} not found or not completed`);
+      }
+
+      console.log(`[AUTO-COMPLETE] Job found: ${job.id} - "${job.title}"`);
+
+      // Validate timeline exists
+      if (!job.timeline) {
+        throw new BadRequestException(`Job ${jobId} has no timeline record`);
+      }
+
+      console.log(`[AUTO-COMPLETE] Timeline found for job ${jobId}`);
+
+      // Validate completion date exists
+      if (!job.timeline.completed) {
+        throw new BadRequestException(`Job ${jobId} has no completion date`);
+      }
+
+      // Check if already paid
+      if (job.timeline.paid) {
+        console.log(`[AUTO-COMPLETE] Job ${jobId} already marked as paid at: ${job.timeline.paid}`);
+        return { 
+          message: 'Job already paid',
+          paidAt: job.timeline.paid 
+        };
+      }
+
+      const completedAt = new Date(job.timeline.completed);
+      const now = new Date();
+      const hoursPassed = (now.getTime() - completedAt.getTime()) / (1000 * 60 * 60);
+      const minutesPassed = (now.getTime() - completedAt.getTime()) / (1000 * 60);
+
+      console.log(`[AUTO-COMPLETE] Job ${jobId} completed at: ${completedAt.toISOString()}`);
+      console.log(`[AUTO-COMPLETE] Hours passed: ${hoursPassed.toFixed(2)}`);
+      console.log(`[AUTO-COMPLETE] Minutes passed: ${minutesPassed.toFixed(2)}`);
+
+      // Check if 24 hours have passed (or 3 minutes for testing - remove this for production)
+      if ( minutesPassed >= 3) {
+        console.log(`[AUTO-COMPLETE] ✅ Job ${jobId} eligible for auto-finish`);
+        return await this.autofinishJob(jobId, job.user_id);
+      }
+
+      console.log(`[AUTO-COMPLETE] ⏳ Job ${jobId} not yet eligible (needs 24 hours, currently ${hoursPassed.toFixed(2)} hours)`);
+      return { 
+        message: 'Not yet 24 hours',
+        hoursPassed: hoursPassed.toFixed(2),
+        eligibleIn: (24 - hoursPassed).toFixed(2) + ' hours'
+      };
+      
+    } catch (error) {
+      console.error(`[AUTO-COMPLETE] ❌ Error in autoCompleteJob for ${jobId}:`, error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Auto-finish a job - marks timeline as paid and updates job status
+   * @param jobId - The job ID to finish
+   * @param userId - The user ID who owns the job
+   */
+  async autofinishJob(jobId: string, userId: string): Promise<any> {
+    console.log(`[AUTO-FINISH] Starting auto-finish for job: ${jobId}`);
+    
+    try {
+      // STEP 1: Fetch job with all payment data first
+      const job = await this.prisma.job.findFirst({
+        where: { 
+          id: jobId, 
+          job_status: 'completed' 
+        },
+        select: {
+          id: true,
+          user_id: true,
+          title: true,
+          final_price: true,
+          payment_intent_id: true,
+          assigned_helper: {
+            select: {
+              id: true,
+              stripe_connect_account_id: true,
+            },
+          },
+        },
+      });
+
+      if (!job) {
+        throw new NotFoundException(`Job ${jobId} not found`);
+      }
+
+      // STEP 2: Validate helper has Stripe account
+      if (!job.assigned_helper?.stripe_connect_account_id) {
+        throw new BadRequestException(`Helper has no Stripe Connect account for job ${jobId}`);
+      }
+
+      console.log(`[AUTO-FINISH] Job found: ${job.id} - "${job.title}"`);
+      console.log(`[AUTO-FINISH] Helper Stripe account: ${job.assigned_helper.stripe_connect_account_id}`);
+
+      // STEP 3: Compute amounts
+      const total = Number(job.final_price || 0);
+      
+      if (total <= 0) {
+        throw new BadRequestException(`Job ${jobId} has invalid final_price: ${total}`);
+      }
+
+      const platformFeePct = 0.10; // or pull from settings
+      const helperAmountCents = Math.round(total * (1 - platformFeePct) * 100);
+      const commissionCents = Math.round(total * platformFeePct * 100);
+
+      console.log(`[AUTO-FINISH] Processing payment:`);
+      console.log(`  - Total: $${total}`);
+      console.log(`  - Helper amount: $${(helperAmountCents / 100).toFixed(2)}`);
+      console.log(`  - Platform commission: $${(commissionCents / 100).toFixed(2)}`);
+
+      // STEP 4: Transfer helper share from platform balance
+      let transfer;
+      try {
+        transfer = await this.stripeMarketplaceService.transferToHelper({
+          jobId: job.id,
+          finalPrice: total,
+          helperStripeAccountId: job.assigned_helper.stripe_connect_account_id,
+          platformFeePercent: platformFeePct,
+        });
+        console.log(`[AUTO-FINISH] ✅ Payment transfer successful: ${transfer.id}`);
+      } catch (paymentError) {
+        console.error(`[AUTO-FINISH] ❌ Payment transfer failed:`, paymentError.message);
+        throw new BadRequestException(`Payment transfer failed: ${paymentError.message}`);
+      }
+
+      // STEP 5: Persist payout/commission records
+      try {
+        await this.prisma.paymentTransaction.create({
+          data: {
+            provider: 'stripe',
+            type: 'payout',
+            reference_number: transfer.id,
+            status: 'paid',
+            amount: (helperAmountCents / 100).toFixed(2) as any,
+            currency: 'usd',
+            paid_amount: (helperAmountCents / 100).toFixed(2) as any,
+            paid_currency: 'usd',
+            user_id: job.assigned_helper.id, // receiver (helper)
+            order_id: job.id,
+          },
+        });
+
+        await this.prisma.paymentTransaction.create({
+          data: {
+            provider: 'stripe',
+            type: 'commission',
+            reference_number: job.payment_intent_id ?? undefined,
+            status: 'captured',
+            amount: (commissionCents / 100).toFixed(2) as any,
+            currency: 'usd',
+            paid_amount: (commissionCents / 100).toFixed(2) as any,
+            paid_currency: 'usd',
+            user_id: null, // platform
+            order_id: job.id,
+          },
+        });
+        console.log(`[AUTO-FINISH] ✅ Transaction records created`);
+      } catch (transactionError) {
+        console.error(`[AUTO-FINISH] ⚠️ Warning: Transaction records failed (payment already processed):`, transactionError.message);
+        // Don't throw - payment succeeded, records are optional
+      }
+
+      // STEP 6: Update timeline to mark as paid (ONLY after payment succeeds)
+      const timelineUpdate = await this.prisma.jobTimeline.update({
+        where: { job_id: jobId },
+        data: { 
+          paid: new Date() 
+        },
+      });
+
+      console.log(`[AUTO-FINISH] ✅ Timeline updated - paid at: ${timelineUpdate.paid?.toISOString()}`);
+
+      // STEP 7: Update job status to 'paid' (ONLY after payment succeeds)
+      const jobUpdate = await this.prisma.job.update({
+        where: { id: jobId },
+        data: {
+          job_status: 'paid',
+        },
+        select: {
+          id: true,
+          job_status: true,
+          title: true,
+        },
+      });
+
+      console.log(`[AUTO-FINISH] ✅ Job ${jobId} status updated to: ${jobUpdate.job_status}`);
+      console.log(`[AUTO-FINISH] ✅ Auto-finish completed successfully`);
+
+      return {
+        success: true,
+        message: 'Job auto-finished successfully with payment processed',
+        job: {
+          id: jobUpdate.id,
+          title: jobUpdate.title,
+          status: jobUpdate.job_status,
+        },
+        timeline: {
+          paidAt: timelineUpdate.paid,
+        },
+        payment: {
+          transferId: transfer.id,
+          helperAmount: (helperAmountCents / 100).toFixed(2),
+          commissionAmount: (commissionCents / 100).toFixed(2),
+        },
+      };
+
+    } catch (error) {
+      console.error(`[AUTO-FINISH] ❌ Error in autofinishJob for ${jobId}:`, error.message);
+      console.error(`[AUTO-FINISH] Error stack:`, error.stack);
+      
+      // Job is NOT marked as paid if we reach here
+      // Payment failed, so status remains 'completed'
+      throw error;
+    }
   }
 
   /**
@@ -1576,9 +1931,9 @@ export class JobService {
     }
 
     // Check if job is active
-    if (jobExists.status !== 1) {
-      throw new BadRequestException('Job is not active');
-    }
+    // if (jobExists.status !== 1) {
+    //   throw new BadRequestException('Job is not active');
+    // }
 
     // Check if job is deleted
     if (jobExists.deleted_at) {
@@ -1639,7 +1994,6 @@ export class JobService {
     const job = await this.prisma.job.findFirst({
       where: {
         id: jobId,
-        status: 1,
         job_status: 'ongoing',
       },
       select: {
@@ -1712,8 +2066,6 @@ export class JobService {
 
     return this.mapToResponseDto(job);
   }
-
-  
   /**
    * Approve extra time for a job
    */
@@ -1722,7 +2074,6 @@ export class JobService {
       where: {
         id: jobId,
         user_id: userId,
-        status: 1,
         deleted_at: null,
         extra_time_requested: {
           not: null,
@@ -1746,7 +2097,6 @@ export class JobService {
         where: {
           id: jobId,
           user_id: userId,
-          status: 1,
           deleted_at: null,
         },
         data: {
@@ -1933,96 +2283,29 @@ export class JobService {
   }
   
   async getTimeline(jobId: string): Promise<any> {
-    const job = await this.prisma.job.findUnique({
-      where: { id: jobId },
-      select: {
-        id: true,
-        title: true,
-        job_status: true,
-        created_at: true,
-        updated_at: true,
-        actual_start_time: true,
-        actual_end_time: true,
-      },
-    });
-
-    if (!job) {
-      throw new NotFoundException('Job Not Found');
-    }
-
-    // Get timeline entries from database
-    const timelineEntries = await this.prisma.jobTimeline.findMany({
+    const jobTimeline=await this.prisma.jobTimeline.findFirst({
       where: { job_id: jobId },
-      orderBy: { timestamp: 'asc' },
-    });
+      select:{
+        posted: true,
+        counter_offer: true,
+        confirmed: true,
+        ongoing: true,
+        completed: true,
+        paid: true,
+      }
+    })
 
-    // Create timeline array
-    const timeline = [];
-
-    // Add job creation as first entry
-    timeline.push({
-      status: 'posted',
-      timestamp: job.created_at,
-    });
-
-    // Add timeline entries from database
-    timelineEntries.forEach((entry) => {
-      timeline.push({
-        status: entry.status,
-        timestamp: entry.timestamp,
-      });
-    });
-
-    // Add actual start time if available
-    if (job.actual_start_time) {
-      timeline.push({
-        status: 'ongoing',
-        timestamp: job.actual_start_time,
-      });
+    if (!jobTimeline) {
+      throw new NotFoundException('Job Timeline Not Found');
     }
 
-    // Add actual end time if available
-    if (job.actual_end_time) {
-      timeline.push({
-        status: 'completed_by_helper',
-        timestamp: job.actual_end_time,
-      });
-    }
-
-    // Add current status if different from last entry
-    const lastEntry = timeline[timeline.length - 1];
-    if (lastEntry && lastEntry.status !== job.job_status) {
-      timeline.push({
-        status: job.job_status,
-        timestamp: job.updated_at,
-      });
-    }
-
-    // Remove duplicates and sort by timestamp
-    const uniqueTimeline = timeline.filter(
-      (entry, index, self) =>
-        index ===
-        self.findIndex(
-          (e) =>
-            e.status === entry.status &&
-            new Date(e.timestamp).getTime() ===
-              new Date(entry.timestamp).getTime(),
-        ),
-    );
-
-    uniqueTimeline.sort(
-      (a, b) =>
-        new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
-    );
+    
 
     return {
       success: true,
       message: 'Timeline retrieved successfully',
       data: {
-        job_id: job.id,
-        title: job.title,
-        current_status: job.job_status,
-        timeline: uniqueTimeline,
+        jobTimeline
       },
     };
   }
@@ -2352,17 +2635,27 @@ export class JobService {
       }));
     }
 
+    const updatedPreferences = {
+      maxDistanceKm: dto.maxDistanceKm,
+      latitude: dto.latitude,
+      longitude: dto.longitude,
+      preferredCategoryIds: preferredCategoryIds && preferredCategoryIds.length > 0 
+        ? preferredCategoryIds 
+        : undefined,
+    };
+
+    // Emit WebSocket event for real-time update
+    try {
+      this.notificationGateway.emitPreferencesUpdate(userId, updatedPreferences);
+    } catch (error) {
+      console.error('Failed to emit preferences update via WebSocket:', error);
+      // Don't throw error, continue with response
+    }
+
     return {
       success: true,
       message: 'Preferences updated successfully',
-      data: {
-        maxDistanceKm: dto.maxDistanceKm,
-        latitude: dto.latitude,
-        longitude: dto.longitude,
-        preferredCategoryIds: preferredCategoryIds && preferredCategoryIds.length > 0 
-          ? preferredCategoryIds 
-          : undefined,
-      },
+      data: updatedPreferences,
     };
   }
 }

@@ -228,7 +228,7 @@ export class ReviewService {
     };
   }
 
-  async getReviewOfJob(jobId: string) {
+  async getReviewOfJob(jobId: string, currentUserId: string) {
     const job = await this.prisma.job.findFirst({
       where: {
         id: jobId,
@@ -247,10 +247,10 @@ export class ReviewService {
         reviews: {
           include: {
             reviewee: {
-              select: { id: true, first_name: true, avatar: true,type:true },
+              select: { id: true, first_name: true, avatar: true, type: true },
             },
             reviewer: {
-              select: { id: true, first_name: true, avatar: true,type:true  },
+              select: { id: true, first_name: true, avatar: true, type: true },
             },
           },
         },
@@ -260,8 +260,62 @@ export class ReviewService {
       throw new NotFoundException('Job not Found');
     }
 
-    return job
+    // Get the helper ID (could be from assigned_helper_id or accepted_counter_offer)
+    let helperId = job.assigned_helper_id;
+    if (!helperId) {
+      // Try to get from accepted_counter_offer if exists
+      const jobWithOffer = await this.prisma.job.findUnique({
+        where: { id: jobId },
+        include: {
+          accepted_counter_offer: {
+            select: { helper_id: true },
+          },
+        },
+      });
+      helperId = jobWithOffer?.accepted_counter_offer?.helper_id || null;
+    }
 
+    // Separate reviews into "Your Review" and "Helper's Review of You"
+    let yourReview = null; // Review FROM current user
+    let helperReviewOfYou = null; // Review FROM helper TO current user
+
+    if (job.reviews && job.reviews.length > 0) {
+      // Find review FROM current user (they are the reviewer)
+      yourReview = job.reviews.find(
+        (review) => review.reviewer?.id === currentUserId
+      );
+
+      // Find review FROM helper TO current user (helper is reviewer, current user is reviewee)
+      if (helperId) {
+        helperReviewOfYou = job.reviews.find(
+          (review) =>
+            review.reviewer?.id === helperId &&
+            review.reviewee?.id === currentUserId
+        );
+      }
+    }
+
+    return {
+      jobId: job.id,
+      jobTitle: job.title,
+      jobStatus: job.job_status,
+      yourReview: yourReview
+        ? {
+            id: yourReview.id,
+            rating: yourReview.rating,
+            comment: yourReview.comment,
+            createdAt: yourReview.created_at,
+          }
+        : null,
+      helperReviewOfYou: helperReviewOfYou
+        ? {
+            id: helperReviewOfYou.id,
+            rating: helperReviewOfYou.rating,
+            comment: helperReviewOfYou.comment,
+            createdAt: helperReviewOfYou.created_at,
+          }
+        : null,
+    };
   }
 
   private mapToResponseDto(review: any): ReviewResponseDto {

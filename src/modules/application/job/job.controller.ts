@@ -489,20 +489,16 @@ export class JobController {
     return this.jobService.finishJob(id, userId);
   }
 
-  @ApiOperation({ summary: 'Auto-complete job after 24 hours (System only)' })
-  @Patch(':id/auto-complete')
-  async autoCompleteJob(@Param('id') id: string): Promise<{ message: string }> {
-    // This would be called by a system process, not a user
-    
-    return { message: 'Job auto-completed and payment released successfully' };
-  }
 
+  // // This would be called by a system process, not a user
+  // @ApiOperation({ summary: 'Auto-complete job after 24 hours (System only)' })
+  // @Patch(':id/auto-complete')
+  // async autoCompleteJob(@Param('id') id: string): Promise<{ message: string }> {
+  
+  //   return this.jobService.autoCompleteJob(id);
+  // }
 
-  @ApiOperation({ 
-    summary: 'Get job status timeline',
-    description: 'Get complete timeline of job status changes with timestamps'
-  })
-  @Get(':id/timeline')
+  @Get('timeline/:id')
   async getTimeline(@Param('id') id: string) {
     return this.jobService.getTimeline(id);
   }
@@ -728,7 +724,7 @@ export class JobController {
     @Body() dto: RequestExtraTimeDto,
     @Req() req: Request,
   ) {
-    const userId = req.user.userId;  // ✅ Consistent user ID
+    const userId = req.user.userId || req.user.id;  // ✅ Consistent user ID
     return this.jobService.requestExtraTime(jobId, userId, dto);
   }
   /**
@@ -747,7 +743,12 @@ export class JobController {
     return this.jobService.getJobStatus(jobId, userId);
   }
 
-  
-
+  @ApiOperation({ summary: 'Test endpoint - Manually trigger auto-complete cron job' })
+  @ApiResponse({ status: 200, description: 'Cron job executed successfully' })
+  @Get('test-auto-complete')
+  async testAutoComplete(@Req() req: Request): Promise<any> {
+    console.log('[TEST] Manually triggering auto-complete cron job');
+    return await this.jobService.checkAndAutoCompleteJobs();
+  }
 
 }

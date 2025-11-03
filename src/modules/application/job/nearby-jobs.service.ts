@@ -442,25 +442,12 @@ export class NearbyJobsService {
       if (preferences.maxJobPrice !== undefined) {
         updateData.max_job_price = preferences.maxJobPrice;
       }
-      if (preferences.preferredCategories !== undefined) {
+      if (preferences.preferredCategoryIds !== undefined) {
         // Convert old enum values to new category names for backward compatibility
-        const convertedCategories = convertEnumArrayToCategoryNames(preferences.preferredCategories);
+        const convertedCategories = preferences.preferredCategoryIds.map(id => id);
         
-        // Validate category names against seeded categories
-        const validCategories = await this.prisma.category.findMany({
-          select: { name: true }
-        });
-        const validCategoryNames = validCategories.map(c => c.name);
         
-        const invalidCategories = convertedCategories.filter(
-          (cat: string) => !validCategoryNames.includes(cat)
-        );
-        
-        if (invalidCategories.length > 0) {
-          throw new Error(`Invalid categories: ${invalidCategories.join(', ')}. Valid categories are: ${validCategoryNames.join(', ')}`);
-        }
-        
-        updateData.preferred_categories = convertedCategories;
+        updateData.preferred_category_ids = convertedCategories;
       }
 
       await this.prisma.user.update({
