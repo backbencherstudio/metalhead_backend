@@ -105,6 +105,7 @@ export class JobManageService {
       }
     });
     
-    return count;
+    return {success: true, message: 'Due jobs count retrieved successfully', data: {count: count}};
   }
+
 }

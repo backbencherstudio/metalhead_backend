@@ -339,7 +339,8 @@ export class JobController {
     
     return {
       success: true,
-      latestJob: latestJob,
+      message: latestJob.message,
+      data: latestJob.data,
     };
   }
 
@@ -347,13 +348,8 @@ export class JobController {
   @ApiOperation({ summary: 'Get all available job categories' })
   @ApiResponse({ status: 200, description: 'Categories retrieved successfully', type: CategoriesListResponseDto })
   @Get('categories')
-  async getCategories(): Promise<CategoriesListResponseDto> {
-    const categories = await this.categoryService.getCategoriesWithCounts();
-    
-    return {
-      categories,
-      total: categories.length,
-    };
+  async getCategories() {
+    return await this.categoryService.getCategoriesWithCounts();
   }
 
   @ApiOperation({ summary: 'Get job counts by category' })

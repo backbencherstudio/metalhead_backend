@@ -1177,7 +1177,7 @@ export class JobService {
         id,
         user_id: userId,
         deleted_at: null,
-        job_status: { not: { in: ['confirm', 'completed', 'cancelled'] } },
+        job_status: { not: { in: ['confirmed', 'ongoing','completed'] } },
       },
     });
 
@@ -1185,6 +1185,10 @@ export class JobService {
       throw new NotFoundException(
         'Job not found or you do not have permission to delete it',
       );
+    }
+
+    if(job.job_status==='confirmed' || job.job_status==='ongoing' || job.job_status==='completed'){
+      throw new BadRequestException('Job is already in progress');
     }
 
     await this.prisma.job.update({
@@ -1274,7 +1278,6 @@ export class JobService {
 
   // Get job counts by category
   async getJobCountsByCategory(): Promise<any> {
-    // Get all categories with their job counts
     const categories = await this.prisma.category.findMany({
       where: {
         status: 1,
@@ -1294,22 +1297,30 @@ export class JobService {
       },
       orderBy: { label: 'asc' },
     });
-
-    return categories.map((category) => ({
+  
+    const formatted = categories.map((category) => ({
+      id: category.id,
       category: category.name,
       label: category.label,
       count: category._count.jobs,
     }));
+    
+    return {
+      success: true,
+      message: 'Category fetched successfully',
+      data: formatted,
+    };
   }
+  
   /**
-   * Cancel a job (User can cancel if status is 'posted' or 'confirmed')
+   * Cancel a job (User can cancel if status is 'confirmed')
    */
   async cancelJob(jobId: string, userId: string): Promise<any> {
     const job = await this.prisma.job.findFirst({
       where: {
         id: jobId,
         user_id: userId,
-        status: 1,
+        job_status: { in: ['confirmed'] },
         deleted_at: null,
       },
     });
@@ -1909,14 +1920,10 @@ async checkAndAutoCompleteJobs() {
         currency: 'usd',
         paid_amount: (commissionCents / 100).toFixed(2) as any,
         paid_currency: 'usd',
-        user_id: null, // platform
+        user_id: jobExists.user_id, // platform
         order_id: jobExists.id,
       },
     });
-
-
-
-
 
 
     if (!jobExists) {
@@ -2156,66 +2163,71 @@ async checkAndAutoCompleteJobs() {
     }
 
     if (userType === 'user') {
-      const jobs = await this.prisma.job.findMany({
+      const jobs = await this.prisma.job.findFirst({
         where: {
           user_id: userId,
           NOT: { assigned_helper_id: null },
-          job_status: { in: ['confirmed', 'ongoing'] },
+          job_status: { in: ['confirmed'] },
         },
+        
         orderBy: {
           start_time: 'desc',
         },
-        include: {
-          user: {
-            select: {
-              id: true,
-              name: true,
-              first_name: true,
-              last_name: true,
-              email: true,
-              avatar: true,
-            },
-          },
-          requirements: true,
-          notes: true,
-          counter_offers: {
-            include: {
-              helper: {
-                select: {
-                  id: true,
-                  name: true,
-                  first_name: true,
-                  last_name: true,
-                  email: true,
-                  phone: true,
-                  type: true,
-                },
-              },
-            },
-          },
 
+        select:{
+          id: true,
+          title: true,
+          start_time: true,
+          end_time: true,
+          job_status: true,
+          final_price: true,
+          location: true,
+          latitude: true,
+          longitude: true,
           assigned_helper: {
             select: {
               id: true,
               name: true,
               first_name: true,
               last_name: true,
-              email: true,
               phone: true,
+              
+            },
+          },
+          user_id: true,
+          created_at: true,
+          updated_at: true,
+          category: {
+            select: {
+              id: true,
+              name: true,
+              label: true,
+            },
+          },
+          user:{
+            select: {
+              id: true,
+              first_name: true,
+              last_name: true,
+              email: true,
+              avatar: true,
+              cards: {
+                where:{
+                  is_default: true,
+                },
+                select: {
+                  id: true,
+                  last_four: true,
+                  card_type: true,
+                },
+              },
             },
           },
         },
       });
-
-      // Parse photos for each job instead of using mapToResponseDto
-      const jobsWithParsedPhotos = jobs.map((job) => ({
-        ...job,
-        photos: job.photos ? this.parsePhotos(job.photos) : [],
-      }));
-
       return {
         message: 'upcoming appointments retrieved successfully',
-        data: jobsWithParsedPhotos,
+        data: jobs,
       };
     } else if (userType === 'helper') {
       const jobs = await this.prisma.job.findMany({
@@ -2223,59 +2235,60 @@ async checkAndAutoCompleteJobs() {
         orderBy: {
           start_time: 'desc',
         },
-        include: {
-          user: {
+        select:{
+          id: true,
+          title: true,
+          start_time: true,
+          end_time: true,
+          job_status: true,
+          final_price: true,
+          location: true,
+          latitude: true,
+          longitude: true,
+          assigned_helper: {
             select: {
               id: true,
               name: true,
               first_name: true,
               last_name: true,
+              phone: true,
+              
+            },
+          },
+          user_id: true,
+          created_at: true,
+          updated_at: true,
+          category: {
+            select: {
+              id: true,
+              name: true,
+              label: true,
+            },
+          },
+          user:{
+            select: {
+              id: true,
+              first_name: true,
+              last_name: true,
               email: true,
               avatar: true,
-            },
-          },
-          requirements: true,
-          notes: true,
-          counter_offers: {
-            include: {
-              helper: {
-                select: {
-                  id: true,
-                  name: true,
-                  first_name: true,
-                  last_name: true,
-                  email: true,
-                  phone: true,
+              cards: {
+                where:{
+                  is_default: true,
                 },
-              },
-            },
-          },
-          accepted_counter_offer: {
-            include: {
-              helper: {
                 select: {
                   id: true,
-                  name: true,
-                  first_name: true,
-                  last_name: true,
-                  email: true,
-                  phone: true,
+                  last_four: true,
+                  card_type: true,
                 },
               },
             },
           },
         },
       });
-
-      // Parse photos for each job instead of using mapToResponseDto
-      const jobsWithParsedPhotos = jobs.map((job) => ({
-        ...job,
-        photos: job.photos ? this.parsePhotos(job.photos) : [],
-      }));
-
       return {
         message: 'upcoming jobs retrieved successfully',
-        data: jobsWithParsedPhotos,
+        data: jobs,
       };
     } else {
       throw new BadRequestException('Invalid user type');

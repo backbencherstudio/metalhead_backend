@@ -35,46 +35,38 @@ export class CategoryService {
     return categories.map(category => this.mapToResponseDto(category));
   }
 
-  async getCategoriesWithCounts(): Promise<any[]> {
+  async getCategoriesWithCounts(): Promise<any> {
     const categories = await this.prisma.category.findMany({
       where: { status: 1, deleted_at: null },
-      select: {
-        id: true,
-        label: true,
-        name: true,
-        _count: {
-          select: {
-            jobs: {
-              where: { status: 1, deleted_at: null },
-            },
-          },
-        },
-      },
+      select: { id: true, label: true, name: true },
       orderBy: { label: 'asc' },
     });
-
-
-    
-    
-    return categories.map(category => ({
-      id: category.id,
-      category: category.name,
-      label: category.label,
-      count: category._count.jobs,
-    }));
+  
+    const formatted = await Promise.all(
+      categories.map(async (category) => {
+        const count = await this.prisma.job.count({
+          where: {
+            category_id: category.id,
+            status: 1,
+            deleted_at: null,
+          },
+        });
+        return {
+          id: category.id,
+          category: category.name,
+          label: category.label,
+          count,
+        };
+      }),
+    );
+  
+    return {
+      success: true,
+      message: 'Categories fetched successfully',
+      data: formatted,
+    };
   }
-
-  async getCategoryById(id: string): Promise<CategoryResponseDto> {
-    const category = await this.prisma.category.findUnique({
-      where: { id },
-    });
-
-    if (!category) {
-      throw new NotFoundException('Category not found');
-    }
-
-    return this.mapToResponseDto(category);
-  }
+  
 
   async getCategoryByName(name: string): Promise<CategoryResponseDto> {
     const category = await this.prisma.category.findUnique({
