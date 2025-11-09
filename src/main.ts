@@ -51,6 +51,7 @@ app.enableCors({
     new ValidationPipe({
       transform: true,
     }),
+    
   );
   app.useGlobalFilters(new CustomExceptionFilter());
 
