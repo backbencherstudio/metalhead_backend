@@ -202,6 +202,7 @@ async helperAcceptsJob(helperId: string, jobId: string) {
   // if(!checkHelperOnboardingStatus.stripe_onboarding_completed) throw new ForbiddenException('You are not onboarded to a stripe account, Complete your onboarding to continue')
 
   // Create a counter offer representing the direct accept at job.price
+  
   const offer = await this.prisma.counterOffer.create({
     data: {
       job_id: jobId,
@@ -268,7 +269,7 @@ async getMyCounterOffers(
             price: true,
             job_status: true,
             user_id: true,
-            
+
           },
         },
         helper: {
@@ -338,9 +339,5 @@ async declineCounterOffer(userId: string, counterOfferId: string){
     message:'Counter offer declined successfully',
   };
 }
-
-
-
-
 
 }

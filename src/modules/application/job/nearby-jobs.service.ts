@@ -139,7 +139,6 @@ export class NearbyJobsService {
       throw new Error(`Failed to find nearby jobs: ${error.message}`);
     }
   }
-
   /**
    * Find nearby jobs for a specific user/helper based on their preferences
    */
@@ -272,7 +271,6 @@ export class NearbyJobsService {
       throw new Error(`Failed to find nearby jobs: ${error.message}`);
     }
   }
-
   /**
    * Notify helpers about a new job when it's posted
    */
@@ -316,7 +314,6 @@ export class NearbyJobsService {
       this.logger.error(`Error notifying helpers about job ${jobId}:`, error);
     }
   }
-
   /**
    * Find helpers who should be notified about a specific job
    */
@@ -389,7 +386,6 @@ export class NearbyJobsService {
       return [];
     }
   }
-
   /**
    * Send notification to a specific helper about a job
    */
@@ -461,7 +457,6 @@ export class NearbyJobsService {
       throw new Error(`Failed to update notification preferences: ${error.message}`);
     }
   }
-
   /**
    * Get user's current notification preferences
    */
@@ -494,7 +489,6 @@ export class NearbyJobsService {
       throw new Error(`Failed to get notification preferences: ${error.message}`);
     }
   }
-
   /**
    * Calculate distance between two coordinates in kilometers
    */
@@ -511,7 +505,6 @@ export class NearbyJobsService {
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     return R * c;
   }
-
   /**
    * Convert degrees to radians
    */
@@ -522,121 +515,121 @@ export class NearbyJobsService {
   /**
    * Comprehensive nearby jobs search with pagination
    */
-  async searchNearbyJobsWithPagination(
-    userId: string,
-    filters: {
-      searchLat?: number;
-      searchLng?: number;
-      maxDistanceKm?: number;
-      category?: string;
-      jobType?: string;
-      paymentType?: string;
-      jobStatus?: string;
-      minPrice?: number;
-      maxPrice?: number;
-      categories?: string[];
-      search?: string;
-      sortBy?: 'distance' | 'price' | 'date' | 'urgency_recent';
-    },
-    page: number = 1,
-    limit: number = 10,
-  ): Promise<{
-    jobs: NearbyJobNotification[];
-    total: number;
-    totalPages: number;
-    currentPage: number;
-  }> {
-    try {
-      // Determine search coordinates
-      let searchLat: number;
-      let searchLng: number;
+  // async searchNearbyJobsWithPagination(
+  //   userId: string,
+  //   filters: {
+  //     searchLat?: number;
+  //     searchLng?: number;
+  //     maxDistanceKm?: number;
+  //     category?: string;
+  //     jobType?: string;
+  //     paymentType?: string;
+  //     jobStatus?: string;
+  //     minPrice?: number;
+  //     maxPrice?: number;
+  //     categories?: string[];
+  //     search?: string;
+  //     sortBy?: 'distance' | 'price' | 'date' | 'urgency_recent';
+  //   },
+  //   page: number = 1,
+  //   limit: number = 10,
+  // ): Promise<{
+  //   jobs: NearbyJobNotification[];
+  //   total: number;
+  //   totalPages: number;
+  //   currentPage: number;
+  // }> {
+  //   try {
+  //     // Determine search coordinates
+  //     let searchLat: number;
+  //     let searchLng: number;
       
-      if (filters.searchLat && filters.searchLng) {
-        // Use provided coordinates
-        searchLat = filters.searchLat;
-        searchLng = filters.searchLng;
-      } else {
-        // Use user's location
-        const user = await this.prisma.user.findUnique({
-          where: { id: userId },
-          select: { latitude: true, longitude: true }
-        });
+  //     if (filters.searchLat && filters.searchLng) {
+  //       // Use provided coordinates
+  //       searchLat = filters.searchLat;
+  //       searchLng = filters.searchLng;
+  //     } else {
+  //       // Use user's location
+  //       const user = await this.prisma.user.findUnique({
+  //         where: { id: userId },
+  //         select: { latitude: true, longitude: true }
+  //       });
         
-        if (!user || !user.latitude || !user.longitude) {
-          throw new Error('User location not found. Please provide lat/lng coordinates or set your location.');
-        }
+  //       if (!user || !user.latitude || !user.longitude) {
+  //         throw new Error('User location not found. Please provide lat/lng coordinates or set your location.');
+  //       }
         
-        searchLat = user.latitude;
-        searchLng = user.longitude;
-      }
+  //       searchLat = user.latitude;
+  //       searchLng = user.longitude;
+  //     }
 
-      // Get nearby jobs using the location-based search
-      const allJobs = await this.findNearbyJobsByLocation(
-        searchLat,
-        searchLng,
-        {
-          maxDistanceKm: filters.maxDistanceKm,
-          minPrice: filters.minPrice,
-          maxPrice: filters.maxPrice,
-          categories: filters.categories,
-          limit: 1000, // Get more to sort and paginate
-        }
-      );
+  //     // Get nearby jobs using the location-based search
+  //     const allJobs = await this.findNearbyJobsByLocation(
+  //       searchLat,
+  //       searchLng,
+  //       {
+  //         maxDistanceKm: filters.maxDistanceKm,
+  //         minPrice: filters.minPrice,
+  //         maxPrice: filters.maxPrice,
+  //         categories: filters.categories,
+  //         limit: 1000, // Get more to sort and paginate
+  //       }
+  //     );
 
-      // Apply additional filters
-      let filteredJobs = allJobs;
+  //     // Apply additional filters
+  //     let filteredJobs = allJobs;
       
-      if (filters.category) {
-        filteredJobs = filteredJobs.filter(job => job.jobCategory === filters.category);
-      }
+  //     if (filters.category) {
+  //       filteredJobs = filteredJobs.filter(job => job.jobCategory === filters.category);
+  //     }
       
-      if (filters.jobType) {
-        filteredJobs = filteredJobs.filter(job => job.jobType === filters.jobType);
-      }
+  //     if (filters.jobType) {
+  //       filteredJobs = filteredJobs.filter(job => job.jobType === filters.jobType);
+  //     }
       
-      if (filters.search) {
-        const searchTerm = filters.search.toLowerCase();
-        filteredJobs = filteredJobs.filter(job => 
-          job.jobTitle.toLowerCase().includes(searchTerm) ||
-          job.jobLocation.toLowerCase().includes(searchTerm)
-        );
-      }
+  //     if (filters.search) {
+  //       const searchTerm = filters.search.toLowerCase();
+  //       filteredJobs = filteredJobs.filter(job => 
+  //         job.jobTitle.toLowerCase().includes(searchTerm) ||
+  //         job.jobLocation.toLowerCase().includes(searchTerm)
+  //       );
+  //     }
 
-      // Sort jobs
-      let sortedJobs = filteredJobs;
-      if (filters.sortBy === 'price') {
-        sortedJobs = filteredJobs.sort((a, b) => b.jobPrice - a.jobPrice);
-      } else if (filters.sortBy === 'date') {
-        sortedJobs = filteredJobs.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-      } else if (filters.sortBy === 'urgency_recent') {
-        // Combined sorting: URGENT jobs first, then by most recent
-        sortedJobs = filteredJobs.sort((a, b) => {
-          // First sort by job type (URGENT first)
-          if (a.jobType === 'URGENT' && b.jobType !== 'URGENT') return -1;
-          if (a.jobType !== 'URGENT' && b.jobType === 'URGENT') return 1;
+  //     // Sort jobs
+  //     let sortedJobs = filteredJobs;
+  //     if (filters.sortBy === 'price') {
+  //       sortedJobs = filteredJobs.sort((a, b) => b.jobPrice - a.jobPrice);
+  //     } else if (filters.sortBy === 'date') {
+  //       sortedJobs = filteredJobs.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  //     } else if (filters.sortBy === 'urgency_recent') {
+  //       // Combined sorting: URGENT jobs first, then by most recent
+  //       sortedJobs = filteredJobs.sort((a, b) => {
+  //         // First sort by job type (URGENT first)
+  //         if (a.jobType === 'URGENT' && b.jobType !== 'URGENT') return -1;
+  //         if (a.jobType !== 'URGENT' && b.jobType === 'URGENT') return 1;
           
-          // If same job type, sort by most recent
-          return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-        });
-      } else {
-        // Default: sort by distance
-        sortedJobs = filteredJobs.sort((a, b) => a.distance - b.distance);
-      }
+  //         // If same job type, sort by most recent
+  //         return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+  //       });
+  //     } else {
+  //       // Default: sort by distance
+  //       sortedJobs = filteredJobs.sort((a, b) => a.distance - b.distance);
+  //     }
 
-      // Paginate
-      const startIndex = (page - 1) * limit;
-      const endIndex = startIndex + limit;
-      const paginatedJobs = sortedJobs.slice(startIndex, endIndex);
+  //     // Paginate
+  //     const startIndex = (page - 1) * limit;
+  //     const endIndex = startIndex + limit;
+  //     const paginatedJobs = sortedJobs.slice(startIndex, endIndex);
 
-      return {
-        jobs: paginatedJobs,
-        total: sortedJobs.length,
-        totalPages: Math.ceil(sortedJobs.length / limit),
-        currentPage: page,
-      };
-    } catch (error) {
-      this.logger.error(`Error searching nearby jobs for user ${userId}:`, error);
-      throw new Error(`Failed to search nearby jobs: ${error.message}`);
-    }
-  }
+  //     return {
+  //       jobs: paginatedJobs,
+  //       total: sortedJobs.length,
+  //       totalPages: Math.ceil(sortedJobs.length / limit),
+  //       currentPage: page,
+  //     };
+  //   } catch (error) {
+  //     this.logger.error(`Error searching nearby jobs for user ${userId}:`, error);
+  //     throw new Error(`Failed to search nearby jobs: ${error.message}`);
+  //   }
+  // }
 }

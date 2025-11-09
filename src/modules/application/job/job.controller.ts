@@ -1,20 +1,4 @@
-import {
-  Controller,
-  Get,
-  Post,
-  Body,
-  Patch,
-  Param,
-  Delete,
-  UseGuards,
-  Query,
-  UseInterceptors,
-  UploadedFile,
-  UploadedFiles,
-  Req,
-  BadRequestException,
-  Put,
-} from '@nestjs/common';
+import {Controller,Get,Post,Body,Patch,Param,Delete,UseGuards,Query,UseInterceptors,UploadedFile,UploadedFiles,Req,BadRequestException,Put,} from '@nestjs/common';
 import { FileInterceptor, FileFieldsInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { ApiBearerAuth, ApiOperation, ApiTags, ApiConsumes, ApiBody, ApiResponse } from '@nestjs/swagger';
@@ -253,7 +237,7 @@ export class JobController {
   async searchJobs(
     @Req() req: Request,
     @Query() query: SearchJobsDto,
-  ): Promise<JobListResponseDto> {
+  ): Promise<any> {
     const userId = (req as any).user.userId || (req as any).user.id;
     const result = await this.jobService.searchJobsWithValidation(query, userId);
 
@@ -261,13 +245,14 @@ export class JobController {
       success: true,
       message: `Found ${result.jobs.length} jobs`,
       preferenceMessage: (result as any).preferenceMessage || '',
-      data: {
-        jobs: result.jobs,
+      data: result.jobs,
+      
+      pagination: {
         total: result.total,
         totalPages: result.totalPages,
         currentPage: result.currentPage,
       },
-    } as JobListResponseDto & { preferenceMessage?: string };
+    };
   }
 
 

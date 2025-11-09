@@ -2262,8 +2262,68 @@ async checkAndAutoCompleteJobs() {
       return new BadRequestException('User ID is required');
     }
 
+    const formatUpcomingJob = (job: any) => {
+      if (!job) {
+        return null;
+      }
+
+      const defaultCard = job.user?.cards?.[0];
+      return {
+        id: job.id,
+        title: job.title,
+        start_time: job.start_time,
+        end_time: job.end_time,
+        job_status: job.job_status,
+        final_price: job.final_price,
+        payment_type: job.payment_type,
+        location: job.location,
+        latitude: job.latitude,
+        longitude: job.longitude,
+        description: job.description,
+        total_approved_hours: job.total_approved_hours,
+        photos: job.photos ? this.parsePhotos(job.photos) : [],
+        timeline: job.timeline
+          ? {
+              posted: job.timeline.posted,
+              counter_offer: job.timeline.counter_offer,
+              confirmed: job.timeline.confirmed,
+              ongoing: job.timeline.ongoing,
+              completed: job.timeline.completed,
+              paid: job.timeline.paid,
+            }
+          : null,
+        assigned_helper: job.assigned_helper
+          ? {
+              id: job.assigned_helper.id,
+              name: job.assigned_helper.name,
+              first_name: job.assigned_helper.first_name,
+              last_name: job.assigned_helper.last_name,
+              phone: job.assigned_helper.phone,
+              email: job.assigned_helper.email,
+            }
+          : null,
+        user_id: job.user_id,
+        created_at: job.created_at,
+        updated_at: job.updated_at,
+        category: job.category,
+        user: job.user
+          ? {
+              email: job.user.email,
+              phone: job.user.phone,
+              cards: defaultCard
+                ? {
+                    id: defaultCard.id,
+                    last_four: defaultCard.last_four,
+                    card_type: defaultCard.card_type,
+                  }
+                : null,
+            }
+          : null,
+      };
+    };
+
     if (userType === 'user') {
-      const jobs = await this.prisma.job.findFirst({
+      const job = await this.prisma.job.findFirst({
         where: {
           user_id: userId,
           NOT: { assigned_helper_id: null },
@@ -2281,10 +2341,16 @@ async checkAndAutoCompleteJobs() {
           end_time: true,
           job_status: true,
           final_price: true,
+          payment_type: true,
           location: true,
           latitude: true,
           longitude: true,
           description: true,
+          total_approved_hours: true,
+          photos: true,
+          user_id: true,
+          created_at: true,
+          updated_at: true,
           assigned_helper: {
             select: {
               id: true,
@@ -2292,12 +2358,11 @@ async checkAndAutoCompleteJobs() {
               first_name: true,
               last_name: true,
               phone: true,
-              
+              email: true,
             },
           },
           timeline:{
             select: {
-              id: true,
               posted: true,
               counter_offer: true,
               confirmed: true,
@@ -2315,12 +2380,8 @@ async checkAndAutoCompleteJobs() {
           },
           user:{
             select: {
-              id: true,
-              first_name: true,
-              last_name: true,
               email: true,
               phone: true,
-              avatar: true,
               cards: {
                 where:{
                   is_default: true,
@@ -2333,18 +2394,16 @@ async checkAndAutoCompleteJobs() {
               },
             },
           },
-          created_at: true,
-          updated_at: true,
         },
       });
       return {
         message: 'upcoming appointments retrieved successfully',
-        data: jobs,
+        data: formatUpcomingJob(job),
       };
     } else if (userType === 'helper') {
-      const jobs = await this.prisma.job.findFirst({
+      const job = await this.prisma.job.findFirst({
         where: {
-          user_id: userId,
+          assigned_helper_id: userId,
           NOT: { assigned_helper_id: null },
           job_status: { in: ['confirmed'] },
         },
@@ -2360,10 +2419,16 @@ async checkAndAutoCompleteJobs() {
           end_time: true,
           job_status: true,
           final_price: true,
+          payment_type: true,
           location: true,
           latitude: true,
           longitude: true,
           description: true,
+          total_approved_hours: true,
+          photos: true,
+          user_id: true,
+          created_at: true,
+          updated_at: true,
           assigned_helper: {
             select: {
               id: true,
@@ -2371,12 +2436,11 @@ async checkAndAutoCompleteJobs() {
               first_name: true,
               last_name: true,
               phone: true,
-              
+              email: true,
             },
           },
           timeline:{
             select: {
-              id: true,
               posted: true,
               counter_offer: true,
               confirmed: true,
@@ -2394,12 +2458,8 @@ async checkAndAutoCompleteJobs() {
           },
           user:{
             select: {
-              id: true,
-              first_name: true,
-              last_name: true,
               email: true,
               phone: true,
-              avatar: true,
               cards: {
                 where:{
                   is_default: true,
@@ -2412,13 +2472,11 @@ async checkAndAutoCompleteJobs() {
               },
             },
           },
-          created_at: true,
-          updated_at: true,
         },
       });
       return {
         message: 'upcoming appointments retrieved successfully',
-        data: jobs,
+        data: formatUpcomingJob(job),
       };
     } else {
       throw new BadRequestException('Invalid user type');
@@ -2454,7 +2512,6 @@ async checkAndAutoCompleteJobs() {
   }
 
   // Earnings and payments
-
 
   /**
    * Get weekly earnings with day-by-day breakdown
