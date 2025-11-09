@@ -87,8 +87,6 @@ async createCounterOffer(createCounterOfferDto: CreateCounterOfferDto, userId: s
     counter_offer:counterOffer,
   };
 }
-
-
 // user accepts counter offer
 
 async acceptCounterOffer(acceptCounterOfferDto: AcceptCounterOfferDto, userId: string){
@@ -142,6 +140,7 @@ const paymentIntent=await this.stripeMarketplaceService.createMarketplacePayment
   buyerUserId: updatedJob.user.id,
   helperStripeAccountId: updatedJob.assigned_helper.stripe_connect_account_id,
   jobTitle: updatedJob.title,
+  idempotencyKey: `pi_initial_${updatedJob.id}_${Math.round(Number(updatedJob.final_price) * 100)}`,
 });
 
 // 2) Capture immediately (money moves to your platform balance)

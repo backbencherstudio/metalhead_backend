@@ -20,7 +20,8 @@ export class StripeMarketplaceService {
     buyerUserId,
     helperStripeAccountId,
     jobTitle,
-    platformFeePercent = 0.1, // default 10%
+    platformFeePercent = Number(process.env.ADMIN_FEE), // default 10%
+    idempotencyKey,
   }: {
     jobId: string;
     finalPrice: number | Decimal;
@@ -29,6 +30,7 @@ export class StripeMarketplaceService {
     helperStripeAccountId?: string;
     jobTitle: string;
     platformFeePercent?: number;
+    idempotencyKey?: string;
   }) {
     const amountCents = Math.round(Number(finalPrice) * 100);
     const platformFeeCents = Math.round(amountCents * platformFeePercent);
@@ -63,7 +65,10 @@ export class StripeMarketplaceService {
         metadata: { job_id: jobId, job_title: jobTitle },
         confirm: true, // confirm in the same call
       },
-      { idempotencyKey: `pi_create_${jobId}` },
+      {
+        idempotencyKey:
+          idempotencyKey ?? `pi_create_${jobId}_${amountCents}`,
+      },
     );
     // Do NOT confirm twice
 
@@ -110,5 +115,61 @@ export class StripeMarketplaceService {
       destination: opts.helperStripeAccountId,
       metadata: { job_id: opts.jobId },
     });
+  }
+
+  async refundPaymentIntent({
+    paymentIntentId,
+    amountCents,
+    orderId,
+    userId,
+    customerId,
+  }: {
+    paymentIntentId: string;
+    amountCents?: number;
+    orderId?: string;
+    userId?: string;
+    customerId?: string;
+  }) {
+    const params: Stripe.RefundCreateParams = {
+      payment_intent: paymentIntentId,
+    };
+
+    if (amountCents && amountCents > 0) {
+      params.amount = amountCents;
+    }
+
+    const refund = await this.stripe.refunds.create(params, {
+      idempotencyKey: `pi_refund_${paymentIntentId}_${params.amount ?? 'full'}`,
+    });
+
+    await this.prisma.paymentTransaction.updateMany({
+      where: { reference_number: paymentIntentId },
+      data: {
+        status: 'refunded',
+        raw_status: refund.status,
+      },
+    });
+
+    const refundAmount =
+      typeof refund.amount === 'number' ? (refund.amount / 100).toFixed(2) : undefined;
+
+    await this.prisma.paymentTransaction.create({
+      data: {
+        provider: 'stripe',
+        type: 'refund',
+        reference_number: refund.id,
+        status: refund.status,
+        raw_status: refund.status,
+        amount: refundAmount as any,
+        currency: refund.currency ?? 'usd',
+        paid_amount: refundAmount as any,
+        paid_currency: refund.currency ?? 'usd',
+        order_id: orderId,
+        user_id: userId,
+        customer_id: customerId,
+      },
+    });
+
+    return refund;
   }
 }

@@ -28,6 +28,7 @@ import { JobListResponseDto } from './dto/job-list-response.dto';
 import { JobSingleResponseDto } from './dto/job-single-response.dto';
 import { HelperPreferencesDto } from './dto/helper-preferences-shared.dto';
 import { CategoriesListResponseDto, CategoryResponseDto } from './dto/category-response.dto';
+import { SearchJobsDto } from './dto/search-jobs.dto';
 import { LatestJobResponseDto } from './dto/latest-job-response.dto';
 import { CategoryService } from '../category/category.service';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
@@ -148,32 +149,50 @@ export class JobController {
       photoPaths.push(uniqueFileName);
     }
   
+    const latitudeInput =
+      createJobDto.latitude ??
+      createJobDto.lat ??
+      createJobDto?.Latitude ??
+      createJobDto?.LATITUDE;
+    const longitudeInput =
+      createJobDto.longitude ??
+      createJobDto.lng ??
+      createJobDto.long ??
+      createJobDto.lon ??
+      createJobDto.longtitude ??
+      createJobDto?.Longitude ??
+      createJobDto?.LONGITUDE;
+
     let latitude: number | undefined;
     let longitude: number | undefined;
     
     // Only process coordinates if they are provided
-    if (createJobDto.latitude !== undefined && createJobDto.longitude !== undefined) {
+    if (latitudeInput !== undefined && longitudeInput !== undefined) {
       // Validate coordinates - handle different input types from Flutter
-      if (typeof createJobDto.latitude === 'string') {
-        latitude = parseFloat(createJobDto.latitude);
-      } else if (typeof createJobDto.latitude === 'number') {
-        latitude = createJobDto.latitude;
+      if (typeof latitudeInput === 'string') {
+        latitude = parseFloat(latitudeInput);
+      } else if (typeof latitudeInput === 'number') {
+        latitude = latitudeInput;
       } else {
-        latitude = parseFloat(createJobDto.latitude);
+        latitude = parseFloat(latitudeInput);
       }
       
-      if (typeof createJobDto.longitude === 'string') {
-        longitude = parseFloat(createJobDto.longitude);
-      } else if (typeof createJobDto.longitude === 'number') {
-        longitude = createJobDto.longitude;
+      if (typeof longitudeInput === 'string') {
+        longitude = parseFloat(longitudeInput);
+      } else if (typeof longitudeInput === 'number') {
+        longitude = longitudeInput;
       } else {
-        longitude = parseFloat(createJobDto.longitude);
+        longitude = parseFloat(longitudeInput as any);
       }
       
       // Only validate if coordinates were provided
       if (isNaN(latitude) || isNaN(longitude)) {
-        throw new BadRequestException(`Latitude and longitude must be valid numbers. Received: lat="${createJobDto.latitude}" (type: ${typeof createJobDto.latitude}), lng="${createJobDto.longitude}" (type: ${typeof createJobDto.longitude})`);
+        throw new BadRequestException(`Latitude and longitude must be valid numbers. Received: lat="${latitudeInput}" (type: ${typeof latitudeInput}), lng="${longitudeInput}" (type: ${typeof longitudeInput})`);
       }
+
+      // Normalize DTO fields so downstream logic consistently uses latitude/longitude
+      createJobDto.latitude = latitude;
+      createJobDto.longitude = longitude;
     }
 
     // Handle category - convert old enum values to new category names for backward compatibility
@@ -233,66 +252,10 @@ export class JobController {
   @Get()
   async searchJobs(
     @Req() req: Request,
-    // Pagination
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
-    
-    // Category & Location Filters
-    @Query('category') category?: string, // Single category name or ID
-    @Query('categories') categories?: string, // Comma-separated categories (e.g., "cleaning,plumbing" or "clx123,clx456" or mixed "cleaning,clx123")
-    @Query('location') location?: string, // Text-based location search
-    @Query('lat') lat?: string, // Latitude for location-based filtering
-    @Query('lng') lng?: string, // Longitude for location-based filtering
-    @Query('maxDistanceKm') maxDistanceKm?: string, // Max distance from lat/lng
-    
-    // Job Property Filters
-    @Query('jobType') jobType?: string, // URGENT or ANYTIME
-    @Query('paymentType') paymentType?: string, // HOURLY or FIXED
-    @Query('jobStatus') jobStatus?: string, // posted, counter_offer, confirmed, ongoing, completed, paid
-    @Query('urgency') urgency?: string, // filter by urgency: 'urgent' or 'normal'
-    
-    // Price & Rating Filters
-    @Query('minPrice') minPrice?: string, // Minimum price
-    @Query('maxPrice') maxPrice?: string, // Maximum price
-    @Query('priceRange') priceRange?: string, // Price range as "min,max" (e.g., "100,500")
-    @Query('minRating') minRating?: string, // Minimum rating (1-5)
-    @Query('maxRating') maxRating?: string, // Maximum rating (1-5)
-    
-    // Date Filters
-    @Query('dateRange') dateRange?: string, // Date range as "startDate,endDate" (e.g., "2024-01-01,2024-12-31")
-    @Query('createdAfter') createdAfter?: string, // Jobs created after this date
-    @Query('createdBefore') createdBefore?: string, // Jobs created before this date
-    
-    // Search & Sort
-    @Query('search') search?: string, // Search in title and description
-    @Query('sortBy') sortBy?: string, // Sort options: price_asc, price_desc, rating_asc, rating_desc, distance, urgency, urgency_recent, created_at
+    @Query() query: SearchJobsDto,
   ): Promise<JobListResponseDto> {
     const userId = (req as any).user.userId || (req as any).user.id;
-    const result = await this.jobService.searchJobsWithValidation({
-      // Raw query parameters - let service handle parsing and validation
-      page,
-      limit,
-      category,
-      categories,
-      location,
-      lat,
-      lng,
-      maxDistanceKm,
-      jobType,
-      paymentType,
-      jobStatus,
-      urgency,
-      minPrice,
-      maxPrice,
-      priceRange,
-      minRating,
-      maxRating,
-      dateRange,
-      createdAfter,
-      createdBefore,
-      search,
-      sortBy,
-    }, userId);
+    const result = await this.jobService.searchJobsWithValidation(query, userId);
 
     return {
       success: true,
@@ -375,7 +338,7 @@ export class JobController {
   @ApiResponse({ status: 200, description: 'Category details retrieved successfully', type: CategoryResponseDto })
   @Get('categories/:category')
   async getCategoryDetails(@Param('category') category: string): Promise<CategoryResponseDto> {
-    const categoryRecord = await this.categoryService.getCategoryByName(category);
+    const categoryRecord = await this.categoryService.getCategoryById(category);
     if (!categoryRecord) {
       throw new BadRequestException(`Invalid category: ${category}`);
     }
@@ -674,8 +637,6 @@ export class JobController {
     }
   }
 
-
-
   @Put('approveOrRejectExtratime/:id')
   @UseGuards(JwtAuthGuard)
   async approveOrDeclineExtraTime(
@@ -698,7 +659,7 @@ export class JobController {
   @ApiResponse({ status: 200, description: 'Job cancelled successfully' })
   @ApiResponse({ status: 403, description: 'Forbidden - only job owner can cancel' })
   @ApiResponse({ status: 404, description: 'Job not found' })
-  @Delete(':id/cancel')
+  @Delete('cancel/:id')
   async cancelJob(
     @Param('id') jobId: string,
     @Req() req: Request,

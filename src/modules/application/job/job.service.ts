@@ -1,8 +1,4 @@
-import {
-  Injectable,
-  NotFoundException,
-  BadRequestException,
-} from '@nestjs/common';
+import {Injectable,NotFoundException,BadRequestException,} from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CreateJobDto } from './dto/create-job.dto';
@@ -17,6 +13,8 @@ import { RequestExtraTimeDto } from './dto/request-extra-time.dto';
 import { StripePayment } from 'src/common/lib/Payment/stripe/StripePayment';
 import { NotificationGateway } from '../notification/notification.gateway';
 import { StripeMarketplaceService } from 'src/modules/payment/stripe/stripe-marketplace.service';
+import { SearchJobsDto } from './dto/search-jobs.dto';
+import { commisionSpillter } from './utils/commision-spillter.util';
 
 @Injectable()
 export class JobService {
@@ -39,13 +37,13 @@ export class JobService {
     // Handle location data with smart fallback logic
     let latitude: number;
     let longitude: number;
-    let location: string;
+    let location: string | undefined;
 
     // Priority 1: Use device GPS coordinates if provided
     if (jobData.latitude !== undefined && jobData.longitude !== undefined) {
       latitude = jobData.latitude;
       longitude = jobData.longitude;
-      location = jobData.location || `Location: ${latitude}, ${longitude}`;
+      location = jobData.location ?? undefined;
     }
     // Priority 2: Use geocoding if user provided address but no GPS
     else if (
@@ -206,31 +204,7 @@ export class JobService {
    * Ultra-dynamic job search with pagination - supports ANY combination of filters
    * For helpers, automatically applies preference settings when filters are not provided
    */
-  async searchJobsWithValidation(rawParams: {
-    // Raw query parameters
-    page?: string;
-    limit?: string;
-    category?: string;
-    categories?: string;
-    location?: string;
-    lat?: string;
-    lng?: string;
-    maxDistanceKm?: string;
-    jobType?: string;
-    paymentType?: string;
-    jobStatus?: string;
-    urgency?: string;
-    minPrice?: string;
-    maxPrice?: string;
-    priceRange?: string;
-    minRating?: string;
-    maxRating?: string;
-    dateRange?: string;
-    createdAfter?: string;
-    createdBefore?: string;
-    search?: string;
-    sortBy?: string;
-  }, userId?: string): Promise<{
+  async searchJobsWithValidation(rawParams: SearchJobsDto, userId?: string): Promise<{
     jobs: any[];
     total: number;
     totalPages: number;
@@ -1323,6 +1297,28 @@ export class JobService {
         job_status: { in: ['confirmed'] },
         deleted_at: null,
       },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            first_name: true,
+            last_name: true,
+            email: true,
+            avatar: true,
+            billing_id: true,
+          },
+        },
+        assigned_helper: {
+          select: {
+            id: true,
+            name: true,
+            first_name: true,
+            last_name: true,
+            email: true,
+          },
+        },
+      },
     });
 
     if (!job) {
@@ -1337,10 +1333,29 @@ export class JobService {
       );
     }
 
+    let refundResult: any = null;
+    if (job.payment_intent_id) {
+      const refundAmountCents = Math.round(Number(job.final_price || 0) * 100);
+      try {
+        refundResult = await this.stripeMarketplaceService.refundPaymentIntent({
+          paymentIntentId: job.payment_intent_id,
+          amountCents: refundAmountCents > 0 ? refundAmountCents : undefined,
+          orderId: job.id,
+          userId: job.user_id,
+          customerId: job.user?.billing_id ?? undefined,
+        });
+      } catch (error) {
+        throw new BadRequestException(
+          `Refund failed: ${error.message ?? 'Unable to process refund'}`,
+        );
+      }
+    }
+
     const updatedJob = await this.prisma.job.update({
       where: { id: jobId },
       data: {
         job_status: 'cancelled',
+        status: 1,
       },
       include: {
         user: {
@@ -1369,8 +1384,19 @@ export class JobService {
     // this.jobNotificationService.notifyJobCancelled(updatedJob);
 
     return {
-      message: 'Job cancelled successfully',
+      message: refundResult
+        ? 'Job cancelled and payment refunded successfully'
+        : 'Job cancelled successfully',
       job: this.mapToResponseDto(updatedJob),
+      refund: refundResult
+        ? {
+            id: refundResult.id,
+            status: refundResult.status,
+            amount: refundResult.amount ? refundResult.amount / 100 : null,
+            currency: refundResult.currency,
+            created: refundResult.created ? new Date(refundResult.created * 1000) : null,
+          }
+        : null,
     };
   }
 
@@ -1547,11 +1573,11 @@ export class JobService {
 
 
 // TODO: Change back to '0 * * * *' for production (runs every hour at minute 0)
-@Cron('0 * * * *') // Runs every minute for testing
+@Cron('* * * * *') // Runs every minute for testing
 async checkAndAutoCompleteJobs() {
   console.log('[CRON] Starting auto-complete job check at', new Date().toISOString());
   
-  const TEST_MODE = false; // Set to false for production
+  const TEST_MODE = true; // Set to false for production
   const now = new Date();
   const threshold = TEST_MODE 
     ? new Date(now.getTime() - 3 * 60 * 1000) // 3 minutes ago for testing
@@ -1740,9 +1766,9 @@ async checkAndAutoCompleteJobs() {
         throw new BadRequestException(`Job ${jobId} has invalid final_price: ${total}`);
       }
 
-      const platformFeePct = 0.10; // or pull from settings
-      const helperAmountCents = Math.round(total * (1 - platformFeePct) * 100);
-      const commissionCents = Math.round(total * platformFeePct * 100);
+      const platformFeePct = process.env.ADMIN_FEE; // or pull from settings
+      const helperAmountCents = Math.round(total * (1 - Number(platformFeePct)) * 100);
+      const commissionCents = Math.round(total * Number(platformFeePct) * 100);
 
       console.log(`[AUTO-FINISH] Processing payment:`);
       console.log(`  - Total: $${total}`);
@@ -1756,7 +1782,7 @@ async checkAndAutoCompleteJobs() {
           jobId: job.id,
           finalPrice: total,
           helperStripeAccountId: job.assigned_helper.stripe_connect_account_id,
-          platformFeePercent: platformFeePct,
+          platformFeePercent: Number(platformFeePct),
         });
         console.log(`[AUTO-FINISH] ✅ Payment transfer successful: ${transfer.id}`);
       } catch (paymentError) {
@@ -2002,6 +2028,7 @@ async checkAndAutoCompleteJobs() {
       where: {
         id: jobId,
         job_status: 'ongoing',
+        payment_type:PaymentType.HOURLY,
       },
       select: {
         assigned_helper_id: true,
@@ -2022,8 +2049,7 @@ async checkAndAutoCompleteJobs() {
       where: { id: jobId },
       data: {
         extra_time_requested: dto.hours, 
-        extra_time_requested_at: new Date(),
-            
+        extra_time_requested_at: new Date(),   
       }
     });
   
@@ -2085,7 +2111,21 @@ async checkAndAutoCompleteJobs() {
         extra_time_requested: {
           not: null,
         },
-      }
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            billing_id: true,
+          },
+        },
+        assigned_helper: {
+          select: {
+            id: true,
+            stripe_connect_account_id: true,
+          },
+        },
+      },
     });
   
     if (!job) {
@@ -2118,20 +2158,80 @@ async checkAndAutoCompleteJobs() {
           extra_time_requested: true,
           extra_time_approved: true,
           total_approved_hours: true,
+
         }
       });
-  
+      if (job.payment_type !== PaymentType.HOURLY) {
+        throw new BadRequestException('Extra time is only applicable for hourly jobs');
+      }
+
+      const hourlyRate = Number(job.hourly_rate ?? 0);
+      if (hourlyRate <= 0) {
+        throw new BadRequestException('Hourly rate must be greater than zero to approve extra time');
+      }
+
+      const extraHours = Number(job.extra_time_requested);
+      if (extraHours <= 0) {
+        throw new BadRequestException('Requested extra time must be greater than zero');
+      }
+
+      const baseAmount = hourlyRate * extraHours;
+      const {
+        totalAmount,
+      } = commisionSpillter(baseAmount);
+
+      if (!job.user?.billing_id) {
+        throw new BadRequestException('User does not have a valid billing profile');
+      }
+
+      const helperStripeAccountId = job.assigned_helper?.stripe_connect_account_id;
+      if (!helperStripeAccountId) {
+        throw new BadRequestException('Assigned helper is missing Stripe connect account');
+      }
+
+      const idempotencyKey = `pi_extra_${jobId}_${Math.round(baseAmount * 100)}`;
+      let paymentIntent: Awaited<ReturnType<typeof this.stripeMarketplaceService.createMarketplacePaymentIntent>> | null = null;
+
+      try {
+        paymentIntent = await this.stripeMarketplaceService.createMarketplacePaymentIntent({
+          jobId: jobId,
+          finalPrice: totalAmount,
+          buyerBillingId: job.user.billing_id,
+          buyerUserId: job.user.id,
+          helperStripeAccountId,
+          jobTitle: job.title,
+          idempotencyKey,
+        });
+
+        await this.stripeMarketplaceService.capturePaymentIntent(paymentIntent.payment_intent_id);
+      } catch (error) {
+        await this.prisma.job.update({
+          where: { id: jobId },
+          data: {
+            extra_time_approved: false,
+            extra_time_approved_at: null,
+            total_approved_hours: currentTotalHours,
+          },
+        });
+        throw new BadRequestException(
+          `Failed to process payment for extra time: ${
+            error?.message ?? 'Unknown error from payment provider'
+          }`,
+        );
+      }
+
       return {
         success: true,
-        message: 'Extra time approved successfully',
-        job: updatedJob
+        message: 'Extra time approved successfully', 
+        job: updatedJob,
+        payment_intent_id: paymentIntent.payment_intent_id,
+        idempotency_key: idempotencyKey,
       };
     } else {
       const updatedJob = await this.prisma.job.update({
         where: {
           id: jobId,
           user_id: userId,
-          status: 1,
           deleted_at: null,
         },
         data: {
@@ -2169,7 +2269,7 @@ async checkAndAutoCompleteJobs() {
           NOT: { assigned_helper_id: null },
           job_status: { in: ['confirmed'] },
         },
-        
+    
         orderBy: {
           start_time: 'desc',
         },
@@ -2184,6 +2284,7 @@ async checkAndAutoCompleteJobs() {
           location: true,
           latitude: true,
           longitude: true,
+          description: true,
           assigned_helper: {
             select: {
               id: true,
@@ -2194,9 +2295,17 @@ async checkAndAutoCompleteJobs() {
               
             },
           },
-          user_id: true,
-          created_at: true,
-          updated_at: true,
+          timeline:{
+            select: {
+              id: true,
+              posted: true,
+              counter_offer: true,
+              confirmed: true,
+              ongoing: true,
+              completed: true,
+              paid: true,
+            },
+          },
           category: {
             select: {
               id: true,
@@ -2210,6 +2319,7 @@ async checkAndAutoCompleteJobs() {
               first_name: true,
               last_name: true,
               email: true,
+              phone: true,
               avatar: true,
               cards: {
                 where:{
@@ -2223,6 +2333,8 @@ async checkAndAutoCompleteJobs() {
               },
             },
           },
+          created_at: true,
+          updated_at: true,
         },
       });
       return {
@@ -2230,11 +2342,17 @@ async checkAndAutoCompleteJobs() {
         data: jobs,
       };
     } else if (userType === 'helper') {
-      const jobs = await this.prisma.job.findMany({
-        where: { assigned_helper_id: userId },
+      const jobs = await this.prisma.job.findFirst({
+        where: {
+          user_id: userId,
+          NOT: { assigned_helper_id: null },
+          job_status: { in: ['confirmed'] },
+        },
+    
         orderBy: {
           start_time: 'desc',
         },
+
         select:{
           id: true,
           title: true,
@@ -2245,6 +2363,7 @@ async checkAndAutoCompleteJobs() {
           location: true,
           latitude: true,
           longitude: true,
+          description: true,
           assigned_helper: {
             select: {
               id: true,
@@ -2255,9 +2374,17 @@ async checkAndAutoCompleteJobs() {
               
             },
           },
-          user_id: true,
-          created_at: true,
-          updated_at: true,
+          timeline:{
+            select: {
+              id: true,
+              posted: true,
+              counter_offer: true,
+              confirmed: true,
+              ongoing: true,
+              completed: true,
+              paid: true,
+            },
+          },
           category: {
             select: {
               id: true,
@@ -2271,6 +2398,7 @@ async checkAndAutoCompleteJobs() {
               first_name: true,
               last_name: true,
               email: true,
+              phone: true,
               avatar: true,
               cards: {
                 where:{
@@ -2284,10 +2412,12 @@ async checkAndAutoCompleteJobs() {
               },
             },
           },
+          created_at: true,
+          updated_at: true,
         },
       });
       return {
-        message: 'upcoming jobs retrieved successfully',
+        message: 'upcoming appointments retrieved successfully',
         data: jobs,
       };
     } else {
@@ -2330,82 +2460,109 @@ async checkAndAutoCompleteJobs() {
    * Get weekly earnings with day-by-day breakdown
    */
   async getWeeklyEarnings(userId: string, userType: string): Promise<any> {
-    // Calculate the start of the week (Sunday 00:00:00)
     const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const dayOfWeek = today.getDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
-    const startOfWeek = new Date(today);
-    startOfWeek.setDate(today.getDate() - dayOfWeek);
-    startOfWeek.setHours(0, 0, 0, 0);
+    const utcToday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    const currentDayOfWeek = utcToday.getUTCDay(); // 0 = Sunday, 6 = Saturday
 
-    // End of the week (Saturday 23:59:59)
-    const endOfWeek = new Date(startOfWeek);
-    endOfWeek.setDate(startOfWeek.getDate() + 6);
-    endOfWeek.setHours(23, 59, 59, 999);
+    const currentWeekStart = new Date(utcToday);
+    currentWeekStart.setUTCDate(utcToday.getUTCDate() - currentDayOfWeek);
+    currentWeekStart.setUTCHours(0, 0, 0, 0);
 
-    const whereClause: any = {
-      job_status: 'paid', // Use 'paid' status as earnings are only realized when paid
-      status: 1,
-      deleted_at: null,
-      updated_at: { gte: startOfWeek, lte: endOfWeek }, // When job was marked as paid
+    const currentWeekEnd = new Date(currentWeekStart);
+    currentWeekEnd.setUTCDate(currentWeekStart.getUTCDate() + 6);
+    currentWeekEnd.setUTCHours(23, 59, 59, 999);
+
+    const previousWeekStart = new Date(currentWeekStart);
+    previousWeekStart.setUTCDate(currentWeekStart.getUTCDate() - 7);
+    previousWeekStart.setUTCHours(0, 0, 0, 0);
+
+    const previousWeekEnd = new Date(previousWeekStart);
+    previousWeekEnd.setUTCDate(previousWeekStart.getUTCDate() + 6);
+    previousWeekEnd.setUTCHours(23, 59, 59, 999);
+
+    const buildWeekPayload = (
+      weekStart: Date,
+      weekJobs: Array<{ id: string; final_price: any; updated_at: Date }>,
+    ) => {
+      const weekEnd = new Date(weekStart);
+      weekEnd.setUTCDate(weekStart.getUTCDate() + 6);
+      weekEnd.setUTCHours(23, 59, 59, 999);
+
+      const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+      const dayTotals = Array(7).fill(0);
+
+      weekJobs.forEach((job) => {
+        const jobDate = new Date(job.updated_at);
+        const dayIndex = jobDate.getUTCDay();
+        dayTotals[dayIndex] += Number(job.final_price ?? 0);
+      });
+
+      const chart = dayNames.map((dayName, index) => {
+        const dayDate = new Date(weekStart);
+        dayDate.setUTCDate(weekStart.getUTCDate() + index);
+        dayDate.setUTCHours(0, 0, 0, 0);
+
+        return {
+          day: dayName,
+          date: dayDate.toISOString(),
+          amount: Math.round(dayTotals[index] * 100) / 100,
+        };
+      });
+
+      const total = dayTotals.reduce((sum, value) => sum + value, 0);
+      // const weekLabel = `${weekStart.toISOString().split('T')[0]}_${weekEnd
+      //   .toISOString()
+      //   .split('T')[0]}`;
+
+      return {
+        week_start: weekStart.toISOString(),
+        week_end: weekEnd.toISOString(),
+        total_earnings: Math.round(total * 100) / 100,
+        chart,
+      };
     };
 
-    if (userType === 'user') {
-      whereClause.user_id = userId;
-    } else if (userType === 'helper') {
-      whereClause.assigned_helper_id = userId;
-    }
+    const fetchWeekJobs = async (start: Date, end: Date) => {
+      const whereClause: any = {
+        job_status: 'paid',
+        updated_at: {
+          gte: start,
+          lte: end,
+        },
+      };
 
-    const jobs = await this.prisma.job.findMany({
-      where: whereClause,
-      select: {
-        id: true,
-        final_price: true,
-        updated_at: true, // When the job was paid
-      },
-    });
+      if (userType === 'helper') {
+        whereClause.assigned_helper_id = userId;
+      } else {
+        whereClause.user_id = userId;
+      }
 
-    // Initialize day earnings map (Sun = 0, Mon = 1, ..., Sat = 6)
-    const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-    const dayEarnings: { [key: number]: number } = {};
-    
-    // CRITICAL: Initialize ALL 7 days with 0 to ensure full week structure
-    // This ensures that even if helper signed up mid-week, all days are present
-    for (let i = 0; i < 7; i++) {
-      dayEarnings[i] = 0;
-    }
+      return this.prisma.job.findMany({
+        where: whereClause,
+        select: {
+          id: true,
+          final_price: true,
+          updated_at: true,
+        },
+      });
+    };
 
-    // Group earnings by day of week (only adds to days that have paid jobs)
-    jobs.forEach((job) => {
-      const jobDate = new Date(job.updated_at);
-      const dayOfWeek = jobDate.getDay(); // 0 = Sunday, 6 = Saturday
-      dayEarnings[dayOfWeek] += Number(job.final_price || 0);
-    });
+    const [currentWeekJobs, previousWeekJobs] = await Promise.all([
+      fetchWeekJobs(currentWeekStart, currentWeekEnd),
+      fetchWeekJobs(previousWeekStart, previousWeekEnd),
+    ]);
 
-    // Calculate total earnings from all jobs in the week
-    const totalEarnings = jobs.reduce(
-      (sum, job) => sum + Number(job.final_price || 0),
-      0,
-    );
-
-    // Calculate average daily earnings (total / 7 days of the week)
-    // Always divide by 7 to get average per day of the week, regardless of when user signed up
-    const averageDaily = totalEarnings / 7;
-
-    // Build chart array - ALWAYS returns all 7 days (Sun → Sat) with 0 for missing days
-    // Example: Helper signs up Wed → Returns: [Sun: 0, Mon: 0, Tue: 0, Wed: X, Thu: Y, Fri: Z, Sat: 0]
-    const chart = dayNames.map((dayName, index) => ({
-      day: dayName,
-      amount: dayEarnings[index],
-    }));
+    const currentWeek = buildWeekPayload(currentWeekStart, currentWeekJobs);
+    const previousWeek = buildWeekPayload(previousWeekStart, previousWeekJobs);
 
     return {
-      summary: {
-        total_earnings: totalEarnings,
-        average_daily: Math.round(averageDaily * 100) / 100, // Round to 2 decimal places
-        currency: 'USD',
+      success: true,
+      message: 'Weekly earnings (current + previous) fetched successfully',
+      currency: 'USD',
+      data: {
+        current_week: currentWeek,
+        previous_week: previousWeek,
       },
-      chart: chart,
     };
   }
 
@@ -2514,7 +2671,6 @@ async checkAndAutoCompleteJobs() {
         : undefined,
     };
   }
-
   /**
    * Update helper preferences
    */
