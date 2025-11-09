@@ -2262,66 +2262,6 @@ async checkAndAutoCompleteJobs() {
       return new BadRequestException('User ID is required');
     }
 
-    const formatUpcomingJob = (job: any) => {
-      if (!job) {
-        return null;
-      }
-
-      const defaultCard = job.user?.cards?.[0];
-      return {
-        id: job.id,
-        title: job.title,
-        start_time: job.start_time,
-        end_time: job.end_time,
-        job_status: job.job_status,
-        final_price: job.final_price,
-        payment_type: job.payment_type,
-        location: job.location,
-        latitude: job.latitude,
-        longitude: job.longitude,
-        description: job.description,
-        total_approved_hours: job.total_approved_hours,
-        photos: job.photos ? this.parsePhotos(job.photos) : [],
-        timeline: job.timeline
-          ? {
-              posted: job.timeline.posted,
-              counter_offer: job.timeline.counter_offer,
-              confirmed: job.timeline.confirmed,
-              ongoing: job.timeline.ongoing,
-              completed: job.timeline.completed,
-              paid: job.timeline.paid,
-            }
-          : null,
-        assigned_helper: job.assigned_helper
-          ? {
-              id: job.assigned_helper.id,
-              name: job.assigned_helper.name,
-              first_name: job.assigned_helper.first_name,
-              last_name: job.assigned_helper.last_name,
-              phone: job.assigned_helper.phone,
-              email: job.assigned_helper.email,
-            }
-          : null,
-        user_id: job.user_id,
-        created_at: job.created_at,
-        updated_at: job.updated_at,
-        category: job.category,
-        user: job.user
-          ? {
-              email: job.user.email,
-              phone: job.user.phone,
-              cards: defaultCard
-                ? {
-                    id: defaultCard.id,
-                    last_four: defaultCard.last_four,
-                    card_type: defaultCard.card_type,
-                  }
-                : null,
-            }
-          : null,
-      };
-    };
-
     if (userType === 'user') {
       const job = await this.prisma.job.findFirst({
         where: {
@@ -2331,7 +2271,7 @@ async checkAndAutoCompleteJobs() {
         },
     
         orderBy: {
-          start_time: 'desc',
+          start_time: 'asc',
         },
 
         select:{
@@ -2396,9 +2336,21 @@ async checkAndAutoCompleteJobs() {
           },
         },
       });
+      const formattedJob = job
+        ? {
+            ...job,
+            photos: job.photos ? this.parsePhotos(job.photos) : [],
+            user: job.user
+              ? {
+                  ...job.user,
+                  cards: job.user.cards?.[0] ?? null,
+                }
+              : null,
+          }
+        : null;
       return {
         message: 'upcoming appointments retrieved successfully',
-        data: formatUpcomingJob(job),
+        data: formattedJob,
       };
     } else if (userType === 'helper') {
       const job = await this.prisma.job.findFirst({
@@ -2409,7 +2361,7 @@ async checkAndAutoCompleteJobs() {
         },
     
         orderBy: {
-          start_time: 'desc',
+          start_time: 'asc',
         },
 
         select:{
@@ -2474,9 +2426,21 @@ async checkAndAutoCompleteJobs() {
           },
         },
       });
+      const formattedJob = job
+        ? {
+            ...job,
+            photos: job.photos ? this.parsePhotos(job.photos) : [],
+            user: job.user
+              ? {
+                  ...job.user,
+                  cards: job.user.cards?.[0] ?? null,
+                }
+              : null,
+          }
+        : null;
       return {
-        message: 'upcoming appointments retrieved successfully',
-        data: formatUpcomingJob(job),
+        message: 'upcoming jobs retrieved successfully',
+        data: formattedJob,
       };
     } else {
       throw new BadRequestException('Invalid user type');

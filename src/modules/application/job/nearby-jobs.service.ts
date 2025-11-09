@@ -1,7 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { FirebaseNotificationService } from '../firebase-notification/firebase-notification.service';
-import { convertEnumArrayToCategoryNames } from './utils/category-mapper.util';
 import { NotificationRepository } from '../../../common/repository/notification/notification.repository';
 import { HelperPreferencesDto, HelperPreferencesResponse } from './dto/helper-preferences-shared.dto';
 
@@ -12,7 +11,7 @@ export interface NearbyJobNotification {
   jobLocation: string;
   jobCategory: string;
   jobType: string;
-  distance: number; // Distance in kilometers
+  distance: number;
   latitude: number;
   longitude: number;
   created_at: Date;
@@ -418,7 +417,6 @@ export class NearbyJobsService {
       this.logger.error(`Failed to send notification to helper ${helper.id}:`, error);
     }
   }
-
   /**
    * Update user's notification preferences
    */
