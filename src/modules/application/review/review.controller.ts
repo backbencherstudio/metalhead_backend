@@ -1,33 +1,8 @@
-import {
-  Controller,
-  Get,
-  Post,
-  Body,
-  Patch,
-  Param,
-  Delete,
-  UseGuards,
-  Query,
-  ParseIntPipe,
-  DefaultValuePipe,
-  Req,
-} from '@nestjs/common';
-import {
-  ApiTags,
-  ApiOperation,
-  ApiResponse,
-  ApiBearerAuth,
-  ApiQuery,
+import {Controller,Get,Post,Body,Param,UseGuards,Query,ParseIntPipe,DefaultValuePipe,Req,} from '@nestjs/common';
+import {ApiTags,ApiBearerAuth,
 } from '@nestjs/swagger';
 import { ReviewService } from './review.service';
-import {
-  CreateReviewDto,
-  ReviewResponseDto,
-  JobReviewsResponseDto,
-  UserReviewsSummaryDto,
-  UpdateReviewDto,
-  UserStatsResponseDto,
-} from './dto';
+import {CreateReviewDto,ReviewResponseDto,UserReviewsSummaryDto} from './dto';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { GetUser } from '../../../common/decorators/get-user.decorator';
 

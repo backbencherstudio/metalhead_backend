@@ -1,7 +1,9 @@
-import {Controller,Get,Post,Body,Patch,Param,Delete,UseGuards,Query,UseInterceptors,UploadedFile,UploadedFiles,Req,BadRequestException,Put,} from '@nestjs/common';
-import { FileInterceptor, FileFieldsInterceptor } from '@nestjs/platform-express';
+import {Controller,Get,Post,Body,Patch,Param,Delete,UseGuards,Query,UseInterceptors,UploadedFiles,Req,BadRequestException,Put,} from '@nestjs/common';
+import { FileFieldsInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { ApiBearerAuth, ApiOperation, ApiTags, ApiConsumes, ApiBody, ApiResponse } from '@nestjs/swagger';
+import { Request } from 'express';
+import { v4 as uuidv4 } from 'uuid';
 import { JobService } from './job.service';
 import { JobNotificationService } from './job-notification.service';
 import { CreateJobDto } from './dto/create-job.dto';
@@ -11,16 +13,14 @@ import { JobCreateResponseDto } from './dto/job-create-response.dto';
 import { JobListResponseDto } from './dto/job-list-response.dto';
 import { JobSingleResponseDto } from './dto/job-single-response.dto';
 import { HelperPreferencesDto } from './dto/helper-preferences-shared.dto';
-import { CategoriesListResponseDto, CategoryResponseDto } from './dto/category-response.dto';
+import { CategoryResponseDto } from './dto/category-response.dto';
 import { SearchJobsDto } from './dto/search-jobs.dto';
-import { LatestJobResponseDto } from './dto/latest-job-response.dto';
 import { CategoryService } from '../category/category.service';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
-import { Request } from 'express';
 import { SojebStorage } from '../../../common/lib/Disk/SojebStorage';
-import { v4 as uuidv4 } from 'uuid';
-import { convertEnumToCategoryName } from './utils/category-mapper.util';
+import { collectPhotoPaths, normalizeCategory, normalizeCoordinates, normalizeEnum, parseJsonField } from './utils/parse-helper.util'
 import { RequestExtraTimeDto } from './dto/request-extra-time.dto';
+import { JobManageService } from './job-manage.service';
 
 @ApiBearerAuth()
 @ApiTags('Jobs')
@@ -31,11 +31,8 @@ export class JobController {
     private readonly jobService: JobService,
     private readonly jobNotificationService: JobNotificationService,
     private readonly categoryService: CategoryService,
+    private readonly jobManageService: JobManageService,
   ) {}
-
-  @ApiOperation({ summary: 'Create a new job posting with optional photo' })
-  @ApiResponse({ status: 201, description: 'Job created successfully', type: JobCreateResponseDto })
-  @ApiConsumes('multipart/form-data')
 
   @Post()
   @UseInterceptors(
@@ -55,184 +52,41 @@ export class JobController {
     @Req() req: Request,
   ): Promise<JobCreateResponseDto> {
     const userId = (req as any).user.userId || (req as any).user.id;
-    
-    // Parse JSON strings for requirements and notes
-    let requirements = [];
-    let notes = [];
-    
-    if (createJobDto.requirements) {
-      try {
-        if (typeof createJobDto.requirements === 'string') {
-          console.log('DEBUG - Parsing requirements string:', createJobDto.requirements);
-          
-          // Fix malformed JSON by adding missing commas
-          let cleanedJson = createJobDto.requirements
-            .replace(/}\s*{/g, '},{') // Add commas between objects
-            .replace(/}\s*\]/g, '}]') // Fix last object
-            .replace(/\[\s*{/g, '[{') // Fix first object
-            .replace(/\n/g, '') // Remove newlines
-            .replace(/\r/g, ''); // Remove carriage returns
-          
-          
-        } else if (Array.isArray(createJobDto.requirements)) {
-          requirements = createJobDto.requirements;
-        }
-      } catch (e) {
-        console.error('DEBUG - Error parsing requirements:', e);;
-        requirements = [];
-      }
-    }
-   
-    if (createJobDto.notes) {
-      try {
-        if (typeof createJobDto.notes === 'string') {
-          // Fix malformed JSON by adding missing commas
-          let cleanedJson = createJobDto.notes
-            .replace(/}\s*{/g, '},{') // Add commas between objects
-            .replace(/}\s*\]/g, '}]') // Fix last object
-            .replace(/\[\s*{/g, '[{') // Fix first object
-            .replace(/\n/g, '') // Remove newlines
-            .replace(/\r/g, ''); // Remove carriage returns
-          
-          notes = JSON.parse(cleanedJson);
-        } else if (Array.isArray(createJobDto.notes)) {
-          notes = createJobDto.notes;
-        }
-      } catch (e) {
-        console.error('DEBUG - Error parsing notes:', e);
-        notes = [];
-      }
-    }
-    
-    // Handle file upload if provided
-    let photoPaths: string[] = [];
-    
-    // Handle multiple files from various field names
-    const fileFields = ['files', 'photoes', 'photos'];
-    
-    for (const fieldName of fileFields) {
-      if (files?.[fieldName] && files[fieldName].length > 0) {
-        console.log(`Processing ${files[fieldName].length} files from field: ${fieldName}`);
-        for (const file of files[fieldName]) {
-          const fileExtension = file.originalname.split('.').pop();
-          const uniqueFileName = `job-photos/${uuidv4()}.${fileExtension}`;
-          await SojebStorage.put(uniqueFileName, file.buffer);
-          photoPaths.push(uniqueFileName);
-        }
-      }
-    }
-    // Store photos as JSON string in database
-    const photoPath = photoPaths.length > 0 ? JSON.stringify(photoPaths) : null;
-    
-    // Handle single files from other fields (fallback)
-    const singleFile = files?.file?.[0] || files?.image?.[0] || files?.photo?.[0];
-    if (singleFile) {
-      const fileExtension = singleFile.originalname.split('.').pop();
-      const uniqueFileName = `job-photos/${uuidv4()}.${fileExtension}`;
-      await SojebStorage.put(uniqueFileName, singleFile.buffer);
-      photoPaths.push(uniqueFileName);
-    }
-  
-    const latitudeInput =
-      createJobDto.latitude ??
-      createJobDto.lat ??
-      createJobDto?.Latitude ??
-      createJobDto?.LATITUDE;
-    const longitudeInput =
-      createJobDto.longitude ??
-      createJobDto.lng ??
-      createJobDto.long ??
-      createJobDto.lon ??
-      createJobDto.longtitude ??
-      createJobDto?.Longitude ??
-      createJobDto?.LONGITUDE;
+    const requirements = parseJsonField(createJobDto.requirements, [], 'requirements');
+    const notes = parseJsonField(createJobDto.notes, [], 'notes');
 
-    let latitude: number | undefined;
-    let longitude: number | undefined;
-    
-    // Only process coordinates if they are provided
-    if (latitudeInput !== undefined && longitudeInput !== undefined) {
-      // Validate coordinates - handle different input types from Flutter
-      if (typeof latitudeInput === 'string') {
-        latitude = parseFloat(latitudeInput);
-      } else if (typeof latitudeInput === 'number') {
-        latitude = latitudeInput;
-      } else {
-        latitude = parseFloat(latitudeInput);
-      }
-      
-      if (typeof longitudeInput === 'string') {
-        longitude = parseFloat(longitudeInput);
-      } else if (typeof longitudeInput === 'number') {
-        longitude = longitudeInput;
-      } else {
-        longitude = parseFloat(longitudeInput as any);
-      }
-      
-      // Only validate if coordinates were provided
-      if (isNaN(latitude) || isNaN(longitude)) {
-        throw new BadRequestException(`Latitude and longitude must be valid numbers. Received: lat="${latitudeInput}" (type: ${typeof latitudeInput}), lng="${longitudeInput}" (type: ${typeof longitudeInput})`);
-      }
+    const photoPaths = await collectPhotoPaths(files);
 
-      // Normalize DTO fields so downstream logic consistently uses latitude/longitude
-      createJobDto.latitude = latitude;
-      createJobDto.longitude = longitude;
-    }
+    const { latitude, longitude } = normalizeCoordinates(createJobDto);
+    const category = normalizeCategory(createJobDto.category);
+    const paymentType = normalizeEnum(createJobDto.payment_type, ['HOURLY', 'FIXED'], 'payment_type');
+    const jobType = normalizeEnum(createJobDto.job_type, ['URGENT', 'ANYTIME'], 'job_type');
 
-    // Handle category - convert old enum values to new category names for backward compatibility
-    let category = createJobDto.category;
-    if (category && typeof category === 'string') {
-      // Convert old enum values to new category names
-      category = convertEnumToCategoryName(category);
-    }
-    
-    // Convert payment_type to proper enum value
-    let paymentType = createJobDto.payment_type;
-    if (typeof paymentType === 'string') {
-      paymentType = paymentType.toUpperCase();
-      if (paymentType !== 'HOURLY' && paymentType !== 'FIXED') {
-        throw new BadRequestException('payment_type must be either "HOURLY" or "FIXED"');
-      }
-    }
-    
-    // Convert job_type to proper enum value
-    let jobType = createJobDto.job_type;
-    if (typeof jobType === 'string') {
-      jobType = jobType.toUpperCase();
-      if (jobType !== 'URGENT' && jobType !== 'ANYTIME') {
-        throw new BadRequestException('job_type must be either "URGENT" or "ANYTIME"');
-      }
-    }
-
-
-    // Create the job data object
     const jobData: CreateJobDto = {
       title: createJobDto.title,
-      category: category as any, // Use mapped category
+      category: category as any,
       price: createJobDto.price,
-      payment_type: paymentType as any, // Use mapped payment type
-      job_type: jobType as any, // Use mapped job type
+      payment_type: paymentType as any,
+      job_type: jobType as any,
       location: createJobDto.location,
-      latitude: latitude, // Will be undefined if not provided, allowing geocoding
-      longitude: longitude, // Will be undefined if not provided, allowing geocoding
+      latitude,
+      longitude,
       start_time: createJobDto.start_time,
       end_time: createJobDto.end_time,
       description: createJobDto.description,
-      requirements: requirements,
-      notes: notes,
+      requirements,
+      notes,
       urgent_note: createJobDto.urgent_note,
     };
-    
-    
-    
+
     return this.jobService.create(jobData, userId, photoPaths);
   }
+
 
   @ApiOperation({ 
     summary: 'Ultra-Dynamic Job Search API (Common for Users and Helpers)',
     description: 'Single API for ALL job searching needs - supports ANY combination of filters. Each parameter is optional - use any combination you need for dynamic filtering. For helpers, preference settings (max_distance_km, preferred_categories, min_job_price, max_job_price) are automatically applied when filters are not provided.'
   })
-  @ApiResponse({ status: 200, description: 'Jobs retrieved successfully', type: JobListResponseDto })
   @Get()
   async searchJobs(
     @Req() req: Request,
@@ -257,7 +111,6 @@ export class JobController {
 
 
   @ApiOperation({ summary: 'Get jobs posted by the current user (no pagination - Flutter handles pagination)' })
-  @ApiResponse({ status: 200, description: 'User jobs retrieved successfully', type: JobListResponseDto })
   @Get('my-jobs')
   async findMyJobs(
     @Req() req: Request,
@@ -278,7 +131,6 @@ export class JobController {
   }
 
   @ApiOperation({ summary: 'Get latest upcoming appointment for user' })
-  @ApiResponse({ status: 200, description: 'Latest appointment retrieved successfully', type: LatestJobResponseDto })
   @Get('upcoming')
   async getLatestAppointment(@Req() req: Request) {
     const userId = req.user.userId
@@ -294,14 +146,12 @@ export class JobController {
 
 
   @ApiOperation({ summary: 'Get all available job categories' })
-  @ApiResponse({ status: 200, description: 'Categories retrieved successfully', type: CategoriesListResponseDto })
   @Get('categories')
   async getCategories() {
     return await this.categoryService.getCategoriesWithCounts();
   }
 
   @ApiOperation({ summary: 'Get job counts by category' })
-  @ApiResponse({ status: 200, description: 'Job counts by category retrieved successfully' })
   @Get('categories/with-counts')
   async getJobCountsByCategory() {
     try {
@@ -320,7 +170,6 @@ export class JobController {
   }
 
   @ApiOperation({ summary: 'Get specific category details' })
-  @ApiResponse({ status: 200, description: 'Category details retrieved successfully', type: CategoryResponseDto })
   @Get('categories/:category')
   async getCategoryDetails(@Param('category') category: string): Promise<CategoryResponseDto> {
     const categoryRecord = await this.categoryService.getCategoryById(category);
@@ -339,7 +188,6 @@ export class JobController {
 
   
   @ApiOperation({ summary: 'Get a specific job by ID' })
-  @ApiResponse({ status: 200, description: 'Job retrieved successfully', type: JobSingleResponseDto })
   @Get(':id')
   async findOne(@Param('id') id: string): Promise<JobSingleResponseDto> {
     const job = await this.jobService.findOne(id);
@@ -377,14 +225,8 @@ export class JobController {
   ): Promise<JobResponseDto> {
     const userId = (req as any).user.userId || (req as any).user.id;
 
-    let requirements = [];
-    let notes = [];
-    if (updateJobDto?.requirements) {
-      try { requirements = JSON.parse(updateJobDto.requirements); } catch {}
-    }
-    if (updateJobDto?.notes) {
-      try { notes = JSON.parse(updateJobDto.notes); } catch {}
-    }
+    const requirements = parseJsonField(updateJobDto?.requirements, [], 'requirements');
+    const notes = parseJsonField(updateJobDto?.notes, [], 'notes');
 
     let photoPath: string | undefined;
     const uploadedFiles = files?.photoes || files?.file || files?.File || files?.image || files?.photo || [];
@@ -417,7 +259,6 @@ export class JobController {
     return this.jobService.update(id, dto, userId, photoPath);
   }
 
- 
 
   @ApiOperation({ summary: 'Mark job as started (Helper only)' })
   @Patch('startOrComplete/:id')
@@ -432,15 +273,6 @@ export class JobController {
     const userId = (req as any).user.userId || (req as any).user.id;
     return this.jobService.finishJob(id, userId);
   }
-
-
-  // // This would be called by a system process, not a user
-  // @ApiOperation({ summary: 'Auto-complete job after 24 hours (System only)' })
-  // @Patch(':id/auto-complete')
-  // async autoCompleteJob(@Param('id') id: string): Promise<{ message: string }> {
-  
-  //   return this.jobService.autoCompleteJob(id);
-  // }
 
   @Get('timeline/:id')
   async getTimeline(@Param('id') id: string) {
@@ -481,6 +313,7 @@ export class JobController {
     };
   }
 
+
   @ApiOperation({ summary: 'Update helper notification preferences' })
   @Patch('settings/update-preferences')
   async updateHelperPreferences(
@@ -490,7 +323,6 @@ export class JobController {
     const userId = (req as any).user.userId || (req as any).user.id;
     return this.jobService.updateHelperPreferences(userId, dto);
   }
-
 
 
   // ==================== FIREBASE NOTIFICATION ENDPOINTS ====================
@@ -574,35 +406,8 @@ export class JobController {
     }
   }
 
- 
-
-  // @ApiOperation({ summary: 'Get historical earnings graph data' })
-  // @ApiResponse({ status: 200, description: 'Historical earnings data retrieved successfully' })
-  // @Get('earnings/historical')
-  // async getHistoricalEarnings(
-  //   @Req() req: Request,
-  //   @Query('period') period: string = 'week',
-  //   @Query('days') days: string = '7'
-  // ) {
-  //   try {
-  //     const userId = (req as any).user.userId || (req as any).user.id;
-  //     const userType = (req as any).user.type;
-  //     const earningsData = await this.jobService.getHistoricalEarnings(userId, userType, period, parseInt(days));
-  //     return {
-  //       success: true,
-  //       message: 'Historical earnings data retrieved successfully',
-  //       data: earningsData
-  //     };
-  //   } catch (error) {
-  //     return {
-  //       success: false,
-  //       message: error.message
-  //     };
-  //   }
-  // }
 
   @ApiOperation({ summary: 'Get weekly earnings breakdown with day-by-day chart' })
-  @ApiResponse({ status: 200, description: 'Weekly earnings fetched successfully' })
   @Get('earnings/weekly')
   async getWeeklyEarnings(@Req() req: Request) {
     try {
@@ -632,18 +437,10 @@ export class JobController {
     const userId = req.user.userId;
     return this.jobService.approveOrDeclineExtraTime(jobId, userId, body.approved);
   }
-
-
-
   // ===== JOB STATUS MANAGEMENT ENDPOINTS =====
-
   /**
    * Cancel a job
    */
-  @ApiOperation({ summary: 'Cancel a job (User only)' })
-  @ApiResponse({ status: 200, description: 'Job cancelled successfully' })
-  @ApiResponse({ status: 403, description: 'Forbidden - only job owner can cancel' })
-  @ApiResponse({ status: 404, description: 'Job not found' })
   @Delete('cancel/:id')
   async cancelJob(
     @Param('id') jobId: string,
@@ -657,9 +454,6 @@ export class JobController {
    * Add extra time to an ongoing job
    */
   @ApiOperation({ summary: 'Add extra time to an ongoing job (User only)' })
-  @ApiResponse({ status: 200, description: 'Extra time added successfully' })
-  @ApiResponse({ status: 403, description: 'Forbidden - only job owner can add time' })
-  @ApiResponse({ status: 404, description: 'Job not found' })
   @Post('add-time/:id')
   async requestExtraTime(
     @Param('id') jobId: string,
@@ -673,9 +467,6 @@ export class JobController {
    * Get job status for timeline
    */
   @ApiOperation({ summary: 'Get job status for timeline display' })
-  @ApiResponse({ status: 200, description: 'Job status retrieved successfully' })
-  @ApiResponse({ status: 403, description: 'Forbidden - only job participants can view' })
-  @ApiResponse({ status: 404, description: 'Job not found' })
   @Get(':id/status')
   async getJobStatus(
     @Param('id') jobId: string,
@@ -685,12 +476,17 @@ export class JobController {
     return this.jobService.getJobStatus(jobId, userId);
   }
 
-  @ApiOperation({ summary: 'Test endpoint - Manually trigger auto-complete cron job' })
-  @ApiResponse({ status: 200, description: 'Cron job executed successfully' })
-  @Get('test-auto-complete')
-  async testAutoComplete(@Req() req: Request): Promise<any> {
-    console.log('[TEST] Manually triggering auto-complete cron job');
-    return await this.jobService.checkAndAutoCompleteJobs();
+  // @ApiOperation({ summary: 'Test endpoint - Manually trigger auto-complete cron job' })
+  // @ApiResponse({ status: 200, description: 'Cron job executed successfully' })
+  // @Get('test-auto-complete')
+  // async testAutoComplete(@Req() req: Request): Promise<any> {
+  //   console.log('[TEST] Manually triggering auto-complete cron job');
+  //   return await this.jobService.checkAndAutoCompleteJobs();
+  // }
+  @Get('stats/user-details')
+  async getUserDetailsAndJobs(@Req() req: Request, @Query('days') days: number) {
+    const userId = req.user.userId;
+    return this.jobManageService.getUserDetailsAndJobs(userId,days);
   }
-
+  //route: jobs/stats/user-details?days=7
 }

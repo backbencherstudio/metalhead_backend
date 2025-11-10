@@ -1,13 +1,17 @@
-import {Injectable,NotFoundException,BadRequestException,} from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CreateJobDto } from './dto/create-job.dto';
 import { JobCreateResponseDto } from './dto/job-create-response.dto';
-import { SojebStorage } from '../../../common/lib/Disk/SojebStorage';
 import { JobNotificationService } from './job-notification.service';
 import { GeocodingService } from '../../../common/lib/Geocoding/geocoding.service';
 import { CategoryService } from '../category/category.service';
 import { convertEnumToCategoryName } from './utils/category-mapper.util';
+import { calculateDistance, calculateHours, formatEstimatedTime, parsePhotos } from './utils/job-utils';
 import { jobType, PaymentType } from '@prisma/client';
 import { RequestExtraTimeDto } from './dto/request-extra-time.dto';
 import { StripePayment } from 'src/common/lib/Payment/stripe/StripePayment';
@@ -22,7 +26,6 @@ export class JobService {
     private prisma: PrismaService,
     private jobNotificationService: JobNotificationService,
     private geocodingService: GeocodingService,
-    private categoryService: CategoryService,
     private stripeMarketplaceService: StripeMarketplaceService,
     private notificationGateway: NotificationGateway,
   ) {}
@@ -96,8 +99,8 @@ export class JobService {
       throw new BadRequestException('start_time must be before end_time');
     }
 
-    const estimatedHours = this.calculateHours(startTime, endTime);
-    const estimatedTimeString = this.formatEstimatedTime(estimatedHours);
+    const estimatedHours = calculateHours(startTime, endTime);
+    const estimatedTimeString = formatEstimatedTime(estimatedHours);
 
     //
 
@@ -109,7 +112,6 @@ export class JobService {
     if (!category) {
       throw new BadRequestException(`Category '${jobData.category}' not found`);
     }
-
 
     const job = await (this.prisma as any).job.create({
       data: {
@@ -204,7 +206,10 @@ export class JobService {
    * Ultra-dynamic job search with pagination - supports ANY combination of filters
    * For helpers, automatically applies preference settings when filters are not provided
    */
-  async searchJobsWithValidation(rawParams: SearchJobsDto, userId?: string): Promise<{
+  async searchJobsWithValidation(
+    rawParams: SearchJobsDto,
+    userId?: string,
+  ): Promise<{
     jobs: any[];
     total: number;
     totalPages: number;
@@ -259,10 +264,13 @@ export class JobService {
       // Load preferences for all users (universal)
       if (user) {
         userPreferences = {
-          max_distance_km: user.max_distance_km ? Number(user.max_distance_km) : undefined,
-          preferred_categories: user.preferred_categories && user.preferred_categories.length > 0 
-            ? (user.preferred_categories as string[]) 
+          max_distance_km: user.max_distance_km
+            ? Number(user.max_distance_km)
             : undefined,
+          preferred_categories:
+            user.preferred_categories && user.preferred_categories.length > 0
+              ? (user.preferred_categories as string[])
+              : undefined,
           latitude: user.latitude ? Number(user.latitude) : undefined,
           longitude: user.longitude ? Number(user.longitude) : undefined,
         };
@@ -351,7 +359,12 @@ export class JobService {
       : undefined;
 
     // Apply user preferences for categories if not provided
-    if (!category && !categoriesArray && userPreferences && userPreferences.preferred_categories) {
+    if (
+      !category &&
+      !categoriesArray &&
+      userPreferences &&
+      userPreferences.preferred_categories
+    ) {
       categoriesArray = userPreferences.preferred_categories;
       preferencesUsed = true;
     }
@@ -360,7 +373,7 @@ export class JobService {
     if (category) {
       // Check if it's an ID (CUID format) or name
       const isId = category.length >= 20 && category.match(/^[a-z0-9]{20,}$/i);
-      
+
       let categoryRecord;
       if (isId) {
         categoryRecord = await this.prisma.category.findUnique({
@@ -371,7 +384,7 @@ export class JobService {
           where: { name: category },
         });
       }
-      
+
       if (!categoryRecord) {
         throw new BadRequestException(`Invalid category: ${category}`);
       }
@@ -415,8 +428,8 @@ export class JobService {
     if (userId) {
       // If user is logged in, check their preferences
       if (preferencesSet) {
-        preferenceMessage = preferencesUsed 
-          ? 'Preferences are saved and applied' 
+        preferenceMessage = preferencesUsed
+          ? 'Preferences are saved and applied'
           : 'Preferences are saved';
       } else {
         preferenceMessage = 'Preferences are not saved';
@@ -492,7 +505,7 @@ export class JobService {
     if (category) {
       // Check if it's an ID (CUID format) or name
       const isId = category.length >= 20 && category.match(/^[a-z0-9]{20,}$/i);
-      
+
       let categoryRecord;
       if (isId) {
         categoryRecord = await (this.prisma as any).category.findUnique({
@@ -516,7 +529,7 @@ export class JobService {
       // Separate IDs from names
       const categoryIds: string[] = [];
       const categoryNames: string[] = [];
-      
+
       categories.forEach((cat: string) => {
         const isId = cat.length >= 20 && cat.match(/^[a-z0-9]{20,}$/i);
         if (isId) {
@@ -525,7 +538,7 @@ export class JobService {
           categoryNames.push(cat);
         }
       });
-      
+
       // Build where clause for finding categories
       const whereConditions: any[] = [];
       if (categoryIds.length > 0) {
@@ -534,7 +547,7 @@ export class JobService {
       if (categoryNames.length > 0) {
         whereConditions.push({ name: { in: categoryNames } });
       }
-      
+
       if (whereConditions.length > 0) {
         const categoryRecords = await (this.prisma as any).category.findMany({
           where: {
@@ -671,24 +684,15 @@ export class JobService {
           break;
         case 'rating_asc':
           // Rating sorting will be handled in post-processing
-          orderBy = [
-            { start_time: 'asc' },
-            { created_at: 'desc' },
-          ];
+          orderBy = [{ start_time: 'asc' }, { created_at: 'desc' }];
           break;
         case 'rating_desc':
           // Rating sorting will be handled in post-processing
-          orderBy = [
-            { start_time: 'asc' },
-            { created_at: 'desc' },
-          ];
+          orderBy = [{ start_time: 'asc' }, { created_at: 'desc' }];
           break;
         case 'distance':
           // Distance sorting will be handled in post-processing
-          orderBy = [
-            { start_time: 'asc' },
-            { created_at: 'desc' },
-          ];
+          orderBy = [{ start_time: 'asc' }, { created_at: 'desc' }];
           break;
         case 'title':
           orderBy = { title: 'asc' };
@@ -716,10 +720,7 @@ export class JobService {
           break;
         default:
           // Default: start_time first, then created_at
-          orderBy = [
-            { start_time: 'asc' },
-            { created_at: 'desc' },
-          ];
+          orderBy = [{ start_time: 'asc' }, { created_at: 'desc' }];
       }
     }
 
@@ -732,6 +733,7 @@ export class JobService {
         orderBy,
         skip,
         take: limit,
+        
         include: {
           user: {
             select: {
@@ -808,7 +810,7 @@ export class JobService {
       mappedJobs = mappedJobs
         .map((job) => ({
           ...job,
-          distance: this.calculateDistance(
+          distance: calculateDistance(
             searchLat,
             searchLng,
             job.latitude,
@@ -850,33 +852,6 @@ export class JobService {
       currentPage: page,
     };
   }
-
-  /**
-   * Calculate distance between two coordinates using Haversine formula
-   */
-  private calculateDistance(
-    lat1: number,
-    lon1: number,
-    lat2: number,
-    lon2: number,
-  ): number {
-    const R = 6371; // Earth's radius in kilometers
-    const dLat = this.toRadians(lat2 - lat1);
-    const dLon = this.toRadians(lon2 - lon1);
-    const a =
-      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-      Math.cos(this.toRadians(lat1)) *
-        Math.cos(this.toRadians(lat2)) *
-        Math.sin(dLon / 2) *
-        Math.sin(dLon / 2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    return R * c;
-  }
-
-  private toRadians(degrees: number): number {
-    return degrees * (Math.PI / 180);
-  }
-
   // Get a single job by ID
   async findOne(id: string): Promise<any> {
     const job = await this.prisma.job.findUnique({
@@ -1151,7 +1126,7 @@ export class JobService {
         id,
         user_id: userId,
         deleted_at: null,
-        job_status: { not: { in: ['confirmed', 'ongoing','completed'] } },
+        job_status: { not: { in: ['confirmed', 'ongoing', 'completed'] } },
       },
     });
 
@@ -1161,7 +1136,11 @@ export class JobService {
       );
     }
 
-    if(job.job_status==='confirmed' || job.job_status==='ongoing' || job.job_status==='completed'){
+    if (
+      job.job_status === 'confirmed' ||
+      job.job_status === 'ongoing' ||
+      job.job_status === 'completed'
+    ) {
       throw new BadRequestException('Job is already in progress');
     }
 
@@ -1200,7 +1179,7 @@ export class JobService {
       requirements: job.requirements || [],
       notes: job.notes || [],
       urgent_note: job.urgent_note,
-      photos: job.photos ? this.parsePhotos(job.photos) : [],
+      photos: job.photos ? parsePhotos(job.photos) : [],
       user_id: job.user_id,
       created_at: job.created_at,
       updated_at: job.updated_at,
@@ -1237,18 +1216,6 @@ export class JobService {
     };
   }
 
-  private parsePhotos(photosJson: string): string[] {
-    try {
-      const photos = JSON.parse(photosJson);
-      if (Array.isArray(photos)) {
-        return photos.map((photo) => SojebStorage.url(photo));
-      }
-      return [SojebStorage.url(photos)];
-    } catch (error) {
-      // If parsing fails, treat as single photo path
-      return [SojebStorage.url(photosJson)];
-    }
-  }
 
   // Get job counts by category
   async getJobCountsByCategory(): Promise<any> {
@@ -1271,21 +1238,20 @@ export class JobService {
       },
       orderBy: { label: 'asc' },
     });
-  
+
     const formatted = categories.map((category) => ({
       id: category.id,
       category: category.name,
       label: category.label,
       count: category._count.jobs,
     }));
-    
+
     return {
       success: true,
       message: 'Category fetched successfully',
       data: formatted,
     };
   }
-  
   /**
    * Cancel a job (User can cancel if status is 'confirmed')
    */
@@ -1355,7 +1321,7 @@ export class JobService {
       where: { id: jobId },
       data: {
         job_status: 'cancelled',
-        status: 1,
+        status: 0,
       },
       include: {
         user: {
@@ -1394,38 +1360,15 @@ export class JobService {
             status: refundResult.status,
             amount: refundResult.amount ? refundResult.amount / 100 : null,
             currency: refundResult.currency,
-            created: refundResult.created ? new Date(refundResult.created * 1000) : null,
+            created: refundResult.created
+              ? new Date(refundResult.created * 1000)
+              : null,
           }
         : null,
     };
   }
 
   // Helper methods for job creation
-  private calculateHours(startTime: Date, endTime: Date): number {
-    const diffInMs = endTime.getTime() - startTime.getTime();
-    const diffInHours = diffInMs / (1000 * 60 * 60);
-    return Math.round(diffInHours * 100) / 100; // Round to 2 decimal places
-  }
-
-  private formatEstimatedTime(hours: number): string {
-    if (hours < 1) {
-      const minutes = Math.round(hours * 60);
-      return `${minutes} minute${minutes !== 1 ? 's' : ''}`;
-    } else if (hours === 1) {
-      return '1 hour';
-    } else if (hours < 24) {
-      return `${hours} hours`;
-    } else {
-      const days = Math.floor(hours / 24);
-      const remainingHours = hours % 24;
-      if (remainingHours === 0) {
-        return `${days} day${days !== 1 ? 's' : ''}`;
-      } else {
-        return `${days} day${days !== 1 ? 's' : ''} ${remainingHours} hour${remainingHours !== 1 ? 's' : ''}`;
-      }
-    }
-  }
-
   /**
    * Start a job (Helper can start if status is 'confirmed')
    */
@@ -1437,14 +1380,14 @@ export class JobService {
         // status: 1,
         deleted_at: null,
       },
-      select:{
+      select: {
         job_status: true,
         actual_start_time: true,
         price: true,
         hourly_rate: true,
         payment_type: true,
         total_approved_hours: true,
-      }
+      },
     });
 
     if (!job) {
@@ -1454,13 +1397,13 @@ export class JobService {
     }
 
     try {
-      if(job.job_status==='confirmed'){
+      if (job.job_status === 'confirmed') {
         await this.prisma.jobTimeline.update({
-          where:{job_id:jobId},
-          data:{
-            ongoing:new Date(),
-          }
-        })
+          where: { job_id: jobId },
+          data: {
+            ongoing: new Date(),
+          },
+        });
         const updatedJob = await this.prisma.job.update({
           where: { id: jobId },
           data: {
@@ -1468,45 +1411,46 @@ export class JobService {
             actual_start_time: new Date(),
           },
         });
-        
+
         return {
           success: true,
           message: 'Job started successfully',
           job: updatedJob,
         };
-      }else{
-
+      } else {
         if (job.job_status !== 'ongoing') {
           throw new BadRequestException(
             'Job must be ongoing before you can complete it',
           );
         }
         await this.prisma.jobTimeline.update({
-          where:{job_id:jobId},
-          data:{
-            completed:new Date(),
-          }
-        })
-        
+          where: { job_id: jobId },
+          data: {
+            completed: new Date(),
+          },
+        });
+
         if (job.payment_type === PaymentType.HOURLY) {
           const startTime = new Date(job.actual_start_time);
           const endTime = new Date();
-          const actualHours = this.calculateHours(startTime, endTime);
-    
-          const approvedExtraHours=await this.prisma.job.findFirst({
-            where:{
-              id:jobId,
-              extra_time_approved:true,
+          const actualHours = calculateHours(startTime, endTime);
+
+          const approvedExtraHours = await this.prisma.job.findFirst({
+            where: {
+              id: jobId,
+              extra_time_approved: true,
             },
-            select:{
+            select: {
               total_approved_hours: true,
-            }
-          })
+            },
+          });
 
           const hourlyRate = Number(job.hourly_rate);
-    
-          const finalPrice = hourlyRate * (actualHours+Number(approvedExtraHours?.total_approved_hours||0));
-         
+
+          const finalPrice =
+            hourlyRate *
+            (actualHours +
+              Number(approvedExtraHours?.total_approved_hours || 0));
 
           const updatedJob = await this.prisma.job.update({
             where: { id: jobId },
@@ -1528,7 +1472,7 @@ export class JobService {
               updated_at: true,
             },
           });
-         
+
           return {
             success: true,
             message: 'Job completed successfully',
@@ -1558,8 +1502,6 @@ export class JobService {
             updatedJob,
           };
         }
-
-
       }
     } catch (error) {
       return {
@@ -1568,62 +1510,65 @@ export class JobService {
         error: error.message,
       };
     }
-    
   }
 
+  // TODO: Change back to '0 * * * *' for production (runs every hour at minute 0)
+  @Cron('0 * * * *') // Runs every minute for testing
+  async checkAndAutoCompleteJobs() {
+    console.log(
+      '[CRON] Starting auto-complete job check at',
+      new Date().toISOString(),
+    );
 
-// TODO: Change back to '0 * * * *' for production (runs every hour at minute 0)
-@Cron('0 * * * *') // Runs every minute for testing
-async checkAndAutoCompleteJobs() {
-  console.log('[CRON] Starting auto-complete job check at', new Date().toISOString());
-  
-  const TEST_MODE = false; // Set to false for production
-  const now = new Date();
-  const threshold = TEST_MODE 
-    ? new Date(now.getTime() - 3 * 60 * 1000) // 3 minutes ago for testing
-    : new Date(now.getTime() - 24 * 60 * 60 * 1000); // 24 hours ago for production
+    const TEST_MODE = false; // Set to false for production
+    const now = new Date();
+    const threshold = TEST_MODE
+      ? new Date(now.getTime() - 3 * 60 * 1000) // 3 minutes ago for testing
+      : new Date(now.getTime() - 24 * 60 * 60 * 1000); // 24 hours ago for production
 
-  // Process ALL eligible jobs - this is correct
-  // First get all completed jobs with their timelines
-  const jobs = await this.prisma.job.findMany({
-    where: {
-      job_status: 'completed',
-      timeline: {
-        isNot: null, // Ensure timeline exists
-      },
-    },
-    select: { 
-      id: true,
-      timeline: {
-        select: {
-          completed: true,
-          paid: true,
+    // Process ALL eligible jobs - this is correct
+    // First get all completed jobs with their timelines
+    const jobs = await this.prisma.job.findMany({
+      where: {
+        job_status: 'completed',
+        timeline: {
+          isNot: null, // Ensure timeline exists
         },
       },
-    },
-  });
+      select: {
+        id: true,
+        timeline: {
+          select: {
+            completed: true,
+            paid: true,
+          },
+        },
+      },
+    });
 
-  // Filter jobs that meet the criteria
-  const eligibleJobs = jobs.filter(job => {
-    const timeline = job.timeline;
-    if (!timeline || !timeline.completed) return false;
-    if (timeline.paid) return false; // Already paid
-    const completedDate = new Date(timeline.completed);
-    return completedDate <= threshold;
-  });
+    // Filter jobs that meet the criteria
+    const eligibleJobs = jobs.filter((job) => {
+      const timeline = job.timeline;
+      if (!timeline || !timeline.completed) return false;
+      if (timeline.paid) return false; // Already paid
+      const completedDate = new Date(timeline.completed);
+      return completedDate <= threshold;
+    });
 
-  console.log(`[CRON] Found ${eligibleJobs.length} eligible jobs to process (out of ${jobs.length} completed jobs)`);
+    console.log(
+      `[CRON] Found ${eligibleJobs.length} eligible jobs to process (out of ${jobs.length} completed jobs)`,
+    );
 
-  for (const job of eligibleJobs) {
-    try {
-      await this.autoCompleteJob(job.id);
-    } catch (error) {
-      console.error(`[CRON] Error processing job ${job.id}:`, error.message);
+    for (const job of eligibleJobs) {
+      try {
+        await this.autoCompleteJob(job.id);
+      } catch (error) {
+        console.error(`[CRON] Error processing job ${job.id}:`, error.message);
+      }
     }
+
+    console.log('[CRON] Finished auto-complete job check');
   }
-  
-  console.log('[CRON] Finished auto-complete job check');
-}
 
   /**
    * Auto-complete a single job - checks timing and marks as paid
@@ -1631,13 +1576,13 @@ async checkAndAutoCompleteJobs() {
    */
   async autoCompleteJob(jobId: string): Promise<any> {
     console.log(`[AUTO-COMPLETE] Starting auto-complete for job: ${jobId}`);
-    
+
     try {
       // Fetch job with timeline
       const job = await this.prisma.job.findFirst({
-        where: { 
-          id: jobId, 
-          job_status: 'completed' 
+        where: {
+          id: jobId,
+          job_status: 'completed',
         },
         select: {
           id: true,
@@ -1682,37 +1627,49 @@ async checkAndAutoCompleteJobs() {
 
       // Check if already paid
       if (job.timeline.paid) {
-        console.log(`[AUTO-COMPLETE] Job ${jobId} already marked as paid at: ${job.timeline.paid}`);
-        return { 
+        console.log(
+          `[AUTO-COMPLETE] Job ${jobId} already marked as paid at: ${job.timeline.paid}`,
+        );
+        return {
           message: 'Job already paid',
-          paidAt: job.timeline.paid 
+          paidAt: job.timeline.paid,
         };
       }
 
       const completedAt = new Date(job.timeline.completed);
       const now = new Date();
-      const hoursPassed = (now.getTime() - completedAt.getTime()) / (1000 * 60 * 60);
-      const minutesPassed = (now.getTime() - completedAt.getTime()) / (1000 * 60);
+      const hoursPassed =
+        (now.getTime() - completedAt.getTime()) / (1000 * 60 * 60);
+      const minutesPassed =
+        (now.getTime() - completedAt.getTime()) / (1000 * 60);
 
-      console.log(`[AUTO-COMPLETE] Job ${jobId} completed at: ${completedAt.toISOString()}`);
+      console.log(
+        `[AUTO-COMPLETE] Job ${jobId} completed at: ${completedAt.toISOString()}`,
+      );
       console.log(`[AUTO-COMPLETE] Hours passed: ${hoursPassed.toFixed(2)}`);
-      console.log(`[AUTO-COMPLETE] Minutes passed: ${minutesPassed.toFixed(2)}`);
+      console.log(
+        `[AUTO-COMPLETE] Minutes passed: ${minutesPassed.toFixed(2)}`,
+      );
 
       // Check if 24 hours have passed (or 3 minutes for testing - remove this for production)
-      if ( minutesPassed >= 3) {
+      if (minutesPassed >= 3) {
         console.log(`[AUTO-COMPLETE] ✅ Job ${jobId} eligible for auto-finish`);
         return await this.autofinishJob(jobId, job.user_id);
       }
 
-      console.log(`[AUTO-COMPLETE] ⏳ Job ${jobId} not yet eligible (needs 24 hours, currently ${hoursPassed.toFixed(2)} hours)`);
-      return { 
+      console.log(
+        `[AUTO-COMPLETE] ⏳ Job ${jobId} not yet eligible (needs 24 hours, currently ${hoursPassed.toFixed(2)} hours)`,
+      );
+      return {
         message: 'Not yet 24 hours',
         hoursPassed: hoursPassed.toFixed(2),
-        eligibleIn: (24 - hoursPassed).toFixed(2) + ' hours'
+        eligibleIn: (24 - hoursPassed).toFixed(2) + ' hours',
       };
-      
     } catch (error) {
-      console.error(`[AUTO-COMPLETE] ❌ Error in autoCompleteJob for ${jobId}:`, error.message);
+      console.error(
+        `[AUTO-COMPLETE] ❌ Error in autoCompleteJob for ${jobId}:`,
+        error.message,
+      );
       throw error;
     }
   }
@@ -1724,13 +1681,13 @@ async checkAndAutoCompleteJobs() {
    */
   async autofinishJob(jobId: string, userId: string): Promise<any> {
     console.log(`[AUTO-FINISH] Starting auto-finish for job: ${jobId}`);
-    
+
     try {
       // STEP 1: Fetch job with all payment data first
       const job = await this.prisma.job.findFirst({
-        where: { 
-          id: jobId, 
-          job_status: 'completed' 
+        where: {
+          id: jobId,
+          job_status: 'completed',
         },
         select: {
           id: true,
@@ -1753,27 +1710,39 @@ async checkAndAutoCompleteJobs() {
 
       // STEP 2: Validate helper has Stripe account
       if (!job.assigned_helper?.stripe_connect_account_id) {
-        throw new BadRequestException(`Helper has no Stripe Connect account for job ${jobId}`);
+        throw new BadRequestException(
+          `Helper has no Stripe Connect account for job ${jobId}`,
+        );
       }
 
       console.log(`[AUTO-FINISH] Job found: ${job.id} - "${job.title}"`);
-      console.log(`[AUTO-FINISH] Helper Stripe account: ${job.assigned_helper.stripe_connect_account_id}`);
+      console.log(
+        `[AUTO-FINISH] Helper Stripe account: ${job.assigned_helper.stripe_connect_account_id}`,
+      );
 
       // STEP 3: Compute amounts
       const total = Number(job.final_price || 0);
-      
+
       if (total <= 0) {
-        throw new BadRequestException(`Job ${jobId} has invalid final_price: ${total}`);
+        throw new BadRequestException(
+          `Job ${jobId} has invalid final_price: ${total}`,
+        );
       }
 
       const platformFeePct = process.env.ADMIN_FEE; // or pull from settings
-      const helperAmountCents = Math.round(total * (1 - Number(platformFeePct)) * 100);
+      const helperAmountCents = Math.round(
+        total * (1 - Number(platformFeePct)) * 100,
+      );
       const commissionCents = Math.round(total * Number(platformFeePct) * 100);
 
       console.log(`[AUTO-FINISH] Processing payment:`);
       console.log(`  - Total: $${total}`);
-      console.log(`  - Helper amount: $${(helperAmountCents / 100).toFixed(2)}`);
-      console.log(`  - Platform commission: $${(commissionCents / 100).toFixed(2)}`);
+      console.log(
+        `  - Helper amount: $${(helperAmountCents / 100).toFixed(2)}`,
+      );
+      console.log(
+        `  - Platform commission: $${(commissionCents / 100).toFixed(2)}`,
+      );
 
       // STEP 4: Transfer helper share from platform balance
       let transfer;
@@ -1784,10 +1753,17 @@ async checkAndAutoCompleteJobs() {
           helperStripeAccountId: job.assigned_helper.stripe_connect_account_id,
           platformFeePercent: Number(platformFeePct),
         });
-        console.log(`[AUTO-FINISH] ✅ Payment transfer successful: ${transfer.id}`);
+        console.log(
+          `[AUTO-FINISH] ✅ Payment transfer successful: ${transfer.id}`,
+        );
       } catch (paymentError) {
-        console.error(`[AUTO-FINISH] ❌ Payment transfer failed:`, paymentError.message);
-        throw new BadRequestException(`Payment transfer failed: ${paymentError.message}`);
+        console.error(
+          `[AUTO-FINISH] ❌ Payment transfer failed:`,
+          paymentError.message,
+        );
+        throw new BadRequestException(
+          `Payment transfer failed: ${paymentError.message}`,
+        );
       }
 
       // STEP 5: Persist payout/commission records
@@ -1823,19 +1799,24 @@ async checkAndAutoCompleteJobs() {
         });
         console.log(`[AUTO-FINISH] ✅ Transaction records created`);
       } catch (transactionError) {
-        console.error(`[AUTO-FINISH] ⚠️ Warning: Transaction records failed (payment already processed):`, transactionError.message);
+        console.error(
+          `[AUTO-FINISH] ⚠️ Warning: Transaction records failed (payment already processed):`,
+          transactionError.message,
+        );
         // Don't throw - payment succeeded, records are optional
       }
 
       // STEP 6: Update timeline to mark as paid (ONLY after payment succeeds)
       const timelineUpdate = await this.prisma.jobTimeline.update({
         where: { job_id: jobId },
-        data: { 
-          paid: new Date() 
+        data: {
+          paid: new Date(),
         },
       });
 
-      console.log(`[AUTO-FINISH] ✅ Timeline updated - paid at: ${timelineUpdate.paid?.toISOString()}`);
+      console.log(
+        `[AUTO-FINISH] ✅ Timeline updated - paid at: ${timelineUpdate.paid?.toISOString()}`,
+      );
 
       // STEP 7: Update job status to 'paid' (ONLY after payment succeeds)
       const jobUpdate = await this.prisma.job.update({
@@ -1850,7 +1831,9 @@ async checkAndAutoCompleteJobs() {
         },
       });
 
-      console.log(`[AUTO-FINISH] ✅ Job ${jobId} status updated to: ${jobUpdate.job_status}`);
+      console.log(
+        `[AUTO-FINISH] ✅ Job ${jobId} status updated to: ${jobUpdate.job_status}`,
+      );
       console.log(`[AUTO-FINISH] ✅ Auto-finish completed successfully`);
 
       return {
@@ -1870,11 +1853,13 @@ async checkAndAutoCompleteJobs() {
           commissionAmount: (commissionCents / 100).toFixed(2),
         },
       };
-
     } catch (error) {
-      console.error(`[AUTO-FINISH] ❌ Error in autofinishJob for ${jobId}:`, error.message);
+      console.error(
+        `[AUTO-FINISH] ❌ Error in autofinishJob for ${jobId}:`,
+        error.message,
+      );
       console.error(`[AUTO-FINISH] Error stack:`, error.stack);
-      
+
       // Job is NOT marked as paid if we reach here
       // Payment failed, so status remains 'completed'
       throw error;
@@ -1887,12 +1872,14 @@ async checkAndAutoCompleteJobs() {
   async finishJob(jobId: string, userId: string): Promise<any> {
     // First, check if job exists at all
     const jobExists = await this.prisma.job.findUnique({
-      where: { id: jobId, job_status: 'completed',user_id:userId },
+      where: { id: jobId, job_status: 'completed', user_id: userId },
       select: {
         id: true,
         final_price: true,
         payment_intent_id: true,
-        assigned_helper: { select: { id: true, stripe_connect_account_id: true } },
+        assigned_helper: {
+          select: { id: true, stripe_connect_account_id: true },
+        },
         title: true,
         user_id: true,
         status: true,
@@ -1900,26 +1887,25 @@ async checkAndAutoCompleteJobs() {
       },
     });
 
-
-
     if (!jobExists?.assigned_helper?.stripe_connect_account_id) {
       throw new BadRequestException('Helper has no Stripe Connect account.');
     }
-    
+
     // 2) Compute amounts
     const total = Number(jobExists.final_price || 0);
-    const platformFeePct = 0.10; // or pull from settings
+    const platformFeePct = 0.1; // or pull from settings
     const helperAmountCents = Math.round(total * (1 - platformFeePct) * 100);
     const commissionCents = Math.round(total * platformFeePct * 100);
-    
+
     // 3) Transfer helper share from platform balance
     const transfer = await this.stripeMarketplaceService.transferToHelper({
       jobId: jobExists.id,
       finalPrice: total,
-      helperStripeAccountId: jobExists.assigned_helper.stripe_connect_account_id,
+      helperStripeAccountId:
+        jobExists.assigned_helper.stripe_connect_account_id,
       platformFeePercent: platformFeePct,
     });
-    
+
     // 4) Persist payout/commission records (optional but recommended)
     await this.prisma.paymentTransaction.create({
       data: {
@@ -1950,7 +1936,6 @@ async checkAndAutoCompleteJobs() {
         order_id: jobExists.id,
       },
     });
-
 
     if (!jobExists) {
       throw new NotFoundException(`Job with ID ${jobId} not found`);
@@ -1986,7 +1971,7 @@ async checkAndAutoCompleteJobs() {
         job_status: 'paid',
         status: 0,
       },
-      select:{
+      select: {
         id: true,
         title: true,
         job_status: true,
@@ -1994,17 +1979,17 @@ async checkAndAutoCompleteJobs() {
         updated_at: true,
         user_id: true,
         final_price: true,
-    payment_intent_id: true,
+        payment_intent_id: true,
         assigned_helper: {
-          select:{
+          select: {
             id: true,
             stripe_connect_account_id: true,
-          }
+          },
         },
         actual_start_time: true,
         actual_hours: true,
         price: true,
-      }
+      },
     });
 
     // TODO: Send notification to helper via WebSocket
@@ -2012,54 +1997,55 @@ async checkAndAutoCompleteJobs() {
 
     return {
       message: 'Job finished successfully',
-      job:updatedJob,
+      job: updatedJob,
     };
   }
-
-   /**
+  /**
    * Add extra time to an ongoing job
    */
-   async requestExtraTime(
-    jobId: string, 
-    userId: string, 
-    dto:RequestExtraTimeDto
+  async requestExtraTime(
+    jobId: string,
+    userId: string,
+    dto: RequestExtraTimeDto,
   ): Promise<any> {
     const job = await this.prisma.job.findFirst({
       where: {
         id: jobId,
         job_status: 'ongoing',
-        payment_type:PaymentType.HOURLY,
+        payment_type: PaymentType.HOURLY,
       },
       select: {
         assigned_helper_id: true,
         user_id: true,
         job_status: true,
-      }
+      },
     });
-    
+
     if (!job) {
-      throw new NotFoundException('Job not found or you do not have access to it');
+      throw new NotFoundException(
+        'Job not found or you do not have access to it',
+      );
     }
-  
+
     if (job.job_status !== 'ongoing') {
       throw new BadRequestException('Job is not ongoing');
     }
-  
+
     const updatedJob = await this.prisma.job.update({
       where: { id: jobId },
       data: {
-        extra_time_requested: dto.hours, 
-        extra_time_requested_at: new Date(),   
-      }
+        extra_time_requested: dto.hours,
+        extra_time_requested_at: new Date(),
+      },
     });
-  
+
     return {
       success: true,
       message: 'Extra time request submitted successfully',
       job: updatedJob,
     };
   }
-  
+
   async getJobStatus(jobId: string, userId: string): Promise<any> {
     const job = await this.prisma.job.findFirst({
       where: {
@@ -2102,7 +2088,11 @@ async checkAndAutoCompleteJobs() {
   /**
    * Approve extra time for a job
    */
-  async approveOrDeclineExtraTime(jobId: string, userId: string, approved: boolean) {
+  async approveOrDeclineExtraTime(
+    jobId: string,
+    userId: string,
+    approved: boolean,
+  ) {
     const job = await this.prisma.job.findFirst({
       where: {
         id: jobId,
@@ -2127,19 +2117,22 @@ async checkAndAutoCompleteJobs() {
         },
       },
     });
-  
+
     if (!job) {
-      throw new NotFoundException('Job not found or you do not have permission');
+      throw new NotFoundException(
+        'Job not found or you do not have permission',
+      );
     }
-  
+
     if (!job.extra_time_requested) {
       throw new BadRequestException('No extra time request found');
     }
-  
+
     if (approved) {
       const currentTotalHours = Number(job.total_approved_hours || 0);
-      const newTotalHours = currentTotalHours + Number(job.extra_time_requested);
-  
+      const newTotalHours =
+        currentTotalHours + Number(job.extra_time_requested);
+
       const updatedJob = await this.prisma.job.update({
         where: {
           id: jobId,
@@ -2149,7 +2142,7 @@ async checkAndAutoCompleteJobs() {
         data: {
           extra_time_approved: true,
           extra_time_approved_at: new Date(),
-          total_approved_hours: newTotalHours, 
+          total_approved_hours: newTotalHours,
         },
         select: {
           id: true,
@@ -2158,52 +2151,67 @@ async checkAndAutoCompleteJobs() {
           extra_time_requested: true,
           extra_time_approved: true,
           total_approved_hours: true,
-
-        }
+        },
       });
       if (job.payment_type !== PaymentType.HOURLY) {
-        throw new BadRequestException('Extra time is only applicable for hourly jobs');
+        throw new BadRequestException(
+          'Extra time is only applicable for hourly jobs',
+        );
       }
 
       const hourlyRate = Number(job.hourly_rate ?? 0);
       if (hourlyRate <= 0) {
-        throw new BadRequestException('Hourly rate must be greater than zero to approve extra time');
+        throw new BadRequestException(
+          'Hourly rate must be greater than zero to approve extra time',
+        );
       }
 
       const extraHours = Number(job.extra_time_requested);
       if (extraHours <= 0) {
-        throw new BadRequestException('Requested extra time must be greater than zero');
+        throw new BadRequestException(
+          'Requested extra time must be greater than zero',
+        );
       }
 
       const baseAmount = hourlyRate * extraHours;
-      const {
-        totalAmount,
-      } = commisionSpillter(baseAmount);
+      const { totalAmount } = commisionSpillter(baseAmount);
 
       if (!job.user?.billing_id) {
-        throw new BadRequestException('User does not have a valid billing profile');
+        throw new BadRequestException(
+          'User does not have a valid billing profile',
+        );
       }
 
-      const helperStripeAccountId = job.assigned_helper?.stripe_connect_account_id;
+      const helperStripeAccountId =
+        job.assigned_helper?.stripe_connect_account_id;
       if (!helperStripeAccountId) {
-        throw new BadRequestException('Assigned helper is missing Stripe connect account');
+        throw new BadRequestException(
+          'Assigned helper is missing Stripe connect account',
+        );
       }
 
       const idempotencyKey = `pi_extra_${jobId}_${Math.round(baseAmount * 100)}`;
-      let paymentIntent: Awaited<ReturnType<typeof this.stripeMarketplaceService.createMarketplacePaymentIntent>> | null = null;
+      let paymentIntent: Awaited<
+        ReturnType<
+          typeof this.stripeMarketplaceService.createMarketplacePaymentIntent
+        >
+      > | null = null;
 
       try {
-        paymentIntent = await this.stripeMarketplaceService.createMarketplacePaymentIntent({
-          jobId: jobId,
-          finalPrice: totalAmount,
-          buyerBillingId: job.user.billing_id,
-          buyerUserId: job.user.id,
-          helperStripeAccountId,
-          jobTitle: job.title,
-          idempotencyKey,
-        });
+        paymentIntent =
+          await this.stripeMarketplaceService.createMarketplacePaymentIntent({
+            jobId: jobId,
+            finalPrice: totalAmount,
+            buyerBillingId: job.user.billing_id,
+            buyerUserId: job.user.id,
+            helperStripeAccountId,
+            jobTitle: job.title,
+            idempotencyKey,
+          });
 
-        await this.stripeMarketplaceService.capturePaymentIntent(paymentIntent.payment_intent_id);
+        await this.stripeMarketplaceService.capturePaymentIntent(
+          paymentIntent.payment_intent_id,
+        );
       } catch (error) {
         await this.prisma.job.update({
           where: { id: jobId },
@@ -2222,7 +2230,7 @@ async checkAndAutoCompleteJobs() {
 
       return {
         success: true,
-        message: 'Extra time approved successfully', 
+        message: 'Extra time approved successfully',
         job: updatedJob,
         payment_intent_id: paymentIntent.payment_intent_id,
         idempotency_key: idempotencyKey,
@@ -2238,24 +2246,23 @@ async checkAndAutoCompleteJobs() {
           extra_time_approved: false,
           extra_time_approved_at: new Date(),
         },
-        select: { 
+        select: {
           id: true,
           title: true,
           job_status: true,
           extra_time_requested: true,
           extra_time_approved: true,
           total_approved_hours: true,
-        }
+        },
       });
-  
+
       return {
         success: true,
         message: 'Extra time rejected successfully',
-        job: updatedJob
+        job: updatedJob,
       };
     }
   }
-
 
   async upcomingEvents(userId: string, userType: string): Promise<any> {
     if (!userId) {
@@ -2267,14 +2274,14 @@ async checkAndAutoCompleteJobs() {
         where: {
           user_id: userId,
           NOT: { assigned_helper_id: null },
-          job_status: { in: ['confirmed','ongoing','completed'] },
+          job_status: { in: ['confirmed', 'ongoing', 'completed'] },
         },
-    
+
         orderBy: {
           start_time: 'asc',
         },
 
-        select:{
+        select: {
           id: true,
           title: true,
           start_time: true,
@@ -2301,7 +2308,7 @@ async checkAndAutoCompleteJobs() {
               email: true,
             },
           },
-          timeline:{
+          timeline: {
             select: {
               posted: true,
               counter_offer: true,
@@ -2318,12 +2325,12 @@ async checkAndAutoCompleteJobs() {
               label: true,
             },
           },
-          user:{
+          user: {
             select: {
               email: true,
               phone: true,
               cards: {
-                where:{
+                where: {
                   is_default: true,
                 },
                 select: {
@@ -2339,7 +2346,7 @@ async checkAndAutoCompleteJobs() {
       const formattedJob = job
         ? {
             ...job,
-            photos: job.photos ? this.parsePhotos(job.photos) : [],
+        photos: job.photos ? parsePhotos(job.photos) : [],
             user: job.user
               ? {
                   ...job.user,
@@ -2357,14 +2364,14 @@ async checkAndAutoCompleteJobs() {
         where: {
           assigned_helper_id: userId,
           NOT: { assigned_helper_id: null },
-          job_status: { in: ['confirmed','ongoing','completed'] },
+          job_status: { in: ['confirmed', 'ongoing', 'completed'] },
         },
-    
+
         orderBy: {
           start_time: 'asc',
         },
 
-        select:{
+        select: {
           id: true,
           title: true,
           start_time: true,
@@ -2391,7 +2398,7 @@ async checkAndAutoCompleteJobs() {
               email: true,
             },
           },
-          timeline:{
+          timeline: {
             select: {
               posted: true,
               counter_offer: true,
@@ -2408,12 +2415,12 @@ async checkAndAutoCompleteJobs() {
               label: true,
             },
           },
-          user:{
+          user: {
             select: {
               email: true,
               phone: true,
               cards: {
-                where:{
+                where: {
                   is_default: true,
                 },
                 select: {
@@ -2429,7 +2436,7 @@ async checkAndAutoCompleteJobs() {
       const formattedJob = job
         ? {
             ...job,
-            photos: job.photos ? this.parsePhotos(job.photos) : [],
+        photos: job.photos ? parsePhotos(job.photos) : [],
             user: job.user
               ? {
                   ...job.user,
@@ -2446,43 +2453,42 @@ async checkAndAutoCompleteJobs() {
       throw new BadRequestException('Invalid user type');
     }
   }
-  
+
   async getTimeline(jobId: string): Promise<any> {
-    const jobTimeline=await this.prisma.jobTimeline.findFirst({
+    const jobTimeline = await this.prisma.jobTimeline.findFirst({
       where: { job_id: jobId },
-      select:{
+      select: {
         posted: true,
         counter_offer: true,
         confirmed: true,
         ongoing: true,
         completed: true,
         paid: true,
-      }
-    })
+      },
+    });
 
     if (!jobTimeline) {
       throw new NotFoundException('Job Timeline Not Found');
     }
 
-    
-
     return {
       success: true,
       message: 'Timeline retrieved successfully',
       data: {
-        jobTimeline
+        jobTimeline,
       },
     };
   }
 
   // Earnings and payments
-
   /**
    * Get weekly earnings with day-by-day breakdown
    */
   async getWeeklyEarnings(userId: string, userType: string): Promise<any> {
     const now = new Date();
-    const utcToday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    const utcToday = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+    );
     const currentDayOfWeek = utcToday.getUTCDay(); // 0 = Sunday, 6 = Saturday
 
     const currentWeekStart = new Date(utcToday);
@@ -2678,7 +2684,9 @@ async checkAndAutoCompleteJobs() {
     }
 
     // Convert category names to category details (id, name, label)
-    let preferredCategoryIds: Array<{ id: string; category: string; label: string }> | undefined = undefined;
+    let preferredCategoryIds:
+      | Array<{ id: string; category: string; label: string }>
+      | undefined = undefined;
     if (user.preferred_categories && user.preferred_categories.length > 0) {
       const categories = await this.prisma.category.findMany({
         where: {
@@ -2692,11 +2700,14 @@ async checkAndAutoCompleteJobs() {
       });
 
       // Map category names to full category details
-      const nameToCategoryMap = new Map(categories.map(c => [c.name, c]));
+      const nameToCategoryMap = new Map(categories.map((c) => [c.name, c]));
       preferredCategoryIds = (user.preferred_categories as string[])
-        .map(name => nameToCategoryMap.get(name))
-        .filter((cat): cat is { id: string; name: string; label: string } => cat !== undefined)
-        .map(cat => ({
+        .map((name) => nameToCategoryMap.get(name))
+        .filter(
+          (cat): cat is { id: string; name: string; label: string } =>
+            cat !== undefined,
+        )
+        .map((cat) => ({
           id: cat.id,
           category: cat.name,
           label: cat.label,
@@ -2704,14 +2715,17 @@ async checkAndAutoCompleteJobs() {
     }
 
     return {
-      maxDistanceKm: user.max_distance_km ? Number(user.max_distance_km) : undefined,
+      maxDistanceKm: user.max_distance_km
+        ? Number(user.max_distance_km)
+        : undefined,
       // minJobPrice: user.min_job_price ? Number(user.min_job_price) : undefined,
       // maxJobPrice: user.max_job_price ? Number(user.max_job_price) : undefined,
       latitude: user.latitude ? Number(user.latitude) : undefined,
       longitude: user.longitude ? Number(user.longitude) : undefined,
-      preferredCategoryIds: preferredCategoryIds && preferredCategoryIds.length > 0 
-        ? preferredCategoryIds 
-        : undefined,
+      preferredCategoryIds:
+        preferredCategoryIds && preferredCategoryIds.length > 0
+          ? preferredCategoryIds
+          : undefined,
     };
   }
   /**
@@ -2723,16 +2737,25 @@ async checkAndAutoCompleteJobs() {
     // Determine if we're receiving category IDs or names
     // Priority: preferredCategoryIds > preferredCategories
     let categoryIds: string[] | undefined = undefined;
-    
-    if (dto.preferredCategoryIds !== undefined && Array.isArray(dto.preferredCategoryIds)) {
+
+    if (
+      dto.preferredCategoryIds !== undefined &&
+      Array.isArray(dto.preferredCategoryIds)
+    ) {
       categoryIds = dto.preferredCategoryIds;
-    } else if (dto.preferredCategories !== undefined && Array.isArray(dto.preferredCategories)) {
+    } else if (
+      dto.preferredCategories !== undefined &&
+      Array.isArray(dto.preferredCategories)
+    ) {
       // Check if preferredCategories contains IDs (CUID format) or names
       // CUIDs typically start with 'c' and are 25 characters long
-      const mightBeIds = dto.preferredCategories.every((val: string) => 
-        typeof val === 'string' && val.length >= 20 && val.match(/^[a-z0-9]{20,}$/i)
+      const mightBeIds = dto.preferredCategories.every(
+        (val: string) =>
+          typeof val === 'string' &&
+          val.length >= 20 &&
+          val.match(/^[a-z0-9]{20,}$/i),
       );
-      
+
       if (mightBeIds && dto.preferredCategories.length > 0) {
         // Check if these are valid category IDs
         const categoriesById = await this.prisma.category.findMany({
@@ -2744,7 +2767,7 @@ async checkAndAutoCompleteJobs() {
             name: true,
           },
         });
-        
+
         // If we found categories by ID, treat them as IDs
         if (categoriesById.length > 0) {
           categoryIds = dto.preferredCategories;
@@ -2770,44 +2793,49 @@ async checkAndAutoCompleteJobs() {
         });
 
         // Check if all provided IDs are valid
-        const foundIds = new Set(categories.map(c => c.id));
-        const invalidIds = categoryIds.filter((id: string) => !foundIds.has(id));
-        
+        const foundIds = new Set(categories.map((c) => c.id));
+        const invalidIds = categoryIds.filter(
+          (id: string) => !foundIds.has(id),
+        );
+
         if (invalidIds.length > 0) {
           throw new Error(`Invalid category IDs: ${invalidIds.join(', ')}`);
         }
 
         // Convert IDs to names for storage
-        const idToNameMap = new Map(categories.map(c => [c.id, c.name]));
+        const idToNameMap = new Map(categories.map((c) => [c.id, c.name]));
         categoryNames = categoryIds
           .map((id: string) => idToNameMap.get(id))
           .filter((name): name is string => name !== undefined);
       }
-    } else if (dto.preferredCategories !== undefined && Array.isArray(dto.preferredCategories)) {
+    } else if (
+      dto.preferredCategories !== undefined &&
+      Array.isArray(dto.preferredCategories)
+    ) {
       // Backward compatibility: if preferredCategories (names) are provided, use them
       if (dto.preferredCategories.length === 0) {
         categoryNames = [];
       } else {
         // Convert old enum values to new category names for backward compatibility
-        categoryNames = dto.preferredCategories.map(
-          (category: string) => {
-            // Convert old enum values to new category names
-            return convertEnumToCategoryName(category);
-          },
-        );
+        categoryNames = dto.preferredCategories.map((category: string) => {
+          // Convert old enum values to new category names
+          return convertEnumToCategoryName(category);
+        });
 
         // Validate category names against seeded categories
         const validCategories = await this.prisma.category.findMany({
-          select: { name: true }
+          select: { name: true },
         });
-        const validCategoryNames = validCategories.map(c => c.name);
-        
+        const validCategoryNames = validCategories.map((c) => c.name);
+
         const invalidCategories = categoryNames.filter(
-          (cat: string) => !validCategoryNames.includes(cat)
+          (cat: string) => !validCategoryNames.includes(cat),
         );
-        
+
         if (invalidCategories.length > 0) {
-          throw new Error(`Invalid categories: ${invalidCategories.join(', ')}. Valid categories are: ${validCategoryNames.join(', ')}`);
+          throw new Error(
+            `Invalid categories: ${invalidCategories.join(', ')}. Valid categories are: ${validCategoryNames.join(', ')}`,
+          );
         }
       }
     }
@@ -2826,7 +2854,9 @@ async checkAndAutoCompleteJobs() {
     });
 
     // Fetch category details for response (same format as GET)
-    let preferredCategoryIds: Array<{ id: string; category: string; label: string }> | undefined = undefined;
+    let preferredCategoryIds:
+      | Array<{ id: string; category: string; label: string }>
+      | undefined = undefined;
     if (categoryNames && categoryNames.length > 0) {
       const categories = await this.prisma.category.findMany({
         where: {
@@ -2840,7 +2870,7 @@ async checkAndAutoCompleteJobs() {
       });
 
       // Map to the response format
-      preferredCategoryIds = categories.map(cat => ({
+      preferredCategoryIds = categories.map((cat) => ({
         id: cat.id,
         category: cat.name,
         label: cat.label,
@@ -2851,14 +2881,18 @@ async checkAndAutoCompleteJobs() {
       maxDistanceKm: dto.maxDistanceKm,
       latitude: dto.latitude,
       longitude: dto.longitude,
-      preferredCategoryIds: preferredCategoryIds && preferredCategoryIds.length > 0 
-        ? preferredCategoryIds 
-        : undefined,
+      preferredCategoryIds:
+        preferredCategoryIds && preferredCategoryIds.length > 0
+          ? preferredCategoryIds
+          : undefined,
     };
 
     // Emit WebSocket event for real-time update
     try {
-      this.notificationGateway.emitPreferencesUpdate(userId, updatedPreferences);
+      this.notificationGateway.emitPreferencesUpdate(
+        userId,
+        updatedPreferences,
+      );
     } catch (error) {
       console.error('Failed to emit preferences update via WebSocket:', error);
       // Don't throw error, continue with response
