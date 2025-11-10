@@ -1573,11 +1573,11 @@ export class JobService {
 
 
 // TODO: Change back to '0 * * * *' for production (runs every hour at minute 0)
-@Cron('* * * * *') // Runs every minute for testing
+@Cron('0 * * * *') // Runs every minute for testing
 async checkAndAutoCompleteJobs() {
   console.log('[CRON] Starting auto-complete job check at', new Date().toISOString());
   
-  const TEST_MODE = true; // Set to false for production
+  const TEST_MODE = false; // Set to false for production
   const now = new Date();
   const threshold = TEST_MODE 
     ? new Date(now.getTime() - 3 * 60 * 1000) // 3 minutes ago for testing
@@ -2267,7 +2267,7 @@ async checkAndAutoCompleteJobs() {
         where: {
           user_id: userId,
           NOT: { assigned_helper_id: null },
-          job_status: { in: ['confirmed'] },
+          job_status: { in: ['confirmed','ongoing','completed'] },
         },
     
         orderBy: {
@@ -2357,7 +2357,7 @@ async checkAndAutoCompleteJobs() {
         where: {
           assigned_helper_id: userId,
           NOT: { assigned_helper_id: null },
-          job_status: { in: ['confirmed'] },
+          job_status: { in: ['confirmed','ongoing','completed'] },
         },
     
         orderBy: {
@@ -2503,7 +2503,7 @@ async checkAndAutoCompleteJobs() {
 
     const buildWeekPayload = (
       weekStart: Date,
-      weekJobs: Array<{ id: string; final_price: any; updated_at: Date }>,
+      items: Array<{ amount: number; timestamp: Date }>,
     ) => {
       const weekEnd = new Date(weekStart);
       weekEnd.setUTCDate(weekStart.getUTCDate() + 6);
@@ -2512,10 +2512,10 @@ async checkAndAutoCompleteJobs() {
       const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
       const dayTotals = Array(7).fill(0);
 
-      weekJobs.forEach((job) => {
-        const jobDate = new Date(job.updated_at);
-        const dayIndex = jobDate.getUTCDay();
-        dayTotals[dayIndex] += Number(job.final_price ?? 0);
+      items.forEach((item) => {
+        const ts = new Date(item.timestamp);
+        const dayIndex = ts.getUTCDay();
+        dayTotals[dayIndex] += Number(item.amount ?? 0);
       });
 
       const chart = dayNames.map((dayName, index) => {
@@ -2543,38 +2543,60 @@ async checkAndAutoCompleteJobs() {
       };
     };
 
-    const fetchWeekJobs = async (start: Date, end: Date) => {
-      const whereClause: any = {
-        job_status: 'paid',
-        updated_at: {
-          gte: start,
-          lte: end,
-        },
-      };
-
+    const fetchWeekItems = async (start: Date, end: Date) => {
       if (userType === 'helper') {
-        whereClause.assigned_helper_id = userId;
-      } else {
-        whereClause.user_id = userId;
+        const payouts = await this.prisma.paymentTransaction.findMany({
+          where: {
+            provider: 'stripe',
+            type: 'payout',
+            user_id: userId,
+            created_at: {
+              gte: start,
+              lte: end,
+            },
+          },
+          select: {
+            id: true,
+            paid_amount: true,
+            created_at: true,
+          },
+        });
+
+        return payouts.map((txn) => ({
+          amount: Number(txn.paid_amount ?? 0),
+          timestamp: txn.created_at,
+        }));
       }
 
-      return this.prisma.job.findMany({
-        where: whereClause,
+      const jobs = await this.prisma.job.findMany({
+        where: {
+          user_id: userId,
+          job_status: 'paid',
+          updated_at: {
+            gte: start,
+            lte: end,
+          },
+        },
         select: {
           id: true,
           final_price: true,
           updated_at: true,
         },
       });
+
+      return jobs.map((job) => ({
+        amount: Number(job.final_price ?? 0),
+        timestamp: job.updated_at,
+      }));
     };
 
-    const [currentWeekJobs, previousWeekJobs] = await Promise.all([
-      fetchWeekJobs(currentWeekStart, currentWeekEnd),
-      fetchWeekJobs(previousWeekStart, previousWeekEnd),
+    const [currentWeekItems, previousWeekItems] = await Promise.all([
+      fetchWeekItems(currentWeekStart, currentWeekEnd),
+      fetchWeekItems(previousWeekStart, previousWeekEnd),
     ]);
 
-    const currentWeek = buildWeekPayload(currentWeekStart, currentWeekJobs);
-    const previousWeek = buildWeekPayload(previousWeekStart, previousWeekJobs);
+    const currentWeek = buildWeekPayload(currentWeekStart, currentWeekItems);
+    const previousWeek = buildWeekPayload(previousWeekStart, previousWeekItems);
 
     return {
       success: true,

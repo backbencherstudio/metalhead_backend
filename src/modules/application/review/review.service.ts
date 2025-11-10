@@ -376,31 +376,87 @@ async myReview(userId: string) {
 }
 
 async myEarningStats(userId: string, days: number) {
-  // Inclusive range: from start of the day (N days ago) to end of today
+  // Inclusive range: from start of the day (N days ago) to end of today (UTC)
   const now = new Date();
 
-  const startOfRange = new Date(now);
-  startOfRange.setHours(0, 0, 0, 0);
-  startOfRange.setDate(startOfRange.getDate() - days);
+  const startOfRange = new Date(
+    Date.UTC(
+      now.getUTCFullYear(),
+      now.getUTCMonth(),
+      now.getUTCDate() - (days - 1),
+    ),
+  );
+  const endOfRange = new Date(
+    Date.UTC(
+      now.getUTCFullYear(),
+      now.getUTCMonth(),
+      now.getUTCDate(),
+      23,
+      59,
+      59,
+      999,
+    ),
+  );
 
-  const endOfRange = new Date(now);
-  endOfRange.setHours(23, 59, 59, 999);
-
-  const jobs = await this.prisma.job.findMany({
-    where: {
-      assigned_helper_id: userId,
-      job_status: 'paid',
-      // use the correct timestamp: updated_at when job becomes paid, or created_at if you prefer
-      updated_at: {
-        gte: startOfRange,
-        lte: endOfRange,
-      },
-    },
-    select: { id: true, final_price: true, updated_at: true },
+  const user = await this.prisma.user.findUnique({
+    where: { id: userId },
+    select: { type: true },
   });
 
-  const total_jobs = jobs.length;
-  const total_earnings = jobs.reduce((s, j) => s + Number(j.final_price ?? 0), 0);
+  if (!user) {
+    throw new NotFoundException('User not found');
+  }
+
+  let total_jobs = 0;
+  let total_earnings = 0;
+
+  if (user.type === 'helper') {
+    const payouts = await this.prisma.paymentTransaction.findMany({
+      where: {
+        provider: 'stripe',
+        type: 'payout',
+        user_id: userId,
+        created_at: {
+          gte: startOfRange,
+          lte: endOfRange,
+        },
+      },
+      select: {
+        id: true,
+        order_id: true,
+        paid_amount: true,
+        created_at: true,
+      },
+    });
+
+    total_jobs = payouts.length;
+    total_earnings = payouts.reduce(
+      (sum, txn) => sum + Number(txn.paid_amount ?? 0),
+      0,
+    );
+  } else {
+    const jobs = await this.prisma.job.findMany({
+      where: {
+        user_id: userId,
+        job_status: 'paid',
+        updated_at: {
+          gte: startOfRange,
+          lte: endOfRange,
+        },
+      },
+      select: {
+        id: true,
+        final_price: true,
+        updated_at: true,
+      },
+    });
+
+    total_jobs = jobs.length;
+    total_earnings = jobs.reduce(
+      (sum, job) => sum + Number(job.final_price ?? 0),
+      0,
+    );
+  }
 
   return {
     success: true,
@@ -413,7 +469,4 @@ async myEarningStats(userId: string, days: number) {
     },
   };
 }
-
-
-
 }
