@@ -6,7 +6,7 @@ import {CreateReviewDto,ReviewResponseDto,} from './dto';
 export class ReviewService {
   constructor(private prisma: PrismaService) {}
 
-  async createReview(
+async createReview(
     createReviewDto: CreateReviewDto,
     reviewerId: string,
   ): Promise<ReviewResponseDto> {
@@ -22,7 +22,7 @@ export class ReviewService {
     });
 
     if (!job) throw new NotFoundException('Job not found');
-    if (job.job_status !== 'completed' && job.job_status !== 'paid') {
+    if (job.job_status !== 'posted' && job.job_status !== 'ongoing') {
       throw new BadRequestException(
         'Reviews can only be created for completed jobs',
       );
@@ -134,7 +134,7 @@ export class ReviewService {
     return this.mapToResponseDto(review);
   }
 
-  async getUserReviews(
+async getUserReviews(
     userId: string,
     page: number = 1,
     limit: number = 10,
@@ -192,6 +192,9 @@ export class ReviewService {
     });
 
     return {
+      success: true,
+      message: 'Reviews fetched successfully',
+      data: {
       user_info: {
         id: user.id,
         name:
@@ -211,12 +214,13 @@ export class ReviewService {
         page,
         limit,
         total_reviews: totalReviews,
-        total_pages: Math.ceil(totalReviews / limit),
+          total_pages: Math.ceil(totalReviews / limit),
+        },
       },
     };
   }
 
-  async getReviewOfJob(jobId: string, currentUserId: string) {
+async getReviewOfJob(jobId: string, currentUserId: string) {
     const job = await this.prisma.job.findFirst({
       where: {
         id: jobId,
@@ -284,6 +288,9 @@ export class ReviewService {
     }
 
     return {
+      success: true,
+      message: 'Review fetched successfully',
+      data: {
       jobId: job.id,
       jobTitle: job.title,
       jobStatus: job.job_status,
@@ -301,12 +308,13 @@ export class ReviewService {
             rating: helperReviewOfYou.rating,
             comment: helperReviewOfYou.comment,
             createdAt: helperReviewOfYou.created_at,
-          }
-        : null,
+            }
+          : null,
+      },
     };
   }
 
-  private mapToResponseDto(review: any): ReviewResponseDto {
+private mapToResponseDto(review: any): ReviewResponseDto {
     return {
       id: review.id,
       rating: review.rating,
@@ -354,12 +362,19 @@ async myReview(userId: string) {
   if (user.type === 'user') {
     return {
       success: true,
+      message: 'Review fetched successfully',
       data: {
         rating: Number(user.avrg_rating_as_user ?? 0),
       },
     };
   } else {
-    return Number(user.avrg_rating_as_helper ?? 0);
+    return {
+      success: true,
+      message: 'Review fetched successfully',
+      data: {
+        rating: Number(user.avrg_rating_as_helper ?? 0),
+      },
+    };
   }
 }
 
@@ -450,11 +465,12 @@ async myEarningStats(userId: string, days: number) {
     success: true,
     message: `Earnings for the last ${days} days`,
     data: {
-      total_jobs,
-      total_earnings,
+      total_jobs: total_jobs,
+      total_earnings: total_earnings,
       start_date: startOfRange, // for debugging/verification
       end_date: endOfRange,
     },
   };
 }
+
 }

@@ -9,8 +9,6 @@ import { JobManageService } from './job-manage.service';
 @Controller('job-manage')
 export class JobManageController {
   constructor(private readonly jobManageService: JobManageService) {}
-  @ApiOperation({ summary: 'Get all jobs for user or helper' })
-  @ApiResponse({ status: 200, description: 'All jobs retrieved successfully' })
   @Get('history')
   async jobsHistory(@Req() req: any) {
       const userId = req.user.userId || req.user.id;

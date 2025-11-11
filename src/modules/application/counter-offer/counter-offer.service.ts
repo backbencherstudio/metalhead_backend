@@ -89,90 +89,99 @@ async createCounterOffer(createCounterOfferDto: CreateCounterOfferDto, userId: s
 }
 // user accepts counter offer
 
-async acceptCounterOffer(acceptCounterOfferDto: AcceptCounterOfferDto, userId: string){
-const counterOffer=await this.prisma.counterOffer.findUnique({
-  where:{
-    id:acceptCounterOfferDto.counter_offer_id,
-  },
-  include:{
-    job:true,
-    helper:true,
-  }
-})
+async acceptCounterOffer(acceptCounterOfferDto: AcceptCounterOfferDto, userId: string) {
+  const prismaTransaction = await this.prisma.$transaction(async (prisma) => {
+    // 1) Fetch the counter offer
+    const counterOffer = await prisma.counterOffer.findUnique({
+      where: {
+        id: acceptCounterOfferDto.counter_offer_id,
+      },
+      include: {
+        job: true,
+        helper: true,
+      },
+    });
 
-if(!counterOffer) throw new NotFoundException('Counter offer not found')
-if(counterOffer.helper_id===userId) throw new UnauthorizedException('You are not authorized to accept this offer');
+    if (!counterOffer) throw new NotFoundException('Counter offer not found');
+    if (counterOffer.helper_id === userId) throw new UnauthorizedException('You are not authorized to accept this offer');
 
-const updatedJob= await this.prisma.job.update({
-  where:{id:counterOffer.job_id},
-  data:{
-    job_status:'confirmed',
-    status:0,
-    accepted_counter_offer_id:counterOffer.id,
-    assigned_helper_id:counterOffer.helper_id, // Assign the helper to the job
-    final_price:counterOffer.amount,
-  },
- 
-  select:{
-    id: true,
-    title: true,
-    final_price: true,
-    user: {
+    // 2) Update the job and assign the helper
+    const updatedJob = await prisma.job.update({
+      where: { id: counterOffer.job_id },
+      data: {
+        job_status: 'confirmed',
+        status: 0,
+        accepted_counter_offer_id: counterOffer.id,
+        assigned_helper_id: counterOffer.helper_id, // Assign the helper to the job
+        final_price: counterOffer.amount,
+      },
       select: {
         id: true,
-        billing_id: true,
+        title: true,
+        final_price: true,
+        user: {
+          select: {
+            id: true,
+            billing_id: true,
+          },
+        },
+        assigned_helper: {
+          select: {
+            id: true,
+            stripe_connect_account_id: true,
+          },
+        },
       },
-    },
-    assigned_helper: {
-      select: {
-        id: true,
-        stripe_connect_account_id: true,
+    });
+
+    // 3) Create payment intent using the updated job data
+    const paymentIntent = await this.stripeMarketplaceService.createMarketplacePaymentIntent({
+      jobId: updatedJob.id,
+      finalPrice: updatedJob.final_price,
+      buyerBillingId: updatedJob.user.billing_id,
+      buyerUserId: updatedJob.user.id,
+      helperStripeAccountId: updatedJob.assigned_helper.stripe_connect_account_id,
+      jobTitle: updatedJob.title,
+      idempotencyKey: `pi_initial_${updatedJob.id}_${Math.round(Number(updatedJob.final_price) * 100)}`,
+    });
+
+    // 4) Capture the payment immediately
+    await this.stripeMarketplaceService.capturePaymentIntent(paymentIntent.payment_intent_id);
+
+    // 5) Update the job record with payment intent ID
+    await prisma.job.update({
+      where: { id: updatedJob.id },
+      data: { payment_intent_id: paymentIntent.payment_intent_id, job_status: 'confirmed' },
+    });
+
+    // 6) Update the job timeline
+    await prisma.jobTimeline.update({
+      where: { job_id: counterOffer.job_id },
+      data: { confirmed: new Date() },
+    });
+
+    // 7) Delete other counter offers for the job, keeping only the accepted one
+    await prisma.counterOffer.deleteMany({
+      where: {
+        job_id: counterOffer.job_id,
+        id: { not: acceptCounterOfferDto.counter_offer_id },
       },
-    },
-  }
-})
+    });
 
+    // 8) Map the updated job to the response DTO
+    const modifiedUpdatedJob = this.jobService.mapToResponseDto(updatedJob);
 
-const paymentIntent=await this.stripeMarketplaceService.createMarketplacePaymentIntent({
-  jobId: updatedJob.id,
-  finalPrice: updatedJob.final_price,
-  buyerBillingId: updatedJob.user.billing_id,
-  buyerUserId: updatedJob.user.id,
-  helperStripeAccountId: updatedJob.assigned_helper.stripe_connect_account_id,
-  jobTitle: updatedJob.title,
-  idempotencyKey: `pi_initial_${updatedJob.id}_${Math.round(Number(updatedJob.final_price) * 100)}`,
-});
+    return {
+      message: 'Counter offer accepted successfully',
+      success: true,
+      job: modifiedUpdatedJob,
+      payment_intent: paymentIntent,
+    };
+  });
 
-// 2) Capture immediately (money moves to your platform balance)
-await this.stripeMarketplaceService.capturePaymentIntent(paymentIntent.payment_intent_id);
-
-// 3) Persist for reconciliation
-await this.prisma.job.update({
-  where: { id: updatedJob.id },
-  data: { payment_intent_id: paymentIntent.payment_intent_id, job_status: 'confirmed' },
-});
-
-await this.prisma.jobTimeline.update({
-  where:{job_id:counterOffer.job_id},
-  data:{
-    confirmed:new Date(),
-  }
-})
-await this.prisma.counterOffer.deleteMany({
-  where: {
-    job_id: counterOffer.job_id,
-    id: { not: acceptCounterOfferDto.counter_offer_id },
-  },
-});
-const modifiedUpdatedjob=this.jobService.mapToResponseDto(updatedJob);
-
-return{
-  message:'Counter offer accepted successfully',
-  success:true,
-  job:modifiedUpdatedjob,
-  payment_intent: paymentIntent,
+  return prismaTransaction;
 }
-}
+
 
 async helperAcceptsJob(helperId: string, jobId: string) {
 

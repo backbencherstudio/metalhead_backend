@@ -1511,7 +1511,6 @@ export class JobService {
       };
     }
   }
-
   // TODO: Change back to '0 * * * *' for production (runs every hour at minute 0)
   @Cron('0 * * * *') // Runs every minute for testing
   async checkAndAutoCompleteJobs() {
@@ -1569,7 +1568,6 @@ export class JobService {
 
     console.log('[CRON] Finished auto-complete job check');
   }
-
   /**
    * Auto-complete a single job - checks timing and marks as paid
    * @param jobId - The job ID to process
@@ -1673,7 +1671,6 @@ export class JobService {
       throw error;
     }
   }
-
   /**
    * Auto-finish a job - marks timeline as paid and updates job status
    * @param jobId - The job ID to finish
@@ -1744,115 +1741,116 @@ export class JobService {
         `  - Platform commission: $${(commissionCents / 100).toFixed(2)}`,
       );
 
-      // STEP 4: Transfer helper share from platform balance
-      let transfer;
-      try {
-        transfer = await this.stripeMarketplaceService.transferToHelper({
-          jobId: job.id,
-          finalPrice: total,
-          helperStripeAccountId: job.assigned_helper.stripe_connect_account_id,
-          platformFeePercent: Number(platformFeePct),
+      const result = await this.prisma.$transaction(async (tx) => {
+        let transfer: any;
+        try {
+          transfer = await this.stripeMarketplaceService.transferToHelper({
+            jobId: job.id,
+            finalPrice: total,
+            helperStripeAccountId:
+              job.assigned_helper.stripe_connect_account_id,
+            platformFeePercent: Number(platformFeePct),
+          });
+          console.log(
+            `[AUTO-FINISH] ✅ Payment transfer successful: ${transfer.id}`,
+          );
+        } catch (paymentError) {
+          console.error(
+            `[AUTO-FINISH] ❌ Payment transfer failed:`,
+            paymentError.message,
+          );
+          throw new BadRequestException(
+            `Payment transfer failed: ${paymentError.message}`,
+          );
+        }
+
+        try {
+          await tx.paymentTransaction.create({
+            data: {
+              provider: 'stripe',
+              type: 'payout',
+              reference_number: transfer.id,
+              status: 'paid',
+              amount: (helperAmountCents / 100).toFixed(2) as any,
+              currency: 'usd',
+              paid_amount: (helperAmountCents / 100).toFixed(2) as any,
+              paid_currency: 'usd',
+              user_id: job.assigned_helper.id,
+              order_id: job.id,
+            },
+          });
+
+          await tx.paymentTransaction.create({
+            data: {
+              provider: 'stripe',
+              type: 'commission',
+              reference_number: job.payment_intent_id ?? undefined,
+              status: 'captured',
+              amount: (commissionCents / 100).toFixed(2) as any,
+              currency: 'usd',
+              paid_amount: (commissionCents / 100).toFixed(2) as any,
+              paid_currency: 'usd',
+              user_id: null,
+              order_id: job.id,
+            },
+          });
+          console.log(`[AUTO-FINISH] ✅ Transaction records created`);
+        } catch (transactionError) {
+          console.error(
+            `[AUTO-FINISH] ⚠️ Transaction records failed:`,
+            transactionError.message,
+          );
+          throw transactionError;
+        }
+
+        const timelineUpdate = await tx.jobTimeline.update({
+          where: { job_id: jobId },
+          data: {
+            paid: new Date(),
+          },
         });
+
         console.log(
-          `[AUTO-FINISH] ✅ Payment transfer successful: ${transfer.id}`,
+          `[AUTO-FINISH] ✅ Timeline updated - paid at: ${timelineUpdate.paid?.toISOString()}`,
         );
-      } catch (paymentError) {
-        console.error(
-          `[AUTO-FINISH] ❌ Payment transfer failed:`,
-          paymentError.message,
-        );
-        throw new BadRequestException(
-          `Payment transfer failed: ${paymentError.message}`,
-        );
-      }
 
-      // STEP 5: Persist payout/commission records
-      try {
-        await this.prisma.paymentTransaction.create({
+        const jobUpdate = await tx.job.update({
+          where: { id: jobId },
           data: {
-            provider: 'stripe',
-            type: 'payout',
-            reference_number: transfer.id,
-            status: 'paid',
-            amount: (helperAmountCents / 100).toFixed(2) as any,
-            currency: 'usd',
-            paid_amount: (helperAmountCents / 100).toFixed(2) as any,
-            paid_currency: 'usd',
-            user_id: job.assigned_helper.id, // receiver (helper)
-            order_id: job.id,
+            job_status: 'paid',
+          },
+          select: {
+            id: true,
+            job_status: true,
+            title: true,
           },
         });
 
-        await this.prisma.paymentTransaction.create({
-          data: {
-            provider: 'stripe',
-            type: 'commission',
-            reference_number: job.payment_intent_id ?? undefined,
-            status: 'captured',
-            amount: (commissionCents / 100).toFixed(2) as any,
-            currency: 'usd',
-            paid_amount: (commissionCents / 100).toFixed(2) as any,
-            paid_currency: 'usd',
-            user_id: null, // platform
-            order_id: job.id,
-          },
-        });
-        console.log(`[AUTO-FINISH] ✅ Transaction records created`);
-      } catch (transactionError) {
-        console.error(
-          `[AUTO-FINISH] ⚠️ Warning: Transaction records failed (payment already processed):`,
-          transactionError.message,
+        console.log(
+          `[AUTO-FINISH] ✅ Job ${jobId} status updated to: ${jobUpdate.job_status}`,
         );
-        // Don't throw - payment succeeded, records are optional
-      }
+        console.log(`[AUTO-FINISH] ✅ Auto-finish completed successfully`);
 
-      // STEP 6: Update timeline to mark as paid (ONLY after payment succeeds)
-      const timelineUpdate = await this.prisma.jobTimeline.update({
-        where: { job_id: jobId },
-        data: {
-          paid: new Date(),
-        },
+        return {
+          success: true,
+          message: 'Job auto-finished successfully with payment processed',
+          job: {
+            id: jobUpdate.id,
+            title: jobUpdate.title,
+            status: jobUpdate.job_status,
+          },
+          timeline: {
+            paidAt: timelineUpdate.paid,
+          },
+          payment: {
+            transferId: transfer.id,
+            helperAmount: (helperAmountCents / 100).toFixed(2),
+            commissionAmount: (commissionCents / 100).toFixed(2),
+          },
+        };
       });
 
-      console.log(
-        `[AUTO-FINISH] ✅ Timeline updated - paid at: ${timelineUpdate.paid?.toISOString()}`,
-      );
-
-      // STEP 7: Update job status to 'paid' (ONLY after payment succeeds)
-      const jobUpdate = await this.prisma.job.update({
-        where: { id: jobId },
-        data: {
-          job_status: 'paid',
-        },
-        select: {
-          id: true,
-          job_status: true,
-          title: true,
-        },
-      });
-
-      console.log(
-        `[AUTO-FINISH] ✅ Job ${jobId} status updated to: ${jobUpdate.job_status}`,
-      );
-      console.log(`[AUTO-FINISH] ✅ Auto-finish completed successfully`);
-
-      return {
-        success: true,
-        message: 'Job auto-finished successfully with payment processed',
-        job: {
-          id: jobUpdate.id,
-          title: jobUpdate.title,
-          status: jobUpdate.job_status,
-        },
-        timeline: {
-          paidAt: timelineUpdate.paid,
-        },
-        payment: {
-          transferId: transfer.id,
-          helperAmount: (helperAmountCents / 100).toFixed(2),
-          commissionAmount: (commissionCents / 100).toFixed(2),
-        },
-      };
+      return result;
     } catch (error) {
       console.error(
         `[AUTO-FINISH] ❌ Error in autofinishJob for ${jobId}:`,
@@ -1865,7 +1863,6 @@ export class JobService {
       throw error;
     }
   }
-
   /**
    * Finish a job (User can finish after helper marks as completed)
    */
@@ -1898,45 +1895,6 @@ export class JobService {
     const commissionCents = Math.round(total * platformFeePct * 100);
 
     // 3) Transfer helper share from platform balance
-    const transfer = await this.stripeMarketplaceService.transferToHelper({
-      jobId: jobExists.id,
-      finalPrice: total,
-      helperStripeAccountId:
-        jobExists.assigned_helper.stripe_connect_account_id,
-      platformFeePercent: platformFeePct,
-    });
-
-    // 4) Persist payout/commission records (optional but recommended)
-    await this.prisma.paymentTransaction.create({
-      data: {
-        provider: 'stripe',
-        type: 'payout',
-        reference_number: transfer.id,
-        status: 'paid',
-        amount: (helperAmountCents / 100).toFixed(2) as any,
-        currency: 'usd',
-        paid_amount: (helperAmountCents / 100).toFixed(2) as any,
-        paid_currency: 'usd',
-        user_id: jobExists.assigned_helper.id, // receiver (helper)
-        order_id: jobExists.id,
-      },
-    });
-    // Optionally record commission as a row (if you track it separately)
-    await this.prisma.paymentTransaction.create({
-      data: {
-        provider: 'stripe',
-        type: 'commission',
-        reference_number: jobExists.payment_intent_id ?? undefined,
-        status: 'captured',
-        amount: (commissionCents / 100).toFixed(2) as any,
-        currency: 'usd',
-        paid_amount: (commissionCents / 100).toFixed(2) as any,
-        paid_currency: 'usd',
-        user_id: jobExists.user_id, // platform
-        order_id: jobExists.id,
-      },
-    });
-
     if (!jobExists) {
       throw new NotFoundException(`Job with ID ${jobId} not found`);
     }
@@ -1948,49 +1906,84 @@ export class JobService {
       );
     }
 
-    // Check if job is active
-    // if (jobExists.status !== 1) {
-    //   throw new BadRequestException('Job is not active');
-    // }
-
     // Check if job is deleted
     if (jobExists.deleted_at) {
       throw new BadRequestException('Job has been deleted');
     }
 
-    // Check job status
-    if (jobExists.status !== 1) {
-      throw new BadRequestException(
-        `Job must be active before you can finish it. Current status: ${jobExists.status}`,
-      );
-    }
+    
 
-    const updatedJob = await this.prisma.job.update({
-      where: { id: jobId },
-      data: {
-        job_status: 'paid',
-        status: 0,
-      },
-      select: {
-        id: true,
-        title: true,
-        job_status: true,
-        actual_end_time: true,
-        updated_at: true,
-        user_id: true,
-        final_price: true,
-        payment_intent_id: true,
-        assigned_helper: {
+    const { updatedJob, transfer } = await this.prisma.$transaction(
+      async (tx) => {
+        const transferResult =
+          await this.stripeMarketplaceService.transferToHelper({
+            jobId: jobExists.id,
+            finalPrice: total,
+            helperStripeAccountId:
+              jobExists.assigned_helper.stripe_connect_account_id,
+            platformFeePercent: platformFeePct,
+          });
+
+        await tx.paymentTransaction.create({
+          data: {
+            provider: 'stripe',
+            type: 'payout',
+            reference_number: transferResult.id,
+            status: 'paid',
+            amount: (helperAmountCents / 100).toFixed(2) as any,
+            currency: 'usd',
+            paid_amount: (helperAmountCents / 100).toFixed(2) as any,
+            paid_currency: 'usd',
+            user_id: jobExists.assigned_helper.id,
+            order_id: jobExists.id,
+          },
+        });
+
+        await tx.paymentTransaction.create({
+          data: {
+            provider: 'stripe',
+            type: 'commission',
+            reference_number: jobExists.payment_intent_id ?? undefined,
+            status: 'captured',
+            amount: (commissionCents / 100).toFixed(2) as any,
+            currency: 'usd',
+            paid_amount: (commissionCents / 100).toFixed(2) as any,
+            paid_currency: 'usd',
+            user_id: jobExists.user_id,
+            order_id: jobExists.id,
+          },
+        });
+
+        const updatedJobRecord = await tx.job.update({
+          where: { id: jobId },
+          data: {
+            job_status: 'paid',
+            status: 0,
+          },
           select: {
             id: true,
-            stripe_connect_account_id: true,
+            title: true,
+            job_status: true,
+            actual_end_time: true,
+            updated_at: true,
+            user_id: true,
+            final_price: true,
+            payment_intent_id: true,
+            assigned_helper: {
+              select: {
+                id: true,
+                stripe_connect_account_id: true,
+              },
+            },
+            actual_start_time: true,
+            actual_hours: true,
+            price: true,
           },
-        },
-        actual_start_time: true,
-        actual_hours: true,
-        price: true,
+        });
+
+        return { updatedJob: updatedJobRecord, transfer: transferResult };
       },
-    });
+    );
 
     // TODO: Send notification to helper via WebSocket
     // this.jobNotificationService.notifyJobFinished(updatedJob);
@@ -1998,6 +1991,9 @@ export class JobService {
     return {
       message: 'Job finished successfully',
       job: updatedJob,
+      payment: {
+        transferId: transfer.id,
+      },
     };
   }
   /**
@@ -2093,176 +2089,189 @@ export class JobService {
     userId: string,
     approved: boolean,
   ) {
-    const job = await this.prisma.job.findFirst({
-      where: {
-        id: jobId,
-        user_id: userId,
-        deleted_at: null,
-        extra_time_requested: {
-          not: null,
-        },
-      },
-      include: {
-        user: {
-          select: {
-            id: true,
-            billing_id: true,
-          },
-        },
-        assigned_helper: {
-          select: {
-            id: true,
-            stripe_connect_account_id: true,
-          },
-        },
-      },
-    });
-
-    if (!job) {
-      throw new NotFoundException(
-        'Job not found or you do not have permission',
-      );
-    }
-
-    if (!job.extra_time_requested) {
-      throw new BadRequestException('No extra time request found');
-    }
-
-    if (approved) {
-      const currentTotalHours = Number(job.total_approved_hours || 0);
-      const newTotalHours =
-        currentTotalHours + Number(job.extra_time_requested);
-
-      const updatedJob = await this.prisma.job.update({
+    const prismaTransaction = await this.prisma.$transaction(async (prisma) => {
+      const job = await prisma.job.findFirst({
         where: {
           id: jobId,
           user_id: userId,
           deleted_at: null,
+          extra_time_requested: {
+            not: null,
+          },
         },
-        data: {
-          extra_time_approved: true,
-          extra_time_approved_at: new Date(),
-          total_approved_hours: newTotalHours,
-        },
-        select: {
-          id: true,
-          title: true,
-          job_status: true,
-          extra_time_requested: true,
-          extra_time_approved: true,
-          total_approved_hours: true,
+        include: {
+          user: {
+            select: {
+              id: true,
+              billing_id: true,
+            },
+          },
+          assigned_helper: {
+            select: {
+              id: true,
+              stripe_connect_account_id: true,
+            },
+          },
         },
       });
-      if (job.payment_type !== PaymentType.HOURLY) {
-        throw new BadRequestException(
-          'Extra time is only applicable for hourly jobs',
+  
+      if (!job) {
+        throw new NotFoundException(
+          'Job not found or you do not have permission',
         );
       }
-
-      const hourlyRate = Number(job.hourly_rate ?? 0);
-      if (hourlyRate <= 0) {
-        throw new BadRequestException(
-          'Hourly rate must be greater than zero to approve extra time',
-        );
+  
+      if (!job.extra_time_requested) {
+        throw new BadRequestException('No extra time request found');
       }
-
-      const extraHours = Number(job.extra_time_requested);
-      if (extraHours <= 0) {
-        throw new BadRequestException(
-          'Requested extra time must be greater than zero',
-        );
-      }
-
-      const baseAmount = hourlyRate * extraHours;
-      const { totalAmount } = commisionSpillter(baseAmount);
-
-      if (!job.user?.billing_id) {
-        throw new BadRequestException(
-          'User does not have a valid billing profile',
-        );
-      }
-
-      const helperStripeAccountId =
-        job.assigned_helper?.stripe_connect_account_id;
-      if (!helperStripeAccountId) {
-        throw new BadRequestException(
-          'Assigned helper is missing Stripe connect account',
-        );
-      }
-
-      const idempotencyKey = `pi_extra_${jobId}_${Math.round(baseAmount * 100)}`;
-      let paymentIntent: Awaited<
-        ReturnType<
-          typeof this.stripeMarketplaceService.createMarketplacePaymentIntent
-        >
-      > | null = null;
-
-      try {
-        paymentIntent =
-          await this.stripeMarketplaceService.createMarketplacePaymentIntent({
-            jobId: jobId,
-            finalPrice: totalAmount,
-            buyerBillingId: job.user.billing_id,
-            buyerUserId: job.user.id,
-            helperStripeAccountId,
-            jobTitle: job.title,
-            idempotencyKey,
-          });
-
-        await this.stripeMarketplaceService.capturePaymentIntent(
-          paymentIntent.payment_intent_id,
-        );
-      } catch (error) {
-        await this.prisma.job.update({
-          where: { id: jobId },
+  
+      if (approved) {
+        const currentTotalHours = Number(job.total_approved_hours || 0);
+        const newTotalHours =
+          currentTotalHours + Number(job.extra_time_requested);
+  
+        // Update job with approved extra time
+        const updatedJob = await prisma.job.update({
+          where: {
+            id: jobId,
+            user_id: userId,
+            deleted_at: null,
+          },
           data: {
-            extra_time_approved: false,
-            extra_time_approved_at: null,
-            total_approved_hours: currentTotalHours,
+            extra_time_approved: true,
+            extra_time_approved_at: new Date(),
+            total_approved_hours: newTotalHours,
+          },
+          select: {
+            id: true,
+            title: true,
+            job_status: true,
+            extra_time_requested: true,
+            extra_time_approved: true,
+            total_approved_hours: true,
           },
         });
-        throw new BadRequestException(
-          `Failed to process payment for extra time: ${
-            error?.message ?? 'Unknown error from payment provider'
-          }`,
-        );
+  
+        // Ensure extra time is only applicable to hourly jobs
+        if (job.payment_type !== PaymentType.HOURLY) {
+          throw new BadRequestException(
+            'Extra time is only applicable for hourly jobs',
+          );
+        }
+  
+        const hourlyRate = Number(job.hourly_rate ?? 0);
+        if (hourlyRate <= 0) {
+          throw new BadRequestException(
+            'Hourly rate must be greater than zero to approve extra time',
+          );
+        }
+  
+        const extraHours = Number(job.extra_time_requested);
+        if (extraHours <= 0) {
+          throw new BadRequestException(
+            'Requested extra time must be greater than zero',
+          );
+        }
+  
+        const baseAmount = hourlyRate * extraHours;
+        const { totalAmount } = commisionSpillter(baseAmount);
+  
+        // Check if user has a valid billing profile
+        if (!job.user?.billing_id) {
+          throw new BadRequestException(
+            'User does not have a valid billing profile',
+          );
+        }
+  
+        // Check if assigned helper has a valid Stripe account
+        const helperStripeAccountId =
+          job.assigned_helper?.stripe_connect_account_id;
+        if (!helperStripeAccountId) {
+          throw new BadRequestException(
+            'Assigned helper is missing Stripe connect account',
+          );
+        }
+  
+        const idempotencyKey = `pi_extra_${jobId}_${Math.round(baseAmount * 100)}`;
+  
+        let paymentIntent: Awaited<
+          ReturnType<typeof this.stripeMarketplaceService.createMarketplacePaymentIntent>
+        > | null = null;
+  
+        try {
+          // Create a payment intent for the extra time
+          paymentIntent =
+            await this.stripeMarketplaceService.createMarketplacePaymentIntent({
+              jobId: jobId,
+              finalPrice: totalAmount,
+              buyerBillingId: job.user.billing_id,
+              buyerUserId: job.user.id,
+              helperStripeAccountId,
+              jobTitle: job.title,
+              idempotencyKey,
+            });
+  
+          // Capture the payment intent
+          await this.stripeMarketplaceService.capturePaymentIntent(
+            paymentIntent.payment_intent_id,
+          );
+        } catch (error) {
+          // Rollback job update if payment fails
+          await prisma.job.update({
+            where: { id: jobId },
+            data: {
+              extra_time_approved: false,
+              extra_time_approved_at: null,
+              total_approved_hours: currentTotalHours,
+            },
+          });
+  
+          throw new BadRequestException(
+            `Failed to process payment for extra time: ${
+              error?.message ?? 'Unknown error from payment provider'
+            }`,
+          );
+        }
+  
+        return {
+          success: true,
+          message: 'Extra time approved successfully',
+          job: updatedJob,
+          payment_intent_id: paymentIntent.payment_intent_id,
+          idempotency_key: idempotencyKey,
+        };
+      } else {
+        // Decline extra time request
+        const updatedJob = await prisma.job.update({
+          where: {
+            id: jobId,
+            user_id: userId,
+            deleted_at: null,
+          },
+          data: {
+            extra_time_approved: false,
+            extra_time_approved_at: new Date(),
+          },
+          select: {
+            id: true,
+            title: true,
+            job_status: true,
+            extra_time_requested: true,
+            extra_time_approved: true,
+            total_approved_hours: true,
+          },
+        });
+  
+        return {
+          success: true,
+          message: 'Extra time rejected successfully',
+          job: updatedJob,
+        };
       }
-
-      return {
-        success: true,
-        message: 'Extra time approved successfully',
-        job: updatedJob,
-        payment_intent_id: paymentIntent.payment_intent_id,
-        idempotency_key: idempotencyKey,
-      };
-    } else {
-      const updatedJob = await this.prisma.job.update({
-        where: {
-          id: jobId,
-          user_id: userId,
-          deleted_at: null,
-        },
-        data: {
-          extra_time_approved: false,
-          extra_time_approved_at: new Date(),
-        },
-        select: {
-          id: true,
-          title: true,
-          job_status: true,
-          extra_time_requested: true,
-          extra_time_approved: true,
-          total_approved_hours: true,
-        },
-      });
-
-      return {
-        success: true,
-        message: 'Extra time rejected successfully',
-        job: updatedJob,
-      };
-    }
-  }
+    });
+  
+    return prismaTransaction;
+  }  
 
   async upcomingEvents(userId: string, userType: string): Promise<any> {
     if (!userId) {
@@ -2280,7 +2289,7 @@ export class JobService {
         orderBy: {
           start_time: 'asc',
         },
-
+        
         select: {
           id: true,
           title: true,
@@ -2298,6 +2307,15 @@ export class JobService {
           user_id: true,
           created_at: true,
           updated_at: true,
+          // reviews:{
+          //   select: {
+          //     id: true,
+          //     rating: true,
+          //     comment: true,
+          //     reviewer: { select: { id: true, first_name: true, last_name: true } },
+          //     reviewee: { select: { id: true, first_name: true, last_name: true } },
+          //   },
+          // },
           assigned_helper: {
             select: {
               id: true,
@@ -2479,7 +2497,6 @@ export class JobService {
       },
     };
   }
-
   // Earnings and payments
   /**
    * Get weekly earnings with day-by-day breakdown
