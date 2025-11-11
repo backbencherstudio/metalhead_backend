@@ -117,6 +117,20 @@ export class StripeMarketplaceService {
     });
   }
 
+  async reverseTransfer({
+    transferId,
+    amountCents,
+  }: {
+    transferId: string;
+    amountCents?: number;
+  }) {
+    const params: Stripe.TransferCreateReversalParams = {};
+    if (typeof amountCents === 'number') {
+      params.amount = amountCents;
+    }
+    return this.stripe.transfers.createReversal(transferId, params);
+  }
+
   async refundPaymentIntent({
     paymentIntentId,
     amountCents,
