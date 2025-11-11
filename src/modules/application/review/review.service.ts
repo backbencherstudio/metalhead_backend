@@ -22,7 +22,7 @@ async createReview(
     });
 
     if (!job) throw new NotFoundException('Job not found');
-    if (job.job_status !== 'posted' && job.job_status !== 'ongoing') {
+    if (job.job_status !== 'completed' && job.job_status !== 'paid') {
       throw new BadRequestException(
         'Reviews can only be created for completed jobs',
       );
