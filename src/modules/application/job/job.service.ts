@@ -743,6 +743,7 @@ export class JobService {
               last_name: true,
               email: true,
               avatar: true,
+              phone:true,
             },
           },
           requirements: true,
@@ -869,6 +870,14 @@ export class JobService {
             last_name: true,
             email: true,
             avatar: true,
+            phone: true,
+          },
+        },
+        category: {
+          select: {
+            id: true,
+            name: true,
+            label: true,
           },
         },
         requirements: true,
@@ -1164,7 +1173,11 @@ export class JobService {
     return {
       id: job.id,
       title: job.title,
-      category: job.category,
+      category: job.category ? {
+        id: job.category.id,
+        name: job.category.name,
+        label: job.category.label,
+      } : null,
       start_time: job.start_time,
       end_time: job.end_time,
       price: job.price,
@@ -1179,18 +1192,21 @@ export class JobService {
       requirements: job.requirements || [],
       notes: job.notes || [],
       urgent_note: job.urgent_note,
-      photos: job.photos ? parsePhotos(job.photos) : [],
+      photos_urls: job.photos ? parsePhotos(job.photos) : [],
+      photos: job.photos ? job.photos : [],
       user_id: job.user_id,
       created_at: job.created_at,
       updated_at: job.updated_at,
       job_status: job.job_status,
       current_status: job.job_status,
+      category_id: job.category ? job.category.id : null,
       user: job.user
         ? {
             id: job.user.id,
             name: job.user.name,
             email: job.user.email,
             avatar: job.user.avatar,
+            phone: job.user.phone,
           }
         : null,
       counter_offers: job.counter_offers || [],

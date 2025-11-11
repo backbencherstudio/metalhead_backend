@@ -4,108 +4,123 @@ import { JobService } from './job.service';
 
 @Injectable()
 export class JobManageService {
-  constructor(private prisma: PrismaService,
-    private jobService: JobService
+  constructor(
+    private prisma: PrismaService,
+    private jobService: JobService,
   ) {}
-  
 
   async jobsHistory(userId: string, userType: string) {
     if (!userId) {
       throw new BadRequestException('User ID is required');
     }
-    if (userType === "user") {
+    if (userType === 'user') {
       const jobs = await this.prisma.job.findMany({
-        where:{
-          user_id:userId,
-          job_status:{not:{in:["confirm","completed","cancelled"]}}
-        }
+        where: {
+          user_id: userId,
+          job_status: { not: { in: ['confirm', 'completed', 'cancelled'] } },
+        },
       });
-      
+
       return jobs;
-    } else if (userType === "helper") {
+    } else if (userType === 'helper') {
       const jobs = await this.prisma.job.findMany({
-        where: { 
+        where: {
           OR: [
             { assigned_helper_id: userId },
-            { accepted_counter_offer: { helper_id: userId } }
+            { accepted_counter_offer: { helper_id: userId } },
           ],
           deleted_at: null,
-          job_status:{not:{in:["confirm","completed","cancelled"]}}
+          job_status: { not: { in: ['confirm', 'completed', 'cancelled'] } },
         },
-        select:{
-          id:true,
-          title:true,
-          price:true,
-          final_price:true,
-          payment_type:true,
-          job_type:true,
-          location:true,
-          latitude:true,
-          longitude:true,
-          description:true,
-          start_time:true,
-          end_time:true,
-          category:{
-            select:{
-              name:true,
-            }
+        select: {
+          id: true,
+          title: true,
+          price: true,
+          final_price: true,
+          payment_type: true,
+          job_type: true,
+          location: true,
+          latitude: true,
+          longitude: true,
+          description: true,
+          start_time: true,
+          end_time: true,
+          job_status: true,
+          category: {
+            select: {
+              name: true,
+            },
           },
-          reviews:{
-            select:{
-              id:true,
-              rating:true,
-              comment:true,
-              created_at:true,
-              updated_at:true,
-              reviewer:{
-                select:{
-                  id:true,
-                  first_name:true,
-                  avatar:true,
-                  type:true,
-                }
+          reviews: {
+            select: {
+              id: true,
+              rating: true,
+              comment: true,
+              created_at: true,
+              updated_at: true,
+              reviewer: {
+                select: {
+                  id: true,
+                  first_name: true,
+                  avatar: true,
+                  type: true,
+                },
               },
-              reviewee:{
-                select:{
-                  id:true,
-                  first_name:true,
-                  avatar:true,
-                  type:true,
-                }
-              }
-            }
-          }
-        }
-        
+              reviewee: {
+                select: {
+                  id: true,
+                  first_name: true,
+                  avatar: true,
+                  type: true,
+                },
+              },
+            },
+          },
+        },
       });
-      
-      return jobs;
+
+      return {
+        success: true,
+        message: 'Jobs history retrieved successfully',
+        data: jobs,
+      };
     } else {
       throw new BadRequestException('Invalid user type');
     }
   }
 
   async dueJobsByDays(userId: string, days: string) {
-
     const daysNumber = parseInt(days);
 
     const today = new Date();
-    const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-    const endOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate() + daysNumber);
-    
+    const startOfDay = new Date(
+      today.getFullYear(),
+      today.getMonth(),
+      today.getDate(),
+    );
+    const endOfDay = new Date(
+      today.getFullYear(),
+      today.getMonth(),
+      today.getDate() + daysNumber,
+    );
+
     const count = await this.prisma.job.count({
       where: {
-        assigned_helper_id:userId,
+        assigned_helper_id: userId,
         status: 1,
         deleted_at: null,
         start_time: {
-          gte: startOfDay,    // Greater than or equal to start of today
-          lt: endOfDay        // Less than start of tomorrow
-        }
-      }
+          gte: startOfDay, // Greater than or equal to start of today
+          lt: endOfDay, // Less than start of tomorrow
+        },
+      },
     });
-    
-    return {success: true, message: 'Due jobs count retrieved successfully', data: {count: count}};
+
+    return {
+      success: true,
+      message: 'Due jobs count retrieved successfully',
+      data: { count: count },
+    };
   }
 
   async getUserDetailsAndJobs(userId: string, days: number) {
@@ -119,9 +134,9 @@ export class JobManageService {
           avrg_rating_as_user: true,
         },
       });
-  
+
       if (!user) throw new BadRequestException('User not found');
-  
+
       // Calculate rating
       let rating;
       if (user.type === 'user') {
@@ -129,18 +144,30 @@ export class JobManageService {
       } else {
         rating = Number(user.avrg_rating_as_helper ?? 0);
       }
-  
+
       // Calculate earnings for the last 'days' days
       const now = new Date();
       const startOfRange = new Date(
-        Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - (days - 1)),
+        Date.UTC(
+          now.getUTCFullYear(),
+          now.getUTCMonth(),
+          now.getUTCDate() - (days - 1),
+        ),
       );
       const endOfRange = new Date(
-        Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999),
+        Date.UTC(
+          now.getUTCFullYear(),
+          now.getUTCMonth(),
+          now.getUTCDate(),
+          23,
+          59,
+          59,
+          999,
+        ),
       );
-  
+
       let total_earnings = 0;
-  
+
       if (user.type === 'helper') {
         const payouts = await this.prisma.paymentTransaction.findMany({
           where: {
@@ -156,7 +183,7 @@ export class JobManageService {
             paid_amount: true,
           },
         });
-  
+
         total_earnings = payouts.reduce(
           (sum, txn) => sum + Number(txn.paid_amount ?? 0),
           0,
@@ -175,17 +202,29 @@ export class JobManageService {
             final_price: true,
           },
         });
-  
+
         total_earnings = jobs.reduce(
           (sum, job) => sum + Number(job.final_price ?? 0),
           0,
         );
       }
-  
+
       // Count due jobs for **today** (jobs assigned to the user with a start time of today)
-      const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
-  
+      const startOfDay = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        now.getDate(),
+      );
+      const endOfDay = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        now.getDate(),
+        23,
+        59,
+        59,
+        999,
+      );
+
       const dueJobsCount = await this.prisma.job.count({
         where: {
           assigned_helper_id: userId,
@@ -197,14 +236,15 @@ export class JobManageService {
           },
         },
       });
-  
+
       return {
         success: true,
-        message: 'User review, earnings, and due jobs count retrieved successfully',
+        message:
+          'User review, earnings, and due jobs count retrieved successfully',
         data: {
-          rating,  // user's average rating
-          total_earnings,  // total earnings in the last `days` days
-          due_jobs_count: dueJobsCount,  // due jobs for today
+          rating, // user's average rating
+          total_earnings, // total earnings in the last `days` days
+          due_jobs_count: dueJobsCount, // due jobs for today
         },
       };
     } catch (error) {
@@ -215,6 +255,35 @@ export class JobManageService {
       };
     }
   }
-  
 
+  async currentRunningJobs(userId: string, userType: string) {
+    const jobs = await this.prisma.job.findMany({
+      where: {
+        OR: [{ user_id: userId }, { assigned_helper_id: userId }],
+        job_status: { in: ['confirmed', 'ongoing'] },
+      },
+      select: {
+        start_time: true,
+        end_time: true,
+        job_status: true,
+        final_price: true,
+        payment_type: true,
+        location: true,
+        latitude: true,
+        longitude: true,
+        description: true,
+        total_approved_hours: true,
+        photos: true,
+        user_id: true,
+        created_at: true,
+        updated_at: true,
+        category: true,
+      },
+    });
+    return {
+      success: true,
+      message: 'Current running jobs retrieved successfully',
+      data: jobs,
+    };
+  }
 }

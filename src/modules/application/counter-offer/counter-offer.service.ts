@@ -182,7 +182,6 @@ async acceptCounterOffer(acceptCounterOfferDto: AcceptCounterOfferDto, userId: s
   return prismaTransaction;
 }
 
-
 async helperAcceptsJob(helperId: string, jobId: string) {
 
   const job = await this.prisma.job.findUnique({ where: { id: jobId } });
@@ -323,7 +322,6 @@ async getCounterOffers(userId: string, jobId: string){
     counter_offers:counterOffers,
   };
 }
-
 
 async declineCounterOffer(userId: string, counterOfferId: string){
   const counterOffer=await this.prisma.counterOffer.findUnique({

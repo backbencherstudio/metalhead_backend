@@ -28,6 +28,12 @@ export class JobManageController {
     return await this.jobManageService.dueJobsByDays(userId, days.toString());
   } 
   
+  @Get('current-all-jobs')
+  async currentallJobs(@Req() req:any){
+    const userId=req.user.userId
+    const userType=req.user.type;
+    return this.jobManageService.currentRunningJobs(userId,userType);
+  }
 }
 
 
