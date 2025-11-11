@@ -1741,116 +1741,135 @@ export class JobService {
         `  - Platform commission: $${(commissionCents / 100).toFixed(2)}`,
       );
 
-      const result = await this.prisma.$transaction(async (tx) => {
-        let transfer: any;
+      let transfer: any;
+      try {
+        transfer = await this.stripeMarketplaceService.transferToHelper({
+          jobId: job.id,
+          finalPrice: total,
+          helperStripeAccountId:
+            job.assigned_helper.stripe_connect_account_id,
+          platformFeePercent: Number(platformFeePct),
+        });
+        console.log(
+          `[AUTO-FINISH] ✅ Payment transfer successful: ${transfer.id}`,
+        );
+      } catch (paymentError) {
+        console.error(
+          `[AUTO-FINISH] ❌ Payment transfer failed:`,
+          paymentError.message,
+        );
+        throw new BadRequestException(
+          `Payment transfer failed: ${paymentError.message}`,
+        );
+      }
+
+      const helperAmountFormatted = (helperAmountCents / 100).toFixed(2);
+      const commissionFormatted = (commissionCents / 100).toFixed(2);
+
+      try {
+        const result = await this.prisma.$transaction(
+          async (tx) => {
+            await tx.paymentTransaction.create({
+              data: {
+                provider: 'stripe',
+                type: 'payout',
+                reference_number: transfer.id,
+                status: 'paid',
+                amount: helperAmountFormatted as any,
+                currency: 'usd',
+                paid_amount: helperAmountFormatted as any,
+                paid_currency: 'usd',
+                user_id: job.assigned_helper.id,
+                order_id: job.id,
+              },
+            });
+
+            await tx.paymentTransaction.create({
+              data: {
+                provider: 'stripe',
+                type: 'commission',
+                reference_number: job.payment_intent_id ?? undefined,
+                status: 'captured',
+                amount: commissionFormatted as any,
+                currency: 'usd',
+                paid_amount: commissionFormatted as any,
+                paid_currency: 'usd',
+                user_id: null,
+                order_id: job.id,
+              },
+            });
+            console.log(`[AUTO-FINISH] ✅ Transaction records created`);
+
+            const timelineUpdate = await tx.jobTimeline.update({
+              where: { job_id: jobId },
+              data: {
+                paid: new Date(),
+              },
+            });
+
+            console.log(
+              `[AUTO-FINISH] ✅ Timeline updated - paid at: ${timelineUpdate.paid?.toISOString()}`,
+            );
+
+            const jobUpdate = await tx.job.update({
+              where: { id: jobId },
+              data: {
+                job_status: 'paid',
+              },
+              select: {
+                id: true,
+                job_status: true,
+                title: true,
+              },
+            });
+
+            console.log(
+              `[AUTO-FINISH] ✅ Job ${jobId} status updated to: ${jobUpdate.job_status}`,
+            );
+            console.log(`[AUTO-FINISH] ✅ Auto-finish completed successfully`);
+
+            return {
+              success: true,
+              message: 'Job auto-finished successfully with payment processed',
+              job: {
+                id: jobUpdate.id,
+                title: jobUpdate.title,
+                status: jobUpdate.job_status,
+              },
+              timeline: {
+                paidAt: timelineUpdate.paid,
+              },
+              payment: {
+                transferId: transfer.id,
+                helperAmount: helperAmountFormatted,
+                commissionAmount: commissionFormatted,
+              },
+            };
+          },
+          { timeout: 10000 },
+        );
+
+        return result;
+      } catch (transactionError) {
+        console.error(
+          `[AUTO-FINISH] ⚠️ Transaction records failed:`,
+          transactionError.message,
+        );
         try {
-          transfer = await this.stripeMarketplaceService.transferToHelper({
-            jobId: job.id,
-            finalPrice: total,
-            helperStripeAccountId:
-              job.assigned_helper.stripe_connect_account_id,
-            platformFeePercent: Number(platformFeePct),
+          await this.stripeMarketplaceService.reverseTransfer({
+            transferId: transfer.id,
           });
           console.log(
-            `[AUTO-FINISH] ✅ Payment transfer successful: ${transfer.id}`,
+            `[AUTO-FINISH] 🔁 Transfer ${transfer.id} reversed due to transaction failure`,
           );
-        } catch (paymentError) {
+        } catch (reverseError) {
           console.error(
-            `[AUTO-FINISH] ❌ Payment transfer failed:`,
-            paymentError.message,
-          );
-          throw new BadRequestException(
-            `Payment transfer failed: ${paymentError.message}`,
+            `[AUTO-FINISH] ❌ Failed to reverse transfer ${transfer.id}:`,
+            reverseError.message,
           );
         }
-
-        try {
-          await tx.paymentTransaction.create({
-            data: {
-              provider: 'stripe',
-              type: 'payout',
-              reference_number: transfer.id,
-              status: 'paid',
-              amount: (helperAmountCents / 100).toFixed(2) as any,
-              currency: 'usd',
-              paid_amount: (helperAmountCents / 100).toFixed(2) as any,
-              paid_currency: 'usd',
-              user_id: job.assigned_helper.id,
-              order_id: job.id,
-            },
-          });
-
-          await tx.paymentTransaction.create({
-            data: {
-              provider: 'stripe',
-              type: 'commission',
-              reference_number: job.payment_intent_id ?? undefined,
-              status: 'captured',
-              amount: (commissionCents / 100).toFixed(2) as any,
-              currency: 'usd',
-              paid_amount: (commissionCents / 100).toFixed(2) as any,
-              paid_currency: 'usd',
-              user_id: null,
-              order_id: job.id,
-            },
-          });
-          console.log(`[AUTO-FINISH] ✅ Transaction records created`);
-        } catch (transactionError) {
-          console.error(
-            `[AUTO-FINISH] ⚠️ Transaction records failed:`,
-            transactionError.message,
-          );
-          throw transactionError;
-        }
-
-        const timelineUpdate = await tx.jobTimeline.update({
-          where: { job_id: jobId },
-          data: {
-            paid: new Date(),
-          },
-        });
-
-        console.log(
-          `[AUTO-FINISH] ✅ Timeline updated - paid at: ${timelineUpdate.paid?.toISOString()}`,
-        );
-
-        const jobUpdate = await tx.job.update({
-          where: { id: jobId },
-          data: {
-            job_status: 'paid',
-          },
-          select: {
-            id: true,
-            job_status: true,
-            title: true,
-          },
-        });
-
-        console.log(
-          `[AUTO-FINISH] ✅ Job ${jobId} status updated to: ${jobUpdate.job_status}`,
-        );
-        console.log(`[AUTO-FINISH] ✅ Auto-finish completed successfully`);
-
-        return {
-          success: true,
-          message: 'Job auto-finished successfully with payment processed',
-          job: {
-            id: jobUpdate.id,
-            title: jobUpdate.title,
-            status: jobUpdate.job_status,
-          },
-          timeline: {
-            paidAt: timelineUpdate.paid,
-          },
-          payment: {
-            transferId: transfer.id,
-            helperAmount: (helperAmountCents / 100).toFixed(2),
-            commissionAmount: (commissionCents / 100).toFixed(2),
-          },
-        };
-      });
-
-      return result;
+        throw transactionError;
+      }
     } catch (error) {
       console.error(
         `[AUTO-FINISH] ❌ Error in autofinishJob for ${jobId}:`,

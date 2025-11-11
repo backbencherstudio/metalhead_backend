@@ -4,7 +4,6 @@ import { GeocodingService } from '../../../common/lib/Geocoding/geocoding.servic
 @Injectable()
 export class LocationService {
   constructor(private readonly geocodingService: GeocodingService) {}
-
   /**
    * Get current location details from coordinates
    * Converts GPS coordinates to a readable address
@@ -32,7 +31,6 @@ export class LocationService {
       return null;
     }
   }
-
   /**
    * Geocode an address to get coordinates
    * Converts a readable address to GPS coordinates
