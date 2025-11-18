@@ -10,6 +10,7 @@ import { PrismaModule } from '../../prisma/prisma.module';
 import { MailModule } from '../../mail/mail.module';
 import { GoogleStrategy } from './strategies/google.strategy';
 import { TemporaryJwtAuthGuard } from './guards/temporary-jwt-auth.guard';
+import { GeocodingService } from '../../common/lib/Geocoding/geocoding.service';
 
 @Module({
   imports: [
@@ -28,7 +29,7 @@ import { TemporaryJwtAuthGuard } from './guards/temporary-jwt-auth.guard';
     MailModule,
   ],
   controllers: [AuthController],
-  providers: [AuthService, LocalStrategy, JwtStrategy, GoogleStrategy, TemporaryJwtAuthGuard],
+  providers: [AuthService, LocalStrategy, JwtStrategy, GoogleStrategy, TemporaryJwtAuthGuard, GeocodingService],
   exports: [AuthService],
 })
 export class AuthModule {}

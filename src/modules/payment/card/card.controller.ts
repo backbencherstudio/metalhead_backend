@@ -77,11 +77,10 @@ export class CardController {
   @Patch(':id')
   async updateCard(
     @Param('id') cardId: string,
-    @Body() updateCardDto: UpdateCardDto,
     @Req() req: Request,
-  ): Promise<CardResponseDto> {
+  ){
     const userId = (req as any).user.userId || (req as any).user.id;
-    return this.cardService.updateCard(userId, cardId, updateCardDto);
+    return this.cardService.updateCard(userId, cardId);
   }
 
   @ApiOperation({ summary: 'Delete a card' })
@@ -103,7 +102,7 @@ export class CardController {
   @Post('check-expired')
   async checkAndRemoveExpiredCards(
     @Req() req: Request,
-  ): Promise<{ expiredCards: number; message: string }> {
+  ){
     const userId = (req as any).user.userId || (req as any).user.id;
     return this.cardService.checkAndRemoveExpiredCards(userId);
   }
@@ -115,7 +114,7 @@ export class CardController {
     type: [CardResponseDto],
   })
   @Get('expired/list')
-  async getExpiredCards(@Req() req: Request): Promise<CardResponseDto[]> {
+  async getExpiredCards(@Req() req: Request){
     const userId = (req as any).user.userId || (req as any).user.id;
     return this.cardService.getExpiredCards(userId);
   }

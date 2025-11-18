@@ -19,7 +19,7 @@ export class JobListResponseDto {
     example: 'Preferences are not saved',
     required: false,
   })
-  preferenceMessage?: string;
+  preference?: string;
 
   @ApiProperty({
     description: 'Job list data with pagination',

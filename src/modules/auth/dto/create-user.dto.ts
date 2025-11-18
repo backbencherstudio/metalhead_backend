@@ -36,4 +36,25 @@ export class CreateUserDto {
     example: 'user',
   })
   type?: Role = Role.USER;
+
+  // Optional profile/location fields for initial signup
+  @IsOptional()
+  @ApiProperty({ required: false })
+  address?: string;
+
+  @IsOptional()
+  @ApiProperty({ required: false })
+  city?: string;
+
+  @IsOptional()
+  @ApiProperty({ required: false })
+  state?: string;
+
+  @IsOptional()
+  @ApiProperty({ required: false, description: 'Latitude from device GPS' })
+  latitude?: number;
+
+  @IsOptional()
+  @ApiProperty({ required: false, description: 'Longitude from device GPS' })
+  longitude?: number;
 }

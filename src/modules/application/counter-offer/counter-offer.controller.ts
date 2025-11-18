@@ -16,8 +16,8 @@ import { Request } from 'express';
 export class CounterOfferController {
   constructor(private readonly counterOfferService: CounterOfferService) {}
 
-  @Post()
-  async createCounterOffer(@Body() createCounterOfferDto: CreateCounterOfferDto, @Req() req:any, ) {
+@Post()
+async createCounterOffer(@Body() createCounterOfferDto: CreateCounterOfferDto, @Req() req:any, ) {
     // Only helpers can create counter offers
     if (!req?.user || req.user.type !== 'helper') {
       throw new (await import('@nestjs/common')).ForbiddenException('Only helpers can create counter offers');
@@ -71,6 +71,14 @@ async getMyCounterOffers(
   );
 }
 
+@Get('accepted-offer/:jobId')
+async getAcceptedOffer(
+  @Param('jobId') jobId: string,
+  @Req() req: any,
+) {
+  const userId = req.user.id;
+  return this.counterOfferService.getAcceptedOfferByJobId(userId, jobId);
+}
 
 // @Get(':jobId')
 // async getCounterOffers(@Param('jobId') jobId: string, @Req() req:any){
@@ -78,7 +86,21 @@ async getMyCounterOffers(
 //   return this.counterOfferService.getCounterOffers(userId, jobId);
 // }
 
+@Get('recent-offer')
+async getRecentOffer(
+  @Req() req: any,
+) {
+  const userId = req.user.id;
+  return this.counterOfferService.getRecentOffer(userId);
+}
 
-
+@Get('get-offers/:jobId')
+async getOffer(
+  @Param('jobId') jobId: string,
+  @Req() req: any,
+) {
+  const userId = req.user.id;
+  return this.counterOfferService.getOffer(userId, jobId);
+}
 
 }

@@ -138,7 +138,7 @@ export class CardService {
   /**
    * Update card (mainly for setting as default)
    */
-  async updateCard(userId: string, cardId: string, updateCardDto: UpdateCardDto): Promise<CardResponseDto> {
+  async updateCard(userId: string, cardId: string): Promise<CardResponseDto> {
     const card = await this.prisma.userCard.findFirst({
       where: {
         id: cardId,
@@ -161,7 +161,7 @@ export class CardService {
 
     return await this.prisma.$transaction(async (tx) => {
       // If setting as default, unset other default cards
-      if (updateCardDto.is_default) {
+      if (card.is_default===false) {
         await tx.userCard.updateMany({
           where: { user_id: userId, is_default: true },
           data: { is_default: false },
@@ -171,11 +171,13 @@ export class CardService {
       // Update the card
       const updatedCard = await tx.userCard.update({
         where: { id: cardId },
-        data: updateCardDto,
+        data: {
+          is_default: true,
+        },
       });
 
       // Sync with Stripe: Set as default payment method in Stripe if this card is being set as default
-      if (updateCardDto.is_default && card.stripe_payment_method_id && card.user?.billing_id) {
+      if (card.is_default===false && card.stripe_payment_method_id && card.user?.billing_id) {
         try {
           await StripePayment.setCustomerDefaultPaymentMethodId({
             customer_id: card.user.billing_id,
@@ -223,14 +225,14 @@ export class CardService {
   /**
    * Set a card as default
    */
-  async setDefaultCard(userId: string, cardId: string): Promise<CardResponseDto> {
-    return this.updateCard(userId, cardId, { is_default: true });
+  async setDefaultCard(userId: string, cardId: string){
+    return this.updateCard(userId, cardId);
   }
 
   /**
    * Check and remove expired cards
    */
-  async checkAndRemoveExpiredCards(userId: string): Promise<{ expiredCards: number; message: string }> {
+  async checkAndRemoveExpiredCards(userId: string){
     const cards = await this.prisma.userCard.findMany({
       where: {
         user_id: userId,
@@ -242,29 +244,21 @@ export class CardService {
     let expiredCount = 0;
 
     for (const card of cards) {
-      if (this.isCardExpired(card.expiration_date)) {
-        await this.prisma.userCard.update({
-          where: { id: card.id },
-          data: {
-            is_expired: true,
-            deleted_at: new Date(),
-            status: 0,
-          },
-        });
+      if (this.checkCardExpiration(card.expiration_date).data.expired) {
         expiredCount++;
       }
     }
-
     return {
-      expiredCards: expiredCount,
-      message: expiredCount > 0 ? `${expiredCount} expired cards removed` : 'No expired cards found',
+      success: true,
+      message: expiredCount > 0 ? `${expiredCount} expired cards found` : 'No expired cards found',
+      data: expiredCount,
     };
   }
 
   /**
    * Get expired cards for a user
    */
-  async getExpiredCards(userId: string): Promise<CardResponseDto[]> {
+  async getExpiredCards(userId: string){
     const cards = await this.prisma.userCard.findMany({
       where: {
         user_id: userId,
@@ -273,21 +267,36 @@ export class CardService {
       },
     });
 
-    const expiredCards = cards.filter(card => this.isCardExpired(card.expiration_date));
-    return expiredCards.map(card => this.mapToResponseDto(card));
+    const expiredCards = cards.filter(card => this.checkCardExpiration(card.expiration_date).data.expired);
+    return {
+      success: true,
+      message: expiredCards.length ? 'Expired cards found' : 'No expired cards found',
+      data: expiredCards.map(card => this.mapToResponseDto(card)),
+    };
   }
 
 
   /**
    * Check if card is expired
    */
-  private isCardExpired(expirationDate: string): boolean {
+  private checkCardExpiration(expirationDate: string) {
     const [month, year] = expirationDate.split('/');
     const expDate = new Date(2000 + parseInt(year), parseInt(month) - 1);
     const currentDate = new Date();
-    
-    return expDate < currentDate;
+    const expired = expDate < currentDate;
+  
+    return {
+      success: true,
+      message: expired ? 'Card is expired' : 'Card is valid',
+      data: {
+        expired,
+      },
+    };
   }
+  
+    
+    
+
 
   /**
    * Get card type based on card number

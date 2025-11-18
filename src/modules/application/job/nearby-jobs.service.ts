@@ -322,7 +322,7 @@ export class NearbyJobsService {
       const helpers = await this.prisma.user.findMany({
         where: {
           type: 'helper',
-          status: 1,
+          user_status: 1,
           deleted_at: null,
           latitude: { not: null },
           longitude: { not: null },

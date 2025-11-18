@@ -1,7 +1,8 @@
-import { Controller, Get, UseGuards, Req, Logger, Query, DefaultValuePipe, ParseIntPipe } from '@nestjs/common';
+import { Controller, Get, UseGuards, Req, Logger, Query, DefaultValuePipe, ParseIntPipe, Param, ValidationPipe } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags, ApiResponse, ApiQuery } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { JobManageService } from './job-manage.service';
+import { MyJobsSearchDto } from './dto/my-jobs-filter.dto';
 
 @ApiBearerAuth()
 @ApiTags('Job Management')
@@ -34,6 +35,31 @@ export class JobManageController {
     const userType=req.user.type;
     return this.jobManageService.currentRunningJobs(userId,userType);
   }
+  @Get('details/:jobId')
+  async getJobDetails(@Param('jobId') jobId: string, @Req() req: any) {
+    const userId = req.user.userId || req.user.id;
+
+    return await this.jobManageService.getJobDetails(jobId, userId);
+  }
+
+@Get('search')
+async searchMyJobs(
+  @Req() req: any,
+  @Query(new ValidationPipe({ transform: true, whitelist: true })) query: MyJobsSearchDto,
+) {
+  const userId = (req as any).user.userId || (req as any).user.id;
+  const result = await this.jobManageService.searchMyJobs(userId, query);
+  return {
+    success: true,
+    message: result.message,
+    data: result.data.jobs,
+    pagination: {
+      total: result.data.pagination.total,
+      totalPages: result.data.pagination.totalPages,
+      currentPage: result.data.pagination.currentPage,
+    },
+  };
+}
 }
 
 

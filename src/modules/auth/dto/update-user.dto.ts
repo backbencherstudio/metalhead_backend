@@ -1,6 +1,7 @@
 import { ApiProperty, PartialType, OmitType } from '@nestjs/swagger';
 import { CreateUserDto } from './create-user.dto';
-import { IsOptional, IsPhoneNumber, ValidateIf, IsArray, IsString } from 'class-validator';
+import { IsOptional, IsPhoneNumber, ValidateIf, IsArray, IsString, IsNumber } from 'class-validator';
+import { Transform, Type } from 'class-transformer';
 
 // Email is intentionally excluded from updates for security reasons
 export class UpdateUserDto extends PartialType(OmitType(CreateUserDto, ['email'] as const)) {
@@ -91,15 +92,37 @@ export class UpdateUserDto extends PartialType(OmitType(CreateUserDto, ['email']
   bio?: string;
 
   @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Transform(({ value }) => {
+    if (value === null || value === undefined) return value;
+    const num = typeof value === 'string' ? parseFloat(value) : value;
+    return isNaN(num) ? value : num;
+  })
   @ApiProperty({
-    description: 'Address',
-    example: 'Plumbing, Fixing leakages',
+    description: 'Age',
+    example: 25,
+    type: Number,
   })
   age?: number;
 
   @IsOptional()
   @IsArray()
   @IsString({ each: true })
+  @Transform(({ value }) => {
+    if (!value) return undefined;
+    if (Array.isArray(value)) return value;
+    if (typeof value === 'string') {
+      try {
+        const parsed = JSON.parse(value);
+        return Array.isArray(parsed) ? parsed : [parsed];
+      } catch {
+        // If not valid JSON, try splitting by comma
+        return value.split(',').map(s => s.trim()).filter(Boolean);
+      }
+    }
+    return [value];
+  })
   @ApiProperty({
     description: 'Array of skills',
     example: ['Plumbing', 'Fixing leakages', 'Electrical work', 'Carpentry'],

@@ -16,6 +16,7 @@ import { DateHelper } from '../../common/helper/date.helper';
 import { StripePayment } from '../../common/lib/Payment/stripe/StripePayment';
 import { StringHelper } from '../../common/helper/string.helper';
 import { Prisma } from '@prisma/client';
+import { GeocodingService } from '../../common/lib/Geocoding/geocoding.service';
 
 @Injectable()
 export class AuthService {
@@ -24,6 +25,7 @@ export class AuthService {
     private prisma: PrismaService,
     private mailService: MailService,
     @InjectRedis() private readonly redis: Redis,
+    private geocodingService: GeocodingService,
   ) { }
 
   async me(userId: string) {
@@ -91,6 +93,7 @@ export class AuthService {
     image?: Express.Multer.File,
   ) {
     try {
+
       // Check if email is provided and reject it
       if (updateUserDto.email) {
         return {
@@ -374,6 +377,11 @@ export class AuthService {
     password,
     type,
     phone,
+    address,
+    city,
+    state,
+    latitude,
+    longitude,
   }: {
     username: string;
     first_name: string;
@@ -382,6 +390,11 @@ export class AuthService {
     password: string;
     phone: string;
     type: string;
+    address?: string;
+    city?: string;
+    state?: string;
+    latitude?: number;
+    longitude?: number;
   }) {
     try {
       // Validate all fields before creating user
@@ -414,6 +427,43 @@ export class AuthService {
 
         if (!user || !user.success) {
           throw new Error(user?.message || 'Failed to create user');
+        }
+
+        // After successful creation, set location:
+        try {
+          // Prefer explicit GPS from client
+          if (latitude != null && longitude != null) {
+            await tx.user.update({
+              where: { id: user.data.id },
+              data: {
+                latitude: Number(latitude),
+                longitude: Number(longitude),
+                ...(city ? { city } : {}),
+                ...(state ? { state } : {}),
+                ...(address ? { address } : {}),
+              },
+            });
+          } else {
+            // Fallback: geocode address/city/state if provided
+            const addrParts = [address, city, state].filter(Boolean).join(', ');
+            if (addrParts) {
+              const coords = await this.geocodingService.geocodeAddress(addrParts);
+              if (coords) {
+                await tx.user.update({
+                  where: { id: user.data.id },
+                  data: {
+                    latitude: coords.lat,
+                    longitude: coords.lng,
+                    ...(city ? { city } : {}),
+                    ...(state ? { state } : {}),
+                    ...(address ? { address } : {}),
+                  },
+                });
+              }
+            }
+          }
+        } catch (e) {
+          // Best-effort: do not fail registration if geocoding fails
         }
 
         return user;

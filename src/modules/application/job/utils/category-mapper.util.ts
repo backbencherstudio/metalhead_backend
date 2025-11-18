@@ -1,6 +1,6 @@
 /**
- * Utility to map old JobCategory enum values to new category names
- * This ensures backward compatibility with existing API calls
+ * Utility to map legacy category enum-like values to the canonical seeded
+ * category names stored in the database. Kept for backward compatibility.
  */
 
 export const ENUM_TO_CATEGORY_NAME_MAP: Record<string, string> = {

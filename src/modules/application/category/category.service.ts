@@ -26,7 +26,7 @@ export class CategoryService {
   async getAllCategories(): Promise<CategoryResponseDto[]> {
     const categories = await this.prisma.category.findMany({
       where: {
-        status: 1,
+        category_status: 1,
         deleted_at: null,
       },
       orderBy: { label: 'asc' },
@@ -37,7 +37,7 @@ export class CategoryService {
 
   async getCategoriesWithCounts(): Promise<any> {
     const categories = await this.prisma.category.findMany({
-      where: { status: 1, deleted_at: null },
+      where: { category_status: 1, deleted_at: null },
       select: { id: true, label: true, name: true },
       orderBy: { label: 'asc' },
     });
@@ -134,7 +134,7 @@ export class CategoryService {
       where: { id },
       data: {
         deleted_at: new Date(),
-        status: 0,
+        category_status: 0,
       },
     });
   }

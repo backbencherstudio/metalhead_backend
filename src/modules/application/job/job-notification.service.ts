@@ -36,7 +36,7 @@ export class JobNotificationService {
     const helpers = await this.prisma.user.findMany({
       where: {
         type: 'helper',
-        status: 1, // Active users only
+        user_status: 1, // Active users only
         deleted_at: null,
       },
       select: {

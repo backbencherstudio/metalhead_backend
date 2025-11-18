@@ -21,6 +21,7 @@ import { SojebStorage } from '../../../common/lib/Disk/SojebStorage';
 import { collectPhotoPaths, normalizeCategory, normalizeCoordinates, normalizeEnum, parseJsonField } from './utils/parse-helper.util'
 import { RequestExtraTimeDto } from './dto/request-extra-time.dto';
 import { JobManageService } from './job-manage.service';
+import { ValidationPipe } from '@nestjs/common';
 
 @ApiBearerAuth()
 @ApiTags('Jobs')
@@ -98,7 +99,7 @@ export class JobController {
     return {
       success: true,
       message: `Found ${result.jobs.length} jobs`,
-      preferenceMessage: (result as any).preferenceMessage || '',
+      preference: (result as any).preference,
       data: result.jobs,
       
       pagination: {
@@ -109,6 +110,10 @@ export class JobController {
     };
   }
 
+  @Get('search-suggestions')
+  async searchSuggestions(@Query('query') query: string){
+    return await this.jobService.searchSuggestions(query);
+  }
 
   @ApiOperation({ summary: 'Get jobs posted by the current user (no pagination - Flutter handles pagination)' })
   @Get('my-jobs')
@@ -189,7 +194,7 @@ export class JobController {
   
   @ApiOperation({ summary: 'Get a specific job by ID' })
   @Get(':id')
-  async findOne(@Param('id') id: string): Promise<JobSingleResponseDto> {
+  async findOne(@Param('id') id: string) {
     const job = await this.jobService.findOne(id);
     
     return {
@@ -209,6 +214,7 @@ export class JobController {
         { name: 'File', maxCount: 1 },
         { name: 'image', maxCount: 1 },
         { name: 'photo', maxCount: 1 },
+        { name: 'photos', maxCount: 5 },
       ],
       {
         storage: memoryStorage(),
@@ -219,7 +225,7 @@ export class JobController {
   )
   async update(
     @Param('id') id: string,
-    @Body() updateJobDto: any,
+    @Body(new ValidationPipe({ forbidNonWhitelisted: false })) updateJobDto: any,
     @UploadedFiles() files: Record<string, Express.Multer.File[]>,
     @Req() req: Request,
   ): Promise<JobResponseDto> {
@@ -227,9 +233,12 @@ export class JobController {
 
     const requirements = parseJsonField(updateJobDto?.requirements, [], 'requirements');
     const notes = parseJsonField(updateJobDto?.notes, [], 'notes');
+    const removedPhotos = parseJsonField(updateJobDto?.deleted_photos, [], 'removed_photos');
 
     let photoPath: string | undefined;
-    const uploadedFiles = files?.photoes || files?.file || files?.File || files?.image || files?.photo || [];
+
+    
+    const uploadedFiles = files?.photos || files?.file || files?.File || files?.image || files?.photo || [];
     
     if (uploadedFiles.length > 0) {
       const photoPaths = [];
@@ -254,9 +263,10 @@ export class JobController {
       requirements: requirements.length ? requirements : undefined,
       notes: notes.length ? notes : undefined,
       urgent_note: updateJobDto?.urgent_note,
+      deleted_photos: removedPhotos,
     } as any;
 
-    return this.jobService.update(id, dto, userId, photoPath);
+    return this.jobService.update(id, dto, userId, photoPath, removedPhotos);
   }
 
 

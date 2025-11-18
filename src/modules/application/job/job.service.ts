@@ -12,13 +12,14 @@ import { GeocodingService } from '../../../common/lib/Geocoding/geocoding.servic
 import { CategoryService } from '../category/category.service';
 import { convertEnumToCategoryName } from './utils/category-mapper.util';
 import { calculateDistance, calculateHours, formatEstimatedTime, parsePhotos } from './utils/job-utils';
-import { jobType, PaymentType } from '@prisma/client';
+import { jobType, PaymentType, Prisma } from '@prisma/client';
 import { RequestExtraTimeDto } from './dto/request-extra-time.dto';
-import { StripePayment } from 'src/common/lib/Payment/stripe/StripePayment';
+// import { StripePayment } from 'src/common/lib/Payment/stripe/StripePayment';
 import { NotificationGateway } from '../notification/notification.gateway';
 import { StripeMarketplaceService } from 'src/modules/payment/stripe/stripe-marketplace.service';
 import { SearchJobsDto } from './dto/search-jobs.dto';
 import { commisionSpillter } from './utils/commision-spillter.util';
+import { SojebStorage } from '../../../common/lib/Disk/SojebStorage';
 
 @Injectable()
 export class JobService {
@@ -83,6 +84,7 @@ export class JobService {
     jobData.latitude = latitude;
     jobData.longitude = longitude;
     jobData.location = location;
+    const locationPoint = `ST_SetSRID(ST_MakePoint(${jobData.longitude}, ${jobData.latitude}), 4326)`;
 
     // Calculate estimated time from start_time and end_time
     const startTime = new Date(jobData.start_time);
@@ -105,9 +107,14 @@ export class JobService {
     //
 
     // Find the category by name
-    const category = await (this.prisma as any).category.findUnique({
+    const category = await this.prisma.category.findUnique({
       where: { name: jobData.category },
     });
+
+
+    if(!category) {
+      throw new BadRequestException(`Category '${jobData.category}' not found`);
+    }
 
     if (!category) {
       throw new BadRequestException(`Category '${jobData.category}' not found`);
@@ -124,6 +131,10 @@ export class JobService {
         latitude: jobData.latitude,
         longitude: jobData.longitude,
         start_time: startTime,
+        // location_point: {
+        //   // Storing location as PostGIS geometry
+        //   raw: locationPoint, // Directly pass the PostGIS function in raw query format
+        // },
         end_time: endTime,
         estimated_time: estimatedTimeString,
         estimated_hours: estimatedHours,
@@ -154,6 +165,13 @@ export class JobService {
           : undefined,
       },
       include: {
+        category: {
+          select: {
+            id: true,
+            name: true,
+            label: true,
+          },
+        },
         requirements: true,
         notes: true,
         user: {
@@ -166,6 +184,10 @@ export class JobService {
         },
       },
     });
+
+   if(latitude && longitude) {
+    await this.prisma.$executeRaw`UPDATE jobs SET location_point = ST_SetSRID(ST_MakePoint(${longitude}, ${latitude}), 4326) WHERE id = ${job.id}`;
+   }
 
     await this.prisma.jobTimeline.create({
       data: {
@@ -214,6 +236,7 @@ export class JobService {
     total: number;
     totalPages: number;
     currentPage: number;
+    preference?: boolean;
   }> {
     // Parse and validate all parameters
     const {
@@ -240,16 +263,15 @@ export class JobService {
       search,
       sortBy,
     } = rawParams;
-
+  
     // Load user preferences (universal for all users)
-    // Only load: maxDistanceKm, preferredCategories, latitude, longitude
     let userPreferences: {
       max_distance_km?: number;
       preferred_categories?: string[];
       latitude?: number;
       longitude?: number;
     } | null = null;
-
+  
     if (userId) {
       const user = await this.prisma.user.findUnique({
         where: { id: userId },
@@ -260,68 +282,45 @@ export class JobService {
           longitude: true,
         },
       });
-
-      // Load preferences for all users (universal)
+  
       if (user) {
         userPreferences = {
-          max_distance_km: user.max_distance_km
-            ? Number(user.max_distance_km)
-            : undefined,
-          preferred_categories:
-            user.preferred_categories && user.preferred_categories.length > 0
-              ? (user.preferred_categories as string[])
-              : undefined,
+          max_distance_km: user.max_distance_km ? Number(user.max_distance_km) : undefined,
+          preferred_categories: user.preferred_categories?.length > 0 ? user.preferred_categories : undefined,
           latitude: user.latitude ? Number(user.latitude) : undefined,
           longitude: user.longitude ? Number(user.longitude) : undefined,
         };
       }
     }
-
+  
     // Parse pagination parameters
     const pageNum = page ? parseInt(page) : 1;
     const limitNum = limit ? parseInt(limit) : 10;
+  
+    // Parse location parameters - PREFER user preferences by default.
+    // If preferences are available, ALWAYS use them; otherwise, fall back to frontend GPS (lat/lng).
+    let searchLat: number | undefined;
+    let searchLng: number | undefined;
+    let maxDistance: number | undefined;
 
-    // Parse location parameters - use user preferences if not provided
-    let searchLat = lat ? parseFloat(lat) : undefined;
-    let searchLng = lng ? parseFloat(lng) : undefined;
-    let maxDistance = maxDistanceKm ? parseFloat(maxDistanceKm) : undefined;
-
-    // Track if preferences are set and being used
-    let preferencesSet = false;
-    let preferencesUsed = false;
-
-    // Check if user has preferences set
-    if (userPreferences) {
-      preferencesSet = !!(
-        userPreferences.max_distance_km ||
-        userPreferences.preferred_categories ||
-        (userPreferences.latitude && userPreferences.longitude)
-      );
+    if (userPreferences && userPreferences.latitude != null && userPreferences.longitude != null) {
+      // Use saved coordinates
+      searchLat = userPreferences.latitude;
+      searchLng = userPreferences.longitude;
+      // Use saved max distance if available; otherwise, default later
+      maxDistance = userPreferences.max_distance_km ?? undefined;
+    } else {
+      // Fall back to coordinates provided by frontend GPS
+      searchLat = lat ? parseFloat(lat) : undefined;
+      searchLng = lng ? parseFloat(lng) : undefined;
+      maxDistance = maxDistanceKm ? parseFloat(maxDistanceKm) : undefined;
     }
 
-    // Apply user preferences for location if not provided
-    // Use user's latitude/longitude from their profile (where they created account)
-    if (userPreferences && !searchLat && !searchLng) {
-      if (userPreferences.latitude && userPreferences.longitude) {
-        searchLat = userPreferences.latitude;
-        searchLng = userPreferences.longitude;
-        preferencesUsed = true;
-      }
+    // If we have coordinates but no max distance chosen yet, set a sensible default
+    if ((searchLat != null && searchLng != null) && maxDistance == null) {
+      maxDistance = 30; // Default 30km radius
     }
-
-    // Apply user preference for max distance if not provided
-    // If user has updated max_distance_km preference, use it; otherwise default to 30km
-    if (userPreferences && !maxDistance) {
-      if (userPreferences.max_distance_km) {
-        // Use user's updated preference
-        maxDistance = userPreferences.max_distance_km;
-        preferencesUsed = true;
-      } else if (searchLat && searchLng) {
-        // If user has location but no distance preference, default to 30km
-        maxDistance = 30;
-      }
-    }
-
+  
     // Parse price parameters
     let parsedPriceRange = null;
     if (priceRange) {
@@ -333,145 +332,189 @@ export class JobService {
         max: maxPrice ? parseFloat(maxPrice) : undefined,
       };
     }
-
+  
     // Parse rating parameters
     const minRatingNum = minRating ? parseFloat(minRating) : undefined;
     const maxRatingNum = maxRating ? parseFloat(maxRating) : undefined;
-
+  
     // Parse date parameters
     let parsedDateRange = null;
     if (dateRange) {
       const [startDate, endDate] = dateRange.split(',');
-      parsedDateRange = {
-        start: new Date(startDate),
-        end: new Date(endDate),
-      };
+      parsedDateRange = { start: new Date(startDate), end: new Date(endDate) };
     } else if (createdAfter || createdBefore) {
       parsedDateRange = {
         start: createdAfter ? new Date(createdAfter) : undefined,
         end: createdBefore ? new Date(createdBefore) : undefined,
       };
     }
-
+  
     // Parse categories - use user preferences if not provided
-    let categoriesArray = categories
-      ? categories.split(',').map((c) => c.trim())
-      : undefined;
-
-    // Apply user preferences for categories if not provided
-    if (
-      !category &&
-      !categoriesArray &&
-      userPreferences &&
-      userPreferences.preferred_categories
-    ) {
+    let categoriesArray = categories ? categories.split(',').map((c) => c.trim()) : undefined;
+    if (!category && !categoriesArray && userPreferences && userPreferences.preferred_categories) {
       categoriesArray = userPreferences.preferred_categories;
-      preferencesUsed = true;
     }
-
-    // Validate category if provided (can be either name or ID)
+  
+    // Validate and convert category if provided (can be either name or ID)
+    let categoryId: string | undefined = undefined;
     if (category) {
-      // Check if it's an ID (CUID format) or name
       const isId = category.length >= 20 && category.match(/^[a-z0-9]{20,}$/i);
-
       let categoryRecord;
       if (isId) {
         categoryRecord = await this.prisma.category.findUnique({
           where: { id: category },
         });
+        if (categoryRecord) {
+          categoryId = category;
+        }
       } else {
         categoryRecord = await this.prisma.category.findUnique({
           where: { name: category },
         });
+        if (categoryRecord) {
+          categoryId = categoryRecord.id;
+        }
       }
-
+  
       if (!categoryRecord) {
         throw new BadRequestException(`Invalid category: ${category}`);
       }
+    }
+  
+    // Validate and convert categories array (can be either names or IDs)
+    let categoryIds: string[] | undefined = undefined;
+    if (categoriesArray && categoriesArray.length > 0) {
+      // Separate IDs from names
+      const categoryIdsList: string[] = [];
+      const categoryNamesList: string[] = [];
+
+      categoriesArray.forEach((cat: string) => {
+        const isId = cat.length >= 20 && cat.match(/^[a-z0-9]{20,}$/i);
+        if (isId) {
+          categoryIdsList.push(cat);
+        } else {
+          categoryNamesList.push(cat);
+        }
+      });
+
+      // Find categories by IDs
+      const foundByIds = categoryIdsList.length > 0
+        ? await this.prisma.category.findMany({
+            where: { id: { in: categoryIdsList } },
+            select: { id: true },
+          })
+        : [];
+
+      // Find categories by names (get both id and name for validation)
+      const foundByNames = categoryNamesList.length > 0
+        ? await this.prisma.category.findMany({
+            where: { name: { in: categoryNamesList } },
+            select: { id: true, name: true },
+          })
+        : [];
+
+      // Create sets for quick lookup
+      const foundIdsSet = new Set(foundByIds.map(c => c.id));
+      const foundNamesSet = new Set(foundByNames.map(c => c.name));
+
+      // Verify all requested categories were found
+      const notFoundCategories: string[] = [];
+      for (const cat of categoriesArray) {
+        const isId = cat.length >= 20 && cat.match(/^[a-z0-9]{20,}$/i);
+        let wasFound = false;
+        
+        if (isId) {
+          wasFound = foundIdsSet.has(cat);
+        } else {
+          wasFound = foundNamesSet.has(cat);
+        }
+        
+        if (!wasFound) {
+          notFoundCategories.push(cat);
+        }
+      }
+      
+      if (notFoundCategories.length > 0) {
+        throw new BadRequestException(`Invalid categories: ${notFoundCategories.join(', ')}`);
+      }
+
+      // Combine all found category IDs
+      const allFoundIds = [
+        ...foundByIds.map(c => c.id),
+        ...foundByNames.map(c => c.id)
+      ];
+      categoryIds = allFoundIds;
+    }
+  
+    // Ensure category filter is applied if category was provided
+    // If category was provided but categoryId is undefined, something went wrong
+    if (category && !categoryId) {
+      throw new BadRequestException(`Failed to resolve category: ${category}`);
     }
 
     // Call the existing searchJobsWithPagination method with parsed parameters
     const searchResult = await this.searchJobsWithPagination(
       {
-        // Location filters
-        category,
-        categories: categoriesArray,
+        category: categoryId,  // Use converted ID (will be undefined if no category provided)
+        categories: categoryIds,  // Use converted IDs (will be undefined if no categories provided)
         location,
         searchLat,
         searchLng,
         maxDistanceKm: maxDistance,
-
-        // Job property filters
         jobType,
         paymentType,
         jobStatus,
         urgency,
-
-        // Price & rating filters
         priceRange: parsedPriceRange,
         minRating: minRatingNum,
         maxRating: maxRatingNum,
-
-        // Date filters
         dateRange: parsedDateRange,
-
-        // Search & sort
         search,
         sortBy,
       },
       pageNum,
-      limitNum,
+      limitNum
     );
+    
+    
 
     // Determine preference message (universal for all users)
-    let preferenceMessage = '';
+    let preference: boolean = false;
     if (userId) {
-      // If user is logged in, check their preferences
-      if (preferencesSet) {
-        preferenceMessage = preferencesUsed
-          ? 'Preferences are saved and applied'
-          : 'Preferences are saved';
+      if (userPreferences) {
+        preference = true;
       } else {
-        preferenceMessage = 'Preferences are not saved';
+        preference = false;
       }
     }
-
+  
     return {
       ...searchResult,
-      preferenceMessage,
-    } as typeof searchResult & { preferenceMessage: string };
+      preference: preference ? true : false,
+    };
   }
-
+  
   async searchJobsWithPagination(
     filters: {
-      // Location filters
       category?: string;
       categories?: string[];
       location?: string;
       searchLat?: number;
       searchLng?: number;
       maxDistanceKm?: number;
-
-      // Job property filters
       jobType?: string;
       paymentType?: string;
       jobStatus?: string;
       urgency?: string;
-
-      // Price & rating filters
       priceRange?: { min?: number; max?: number };
       minRating?: number;
       maxRating?: number;
-
-      // Date filters
       dateRange?: { start?: Date; end?: Date };
-
-      // Search & sort
       search?: string;
       sortBy?: string;
     },
     page: number = 1,
-    limit: number = 10,
+    limit: number = 10
   ): Promise<{
     jobs: any[];
     total: number;
@@ -496,363 +539,906 @@ export class JobService {
       search,
       sortBy,
     } = filters;
-    const whereClause: any = {
-      status: 1,
-      deleted_at: null,
-    };
-
-    // Category filter (single category) - accepts both name and ID
-    if (category) {
-      // Check if it's an ID (CUID format) or name
-      const isId = category.length >= 20 && category.match(/^[a-z0-9]{20,}$/i);
-
-      let categoryRecord;
-      if (isId) {
-        categoryRecord = await (this.prisma as any).category.findUnique({
-          where: { id: category },
-        });
-      } else {
-        categoryRecord = await (this.prisma as any).category.findUnique({
-          where: { name: category },
-        });
-      }
-
-      if (categoryRecord) {
-        whereClause.category_id = categoryRecord.id;
-      } else {
-        return { jobs: [], total: 0, totalPages: 0, currentPage: 1 };
-      }
-    }
-
-    // Multiple categories filter - accepts both names and IDs
-    if (categories && categories.length > 0) {
-      // Separate IDs from names
-      const categoryIds: string[] = [];
-      const categoryNames: string[] = [];
-
-      categories.forEach((cat: string) => {
-        const isId = cat.length >= 20 && cat.match(/^[a-z0-9]{20,}$/i);
-        if (isId) {
-          categoryIds.push(cat);
-        } else {
-          categoryNames.push(cat);
-        }
-      });
-
-      // Build where clause for finding categories
-      const whereConditions: any[] = [];
-      if (categoryIds.length > 0) {
-        whereConditions.push({ id: { in: categoryIds } });
-      }
-      if (categoryNames.length > 0) {
-        whereConditions.push({ name: { in: categoryNames } });
-      }
-
-      if (whereConditions.length > 0) {
-        const categoryRecords = await (this.prisma as any).category.findMany({
-          where: {
-            OR: whereConditions,
-          },
-        });
-
-        if (categoryRecords.length > 0) {
-          whereClause.category_id = { in: categoryRecords.map((c) => c.id) };
-        } else {
-          return { jobs: [], total: 0, totalPages: 0, currentPage: 1 };
-        }
-      }
-    }
-
-    // Location filter (case-insensitive)
-    if (location) {
-      whereClause.location = {
-        contains: location,
-        mode: 'insensitive',
-      };
-    }
-
-    // Location-based filtering with lat/lng
-    // Only apply if we have both coordinates AND distance (for helper preferences, distance is required)
-    if (searchLat && searchLng && maxDistanceKm) {
-      // This will be handled in post-processing since Prisma doesn't have built-in distance calculations
-      // We'll filter by approximate bounding box first, then calculate exact distances
-      const latRange = maxDistanceKm / 111; // Rough conversion: 1 degree ≈ 111 km
-      const lngRange =
-        maxDistanceKm / (111 * Math.cos((searchLat * Math.PI) / 180));
-
-      whereClause.latitude = {
-        gte: searchLat - latRange,
-        lte: searchLat + latRange,
-      };
-      whereClause.longitude = {
-        gte: searchLng - lngRange,
-        lte: searchLng + lngRange,
-      };
-    } else if (searchLat && searchLng && !maxDistanceKm) {
-      // If location is provided but no distance, don't filter by location
-      // This allows helpers to search without distance restriction
-    }
-
-    // Job type filter
-    if (jobType) {
-      whereClause.job_type = jobType;
-    }
-
-    // Payment type filter
-    if (paymentType) {
-      whereClause.payment_type = paymentType;
-    }
-
-    // Job status filter
-    if (jobStatus) {
-      whereClause.job_status = jobStatus;
-    }
-
-    // Price range filter
-    if (priceRange) {
-      const priceFilter: any = {};
-      if (priceRange.min !== undefined) priceFilter.gte = priceRange.min;
-      if (priceRange.max !== undefined) priceFilter.lte = priceRange.max;
-      if (Object.keys(priceFilter).length > 0) {
-        whereClause.price = priceFilter;
-      }
-    }
-
-    // Rating filter (through reviews relation)
-    if (minRating !== undefined || maxRating !== undefined) {
-      const ratingFilter: any = {};
-      if (minRating !== undefined) ratingFilter.gte = minRating;
-      if (maxRating !== undefined) ratingFilter.lte = maxRating;
-      if (Object.keys(ratingFilter).length > 0) {
-        whereClause.reviews = {
-          some: {
-            rating: ratingFilter,
-          },
-        };
-      }
-    }
-
-    // Date range filter
-    if (dateRange) {
-      const dateFilter: any = {};
-      if (dateRange.start) dateFilter.gte = dateRange.start;
-      if (dateRange.end) dateFilter.lte = dateRange.end;
-      if (Object.keys(dateFilter).length > 0) {
-        whereClause.start_time = dateFilter;
-      }
-    }
-
-    // Search filter (title and description)
-    if (search) {
-      whereClause.OR = [
-        {
-          title: {
-            contains: search,
-            mode: 'insensitive',
-          },
-        },
-        {
-          description: {
-            contains: search,
-            mode: 'insensitive',
-          },
-        },
-      ];
-    }
-
-    // Urgency filter
-    if (urgency === 'urgent') {
-      whereClause.job_type = 'URGENT';
-    } else if (urgency === 'normal') {
-      whereClause.job_type = 'ANYTIME';
-    }
-
-    // Build orderBy clause
-    // Default sorting: Recent start_time first (upcoming jobs), then by created_at
-    let orderBy: any = [
-      { start_time: 'asc' }, // Upcoming/earlier start times first
-      { created_at: 'desc' }, // Most recently created first as secondary sort
+  
+    const whereParts: Prisma.Sql[] = [
+      Prisma.sql`j.status = 1`,
+      Prisma.sql`j.deleted_at IS NULL`,
+      Prisma.sql`(u.id IS NULL OR (u.user_status = 1 AND u.deleted_at IS NULL))`,
     ];
-
-    if (sortBy) {
-      switch (sortBy) {
-        case 'price_asc':
-          orderBy = { price: 'asc' };
-          break;
-        case 'price_desc':
-          orderBy = { price: 'desc' };
-          break;
-        case 'rating_asc':
-          // Rating sorting will be handled in post-processing
-          orderBy = [{ start_time: 'asc' }, { created_at: 'desc' }];
-          break;
-        case 'rating_desc':
-          // Rating sorting will be handled in post-processing
-          orderBy = [{ start_time: 'asc' }, { created_at: 'desc' }];
-          break;
-        case 'distance':
-          // Distance sorting will be handled in post-processing
-          orderBy = [{ start_time: 'asc' }, { created_at: 'desc' }];
-          break;
-        case 'title':
-          orderBy = { title: 'asc' };
-          break;
-        case 'location':
-          orderBy = { location: 'asc' };
-          break;
-        case 'urgency':
-          orderBy = [
-            { job_type: 'desc' }, // URGENT first
-            { start_time: 'asc' }, // Then by start time
-            { created_at: 'desc' },
-          ];
-          break;
-        case 'urgency_recent':
-          // Combined sorting: URGENT jobs first, then by start time, then most recent
-          orderBy = [
-            { job_type: 'desc' }, // URGENT first (URGENT > ANYTIME)
-            { start_time: 'asc' }, // Then by start time
-            { created_at: 'desc' }, // Most recent first within each job type
-          ];
-          break;
-        case 'created_at':
-          orderBy = { created_at: 'desc' };
-          break;
-        default:
-          // Default: start_time first, then created_at
-          orderBy = [{ start_time: 'asc' }, { created_at: 'desc' }];
+  
+    // Apply category filter - must be a valid non-empty string
+    if (category && typeof category === 'string' && category.trim().length > 0) {
+      // Filter by single category - ensure category_id matches and is not NULL
+      whereParts.push(Prisma.sql`j.category_id = ${category.trim()}`);
+      whereParts.push(Prisma.sql`j.category_id IS NOT NULL`);
+      // Also ensure the category exists in the categories table (safety check)
+      whereParts.push(Prisma.sql`EXISTS (SELECT 1 FROM categories WHERE id = ${category.trim()} AND deleted_at IS NULL)`);
+    } else if (categories && Array.isArray(categories) && categories.length > 0) {
+      // Filter by multiple categories - ensure category_id is in the list and not NULL
+      const validCategoryIds = categories
+        .filter(id => id && typeof id === 'string' && id.trim().length > 0)
+        .map(id => id.trim());
+      if (validCategoryIds.length > 0) {
+        whereParts.push(Prisma.sql`j.category_id IN (${Prisma.join(validCategoryIds.map((id) => Prisma.sql`${id}`))})`);
+        whereParts.push(Prisma.sql`j.category_id IS NOT NULL`);
+        // Also ensure all categories exist in the categories table (safety check)
+        whereParts.push(Prisma.sql`EXISTS (SELECT 1 FROM categories WHERE id = j.category_id AND deleted_at IS NULL)`);
       }
     }
+    if (jobType) {
+      // Cast enum to text to compare with incoming string
+      whereParts.push(Prisma.sql`j.job_type::text = ${jobType}`);
+    }
+    if (paymentType) {
+      // Cast enum to text to compare with incoming string
+      whereParts.push(Prisma.sql`j.payment_type::text = ${paymentType}`);
+    }
+    if (jobStatus) {
+      // Support comma-separated job status values
+      const statusList = jobStatus.split(',').map(s => s.trim()).filter(Boolean);
+      if (statusList.length === 1) {
+        whereParts.push(Prisma.sql`j.job_status = ${statusList[0]}`);
+      } else if (statusList.length > 1) {
+        whereParts.push(Prisma.sql`j.job_status IN (${Prisma.join(statusList.map((s) => Prisma.sql`${s}`))})`);
+      }
+    }
+    if (priceRange?.min != null) {
+      whereParts.push(Prisma.sql`j.price >= ${priceRange.min}`);
+    }
+    if (priceRange?.max != null) {
+      whereParts.push(Prisma.sql`j.price <= ${priceRange.max}`);
+    }
+    // Filter by job poster's average rating as a user
+    if (minRating != null) {
+      whereParts.push(Prisma.sql`COALESCE(u.avrg_rating_as_user, 0) >= ${minRating}`);
+    }
+    if (maxRating != null) {
+      whereParts.push(Prisma.sql`COALESCE(u.avrg_rating_as_user, 0) <= ${maxRating}`);
+    }
+    if (dateRange?.start) {
+      whereParts.push(Prisma.sql`j.start_time >= ${dateRange.start}`);
+    }
+    if (dateRange?.end) {
+      whereParts.push(Prisma.sql`j.start_time <= ${dateRange.end}`);
+    }
+    if (location) {
+      whereParts.push(Prisma.sql`j.location ILIKE ${'%' + location + '%'}`);
+    }
+    if (search) {
+      whereParts.push(Prisma.sql`(j.title ILIKE ${'%' + search + '%'} OR j.description ILIKE ${'%' + search + '%'})`);
+    }
+  
+    const hasCoords = searchLat != null && searchLng != null;
+    if (hasCoords && maxDistanceKm) {
+      whereParts.push(
+        Prisma.sql`ST_DWithin(
+          j.location_point,
+          ST_SetSRID(ST_MakePoint(${searchLng}, ${searchLat}), 4326),
+          ${maxDistanceKm * 1000}
+        )`
+      );
+    }
+  
+    const whereSql =
+      whereParts.length > 0 ? Prisma.sql`WHERE ${Prisma.join(whereParts, ' AND ')}` : Prisma.empty;
+  
+    const selectDistance = hasCoords
+      ? Prisma.sql`, ST_Distance(
+        j.location_point,
+        ST_SetSRID(ST_MakePoint(${searchLng}, ${searchLat}), 4326)
+      ) AS distance`
+      : Prisma.empty;
+  
+    // ORDER BY (supports multi-sort via comma-separated sortBy string)
+    let orderBySql: Prisma.Sql;
+    if (sortBy && typeof sortBy === 'string') {
+      const sortTokens = sortBy.split(',').map((s) => s.trim()).filter(Boolean);
+      const orderParts: Prisma.Sql[] = [];
 
-    // Calculate pagination
+      for (const token of sortTokens) {
+        if (token === 'distance' && hasCoords) {
+          orderParts.push(Prisma.sql`ST_Distance(
+            j.location_point,
+            ST_SetSRID(ST_MakePoint(${searchLng}, ${searchLat}), 4326)
+          ) ASC`);
+        } else if (token === 'price_asc') {
+          orderParts.push(Prisma.sql`j.price ASC`);
+        } else if (token === 'price_desc') {
+          orderParts.push(Prisma.sql`j.price DESC`);
+        }
+        else if (token === 'rating_desc') {
+          orderParts.push(Prisma.sql`u.avrg_rating_as_user DESC`);
+        }
+        else if (token === 'rating_asc') {
+          orderParts.push(Prisma.sql`u.avrg_rating_as_user ASC`);
+        }
+        else if (token === 'title_asc') {
+          orderParts.push(Prisma.sql`j.title ASC`);
+        } 
+        else if (token === 'title_desc') {
+          orderParts.push(Prisma.sql`j.title DESC`);
+        }
+      
+        // Other tokens mentioned in DTO (rating_*, urgency, created_at, alphabetic_*)
+        // were not implemented originally; we keep behavior unchanged and ignore them.
+      }
+
+      if (orderParts.length > 0) {
+        orderBySql = Prisma.sql`ORDER BY ${Prisma.join(orderParts, ', ')}`;
+      } else {
+        orderBySql = Prisma.sql`ORDER BY j.start_time ASC, j.created_at DESC`;
+      }
+    } else {
+      orderBySql = Prisma.sql`ORDER BY j.start_time ASC, j.created_at DESC`;
+    }
+  
     const skip = (page - 1) * limit;
-
-    const [jobs, total] = await Promise.all([
-      this.prisma.job.findMany({
-        where: whereClause,
-        orderBy,
-        skip,
-        take: limit,
-        
-        include: {
-          user: {
-            select: {
-              id: true,
-              name: true,
-              first_name: true,
-              last_name: true,
-              email: true,
-              avatar: true,
-              phone:true,
-            },
-          },
-          requirements: true,
-          notes: true,
-          counter_offers: {
-            include: {
-              helper: {
-                select: {
-                  id: true,
-                  name: true,
-                  first_name: true,
-                  last_name: true,
-                  email: true,
-                },
-              },
-            },
-          },
-          accepted_counter_offer: {
-            include: {
-              helper: {
-                select: {
-                  id: true,
-                  name: true,
-                  first_name: true,
-                  last_name: true,
-                  email: true,
-                },
-              },
-            },
-          },
-          assigned_helper: {
-            select: {
-              id: true,
-              name: true,
-              first_name: true,
-              last_name: true,
-              email: true,
-            },
-          },
-          reviews: {
-            select: {
-              id: true,
-              rating: true,
-              comment: true,
-              reviewer: {
-                select: {
-                  id: true,
-                  name: true,
-                  first_name: true,
-                  last_name: true,
-                },
-              },
-            },
-          },
-        },
-      }),
-      this.prisma.job.count({ where: whereClause }),
-    ]);
-
-    let mappedJobs = jobs.map((job) => this.mapToResponseDto(job));
-
-    // Post-processing for distance-based filtering and sorting
-    if (searchLat && searchLng) {
-      // Calculate distances and filter by exact distance
-      mappedJobs = mappedJobs
-        .map((job) => ({
-          ...job,
-          distance: calculateDistance(
-            searchLat,
-            searchLng,
-            job.latitude,
-            job.longitude,
-          ),
-        }))
-        .filter((job) => !maxDistanceKm || job.distance <= maxDistanceKm);
-
-      // Sort by distance if requested
-      if (sortBy === 'distance') {
-        mappedJobs.sort((a, b) => a.distance - b.distance);
-      }
-    }
-
-    // Post-processing for rating-based sorting
-    if (sortBy === 'rating_asc' || sortBy === 'rating_desc') {
-      mappedJobs.sort((a, b) => {
-        const ratingA =
-          a.reviews && a.reviews.length > 0
-            ? a.reviews.reduce((sum, review) => sum + review.rating, 0) /
-              a.reviews.length
-            : 0;
-        const ratingB =
-          b.reviews && b.reviews.length > 0
-            ? b.reviews.reduce((sum, review) => sum + review.rating, 0) /
-              b.reviews.length
-            : 0;
-
-        return sortBy === 'rating_asc' ? ratingA - ratingB : ratingB - ratingA;
-      });
-    }
-
-    const totalPages = Math.ceil(total / limit);
-
+  
+    const rows = await this.prisma.$queryRaw<any[]>(Prisma.sql`
+      SELECT
+        j.id,
+        j.created_at,
+        j.updated_at,
+        j.deleted_at,
+        j.status,
+        j.job_status,
+        j.title,
+        j.category_id,
+        j.date_and_time,
+        j.price,
+        j.final_price,
+        j.payment_type,
+        j.location,
+        j.latitude,
+        j.longitude,
+        j.description,
+        j.job_type,
+        j.urgent_note,
+        j.start_time,
+        j.end_time,
+        j.estimated_time,
+        j.actual_start_time,
+        j.actual_end_time,
+        j.actual_hours,
+        j.hourly_rate,
+        j.estimated_hours,
+        j.extra_time_requested,
+        j.extra_time_approved,
+        j.extra_time_requested_at,
+        j.extra_time_approved_at,
+        j.total_approved_hours,
+        j.photos,
+        j.user_id,
+        j.accepted_counter_offer_id,
+        j.pending_helper_id,
+        j.assigned_helper_id,
+        j.payment_intent_id,
+        j.last_transfer_id,
+        j.paid_at,
+        u.id AS user_id, u.user_status, u.name, u.first_name, u.last_name, u.email, u.avatar, u.phone, u.avrg_rating_as_user,
+        c.id AS category_id, c.name AS category_name, c.label AS category_label
+        ${selectDistance}
+      FROM jobs j
+      LEFT JOIN users u ON u.id = j.user_id
+      LEFT JOIN categories c ON c.id = j.category_id
+      ${whereSql}
+      ${orderBySql}
+      LIMIT ${limit} OFFSET ${skip}
+    `);
+  
+    const countRows = await this.prisma.$queryRaw<{ count: bigint }[]>(Prisma.sql`
+      SELECT COUNT(*)::bigint AS count
+      FROM jobs j
+      LEFT JOIN users u ON u.id = j.user_id
+      LEFT JOIN categories c ON c.id = j.category_id
+      ${whereSql}
+    `);
+  
+    const total = Number(countRows[0]?.count ?? 0);
+  
+    // Transform raw SQL results to match mapToResponseDto expectations
+    const mapped = rows.map(r => {
+      // Transform flat category fields to category object
+      const transformedRow = {
+        ...r,
+        category: (r.category_id && r.category_name) ? {
+          id: r.category_id,
+          name: r.category_name,
+          label: r.category_label || r.category_name,
+        } : null,
+        // Remove the flat category fields to avoid confusion
+        category_id: undefined,
+        category_name: undefined,
+        category_label: undefined,
+      };
+      
+      // Apply distance conversion if needed
+      const rowWithDistance = hasCoords && 'distance' in r 
+        ? { ...transformedRow, distance: Number(r.distance) / 1000 }
+        : transformedRow;
+      
+      return this.mapToResponseDto(rowWithDistance);
+    });
+  
     return {
-      jobs: mappedJobs,
+      jobs: mapped,
       total,
-      totalPages,
-      currentPage: page,
+      totalPages: Math.ceil(total / limit),
+      currentPage: page
     };
   }
+  
+
+  // async searchJobsWithPagination(
+  //   filters: {
+  //     // Location filters
+  //     category?: string;
+  //     categories?: string[];
+  //     location?: string;
+  //     searchLat?: number;
+  //     searchLng?: number;
+  //     maxDistanceKm?: number;
+
+  //     // Job property filters
+  //     jobType?: string;
+  //     paymentType?: string;
+  //     jobStatus?: string;
+  //     urgency?: string;
+
+  //     // Price & rating filters
+  //     priceRange?: { min?: number; max?: number };
+  //     minRating?: number;
+  //     maxRating?: number;
+
+  //     // Date filters
+  //     dateRange?: { start?: Date; end?: Date };
+
+  //     // Search & sort
+  //     search?: string;
+  //     sortBy?: string;
+  //   },
+  //   page: number = 1,
+  //   limit: number = 10,
+  // ): Promise<{
+  //   jobs: any[];
+  //   total: number;
+  //   totalPages: number;
+  //   currentPage: number;
+  // }> {
+  //   const {
+  //     category,
+  //     categories,
+  //     location,
+  //     searchLat,
+  //     searchLng,
+  //     maxDistanceKm,
+  //     jobType,
+  //     paymentType,
+  //     jobStatus,
+  //     urgency,
+  //     priceRange,
+  //     minRating,
+  //     maxRating,
+  //     dateRange,
+  //     search,
+  //     sortBy,
+  //   } = filters;
+  //   const whereClause: any = {
+  //     status: 1,
+  //     deleted_at: null,
+  //   };
+
+  //   // Category filter (single category) - accepts both name and ID
+  //   if (category) {
+  //     // Check if it's an ID (CUID format) or name
+  //     const isId = category.length >= 20 && category.match(/^[a-z0-9]{20,}$/i);
+
+  //     let categoryRecord;
+  //     if (isId) {
+  //       categoryRecord = await (this.prisma as any).category.findUnique({
+  //         where: { id: category },
+  //       });
+  //     } else {
+  //       categoryRecord = await (this.prisma as any).category.findUnique({
+  //         where: { name: category },
+  //       });
+  //     }
+
+  //     if (categoryRecord) {
+  //       whereClause.category_id = categoryRecord.id;
+  //     } else {
+  //       return { jobs: [], total: 0, totalPages: 0, currentPage: 1 };
+  //     }
+  //   }
+
+  //   // Multiple categories filter - accepts both names and IDs
+  //   if (categories && categories.length > 0) {
+  //     // Separate IDs from names
+  //     const categoryIds: string[] = [];
+  //     const categoryNames: string[] = [];
+
+  //     categories.forEach((cat: string) => {
+  //       const isId = cat.length >= 20 && cat.match(/^[a-z0-9]{20,}$/i);
+  //       if (isId) {
+  //         categoryIds.push(cat);
+  //       } else {
+  //         categoryNames.push(cat);
+  //       }
+  //     });
+
+  //     // Build where clause for finding categories
+  //     const whereConditions: any[] = [];
+  //     if (categoryIds.length > 0) {
+  //       whereConditions.push({ id: { in: categoryIds } });
+  //     }
+  //     if (categoryNames.length > 0) {
+  //       whereConditions.push({ name: { in: categoryNames } });
+  //     }
+
+  //     if (whereConditions.length > 0) {
+  //       const categoryRecords = await (this.prisma as any).category.findMany({
+  //         where: {
+  //           OR: whereConditions,
+  //         },
+  //       });
+
+  //       if (categoryRecords.length > 0) {
+  //         whereClause.category_id = { in: categoryRecords.map((c) => c.id) };
+  //       } else {
+  //         return { jobs: [], total: 0, totalPages: 0, currentPage: 1 };
+  //       }
+  //     }
+  //   }
+
+  //   // Location filter (case-insensitive)
+  //   if (location) {
+  //     whereClause.location = {
+  //       contains: location,
+  //       mode: 'insensitive',
+  //     };
+  //   }
+
+  //   // Location-based filtering with lat/lng
+  //   // Only apply if we have both coordinates AND distance (for helper preferences, distance is required)
+  //   if (searchLat && searchLng && maxDistanceKm) {
+  //     // This will be handled in post-processing since Prisma doesn't have built-in distance calculations
+  //     // We'll filter by approximate bounding box first, then calculate exact distances
+  //     const latRange = maxDistanceKm / 111; // Rough conversion: 1 degree ≈ 111 km
+  //     const lngRange =
+  //       maxDistanceKm / (111 * Math.cos((searchLat * Math.PI) / 180));
+
+  //     whereClause.latitude = {
+  //       gte: searchLat - latRange,
+  //       lte: searchLat + latRange,
+  //     };
+  //     whereClause.longitude = {
+  //       gte: searchLng - lngRange,
+  //       lte: searchLng + lngRange,
+  //     };
+  //   } else if (searchLat && searchLng && !maxDistanceKm) {
+  //     // If location is provided but no distance, don't filter by location
+  //     // This allows helpers to search without distance restriction
+  //   }
+
+  //   // Job type filter
+  //   if (jobType) {
+  //     whereClause.job_type = jobType;
+  //   }
+
+  //   // Payment type filter
+  //   if (paymentType) {
+  //     whereClause.payment_type = paymentType;
+  //   }
+
+  //   // Job status filter
+  //   if (jobStatus) {
+  //     whereClause.job_status = jobStatus;
+  //   }
+
+  //   // Price range filter
+  //   if (priceRange) {
+  //     const priceFilter: any = {};
+  //     if (priceRange.min !== undefined) priceFilter.gte = priceRange.min;
+  //     if (priceRange.max !== undefined) priceFilter.lte = priceRange.max;
+  //     if (Object.keys(priceFilter).length > 0) {
+  //       whereClause.price = priceFilter;
+  //     }
+  //   }
+
+  //   // Rating filter (through reviews relation)
+  //   if (minRating !== undefined || maxRating !== undefined) {
+  //     const ratingFilter: any = {};
+  //     if (minRating !== undefined) ratingFilter.gte = minRating;
+  //     if (maxRating !== undefined) ratingFilter.lte = maxRating;
+  //     if (Object.keys(ratingFilter).length > 0) {
+  //       whereClause.reviews = {
+  //         some: {
+  //           rating: ratingFilter,
+  //         },
+  //       };
+  //     }
+  //   }
+
+  //   // Date range filter
+  //   if (dateRange) {
+  //     const dateFilter: any = {};
+  //     if (dateRange.start) dateFilter.gte = dateRange.start;
+  //     if (dateRange.end) dateFilter.lte = dateRange.end;
+  //     if (Object.keys(dateFilter).length > 0) {
+  //       whereClause.start_time = dateFilter;
+  //     }
+  //   }
+
+  //   // Search filter (title and description)
+  //   if (search) {
+  //     whereClause.OR = [
+  //       {
+  //         title: {
+  //           contains: search,
+  //           mode: 'insensitive',
+  //         },
+  //       },
+  //       {
+  //         description: {
+  //           contains: search,
+  //           mode: 'insensitive',
+  //         },
+  //       },
+  //     ];
+  //   }
+
+  //   // Urgency filter
+  //   if (urgency === 'urgent') {
+  //     whereClause.job_type = 'URGENT';
+  //   } else if (urgency === 'normal') {
+  //     whereClause.job_type = 'ANYTIME';
+  //   }
+
+  //   // Build orderBy clause
+  //   // Default sorting: Recent start_time first (upcoming jobs), then by created_at
+  //   let orderBy: any = [
+  //     { start_time: 'asc' }, // Upcoming/earlier start times first
+  //     { created_at: 'desc' }, // Most recently created first as secondary sort
+  //   ];
+
+  //   if (sortBy) {
+  //     switch (sortBy) {
+  //       case 'price_asc':
+  //         orderBy = { price: 'asc' };
+  //         break;
+  //       case 'price_desc':
+  //         orderBy = { price: 'desc' };
+  //         break;
+  //       case 'rating_asc':
+  //         // Rating sorting will be handled in post-processing
+  //         orderBy = [{ start_time: 'asc' }, { created_at: 'desc' }];
+  //         break;
+  //       case 'rating_desc':
+  //         // Rating sorting will be handled in post-processing
+  //         orderBy = [{ start_time: 'asc' }, { created_at: 'desc' }];
+  //         break;
+  //       case 'distance':
+  //         // Distance sorting will be handled in post-processing
+  //         orderBy = [{ start_time: 'asc' }, { created_at: 'desc' }];
+  //         break;
+  //       case 'title':
+  //         orderBy = { title: 'asc' };
+  //         break;
+  //       case 'location':
+  //         orderBy = { location: 'asc' };
+  //         break;
+  //       case 'urgency':
+  //         orderBy = [
+  //           { job_type: 'desc' }, // URGENT first
+  //           { start_time: 'asc' }, // Then by start time
+  //           { created_at: 'desc' },
+  //         ];
+  //         break;
+  //       case 'urgency_recent':
+  //         // Combined sorting: URGENT jobs first, then by start time, then most recent
+  //         orderBy = [
+  //           { job_type: 'desc' }, // URGENT first (URGENT > ANYTIME)
+  //           { start_time: 'asc' }, // Then by start time
+  //           { created_at: 'desc' }, // Most recent first within each job type
+  //         ];
+  //         break;
+  //       case 'created_at':
+  //         orderBy = { created_at: 'desc' };
+  //         break;
+  //       case 'price_asc':
+  //         orderBy = { price: 'asc' };
+  //         break;
+  //       case 'price_desc':
+  //         orderBy = { price: 'desc' };
+  //         break;
+  //       case 'alphabetic_asc':
+  //         orderBy = { title: 'asc' };
+  //         break;
+  //       case 'alphabetic_desc':
+  //         orderBy = { title: 'desc' };
+  //         break;
+  //       default:
+  //         // Default: start_time first, then created_at
+  //         orderBy = [{ start_time: 'asc' }, { created_at: 'desc' }];
+  //     }
+  //   }
+
+  //   // Calculate pagination
+  //   const skip = (page - 1) * limit;
+
+  //   const [jobs, total] = await Promise.all([
+  //     this.prisma.job.findMany({
+  //       where: whereClause,
+  //       orderBy,
+  //       skip,
+  //       take: limit,
+        
+  //       include: {
+  //         user: {
+  //           select: {
+  //             id: true,
+  //             name: true,
+  //             first_name: true,
+  //             last_name: true,
+  //             email: true,
+  //             avatar: true,
+  //             phone:true,
+  //           },
+  //         },
+  //         category: {
+  //           select: {
+  //             id: true,
+  //             name: true,
+  //             label: true,
+  //           },
+  //         },
+  //         requirements: true,
+  //         notes: true,
+  //         counter_offers: {
+  //           include: {
+  //             helper: {
+  //               select: {
+  //                 id: true,
+  //                 name: true,
+  //                 first_name: true,
+  //                 last_name: true,
+  //                 email: true,
+  //               },
+  //             },
+  //           },
+  //         },
+  //         accepted_counter_offer: {
+  //           include: {
+  //             helper: {
+  //               select: {
+  //                 id: true,
+  //                 name: true,
+  //                 first_name: true,
+  //                 last_name: true,
+  //                 email: true,
+  //               },
+  //             },
+  //           },
+  //         },
+  //         assigned_helper: {
+  //           select: {
+  //             id: true,
+  //             name: true,
+  //             first_name: true,
+  //             last_name: true,
+  //             email: true,
+  //           },
+  //         },
+  //         reviews: {
+  //           select: {
+  //             id: true,
+  //             rating: true,
+  //             comment: true,
+  //             reviewer: {
+  //               select: {
+  //                 id: true,
+  //                 name: true,
+  //                 first_name: true,
+  //                 last_name: true,
+  //               },
+  //             },
+  //           },
+  //         },
+  //       },
+  //     }),
+  //     this.prisma.job.count({ where: whereClause }),
+  //   ]);
+
+  //   let mappedJobs = jobs.map((job) => this.mapToResponseDto(job));
+
+  //   // Post-processing for distance-based filtering and sorting
+  //   if (searchLat && searchLng) {
+  //     // Calculate distances and filter by exact distance
+  //     mappedJobs = mappedJobs
+  //       .map((job) => ({
+  //         ...job,
+  //         distance: calculateDistance(
+  //           searchLat,
+  //           searchLng,
+  //           job.latitude,
+  //           job.longitude,
+  //         ),
+  //       }))
+  //       .filter((job) => !maxDistanceKm || job.distance <= maxDistanceKm);
+
+  //     // Sort by distance if requested
+  //     if (sortBy === 'distance') {
+  //       mappedJobs.sort((a, b) => a.distance - b.distance);
+  //     }
+  //   }
+
+  //   // Post-processing for rating-based sorting
+  //   if (sortBy === 'rating_asc' || sortBy === 'rating_desc') {
+  //     mappedJobs.sort((a, b) => {
+  //       const ratingA =
+  //         a.reviews && a.reviews.length > 0
+  //           ? a.reviews.reduce((sum, review) => sum + review.rating, 0) /
+  //             a.reviews.length
+  //           : 0;
+  //       const ratingB =
+  //         b.reviews && b.reviews.length > 0
+  //           ? b.reviews.reduce((sum, review) => sum + review.rating, 0) /
+  //             b.reviews.length
+  //           : 0;
+
+  //       return sortBy === 'rating_asc' ? ratingA - ratingB : ratingB - ratingA;
+  //     });
+  //   }
+
+  //   const totalPages = Math.ceil(total / limit);
+
+  //   return {
+  //     jobs: mappedJobs,
+  //     total,
+  //     totalPages,
+  //     currentPage: page,
+  //   };
+  // }
+
+// async searchJobsWithPagination(
+//   filters: {
+//     category?: string;
+//     categories?: string[];
+//     location?: string;
+//     searchLat?: number;
+//     searchLng?: number;
+//     maxDistanceKm?: number;
+//     jobType?: string;
+//     paymentType?: string;
+//     jobStatus?: string;
+//     urgency?: string;
+//     priceRange?: { min?: number; max?: number };
+//     minRating?: number;
+//     maxRating?: number;
+//     dateRange?: { start?: Date; end?: Date };
+//     search?: string;
+//     sortBy?: string;
+//   },
+//   page: number = 1,
+//   limit: number = 10
+// ): Promise<{
+//   jobs: any[];
+//   total: number;
+//   totalPages: number;
+//   currentPage: number;
+// }> {
+//   const {
+//     category,
+//     categories,
+//     location,
+//     searchLat,
+//     searchLng,
+//     maxDistanceKm,
+//     jobType,
+//     paymentType,
+//     jobStatus,
+//     urgency,
+//     priceRange,
+//     minRating,
+//     maxRating,
+//     dateRange,
+//     search,
+//     sortBy,
+//   } = filters;
+
+//   const whereParts: Prisma.Sql[] = [
+//     Prisma.sql`j.status = 1`,
+//     Prisma.sql`j.deleted_at IS NULL`,
+//     Prisma.sql`(u.id IS NULL OR (u.user_status = 1 AND u.deleted_at IS NULL))`,
+//   ];
+
+//   if (category) {
+//     whereParts.push(Prisma.sql`j.category_id = ${category}`);
+//   }
+//   if (categories && categories.length > 0) {
+//     whereParts.push(Prisma.sql`j.category_id IN (${Prisma.join(categories.map((id) => Prisma.sql`${id}`))})`);
+//   }
+//   if (jobType) {
+//     whereParts.push(Prisma.sql`j.job_type = ${jobType}`);
+//   }
+//   if (paymentType) {
+//     whereParts.push(Prisma.sql`j.payment_type = ${paymentType}`);
+//   }
+//   if (jobStatus) {
+//     whereParts.push(Prisma.sql`j.job_status = ${jobStatus}`);
+//   }
+//   if (priceRange?.min != null) {
+//     whereParts.push(Prisma.sql`j.price >= ${priceRange.min}`);
+//   }
+//   if (priceRange?.max != null) {
+//     whereParts.push(Prisma.sql`j.price <= ${priceRange.max}`);
+//   }
+//   if (dateRange?.start) {
+//     whereParts.push(Prisma.sql`j.start_time >= ${dateRange.start}`);
+//   }
+//   if (dateRange?.end) {
+//     whereParts.push(Prisma.sql`j.start_time <= ${dateRange.end}`);
+//   }
+//   if (location) {
+//     whereParts.push(Prisma.sql`j.location ILIKE ${'%' + location + '%'}`);
+//   }
+//   if (search) {
+//     whereParts.push(Prisma.sql`(j.title ILIKE ${'%' + search + '%'} OR j.description ILIKE ${'%' + search + '%'})`);
+//   }
+
+//   const hasCoords = searchLat != null && searchLng != null;
+//   if (hasCoords && maxDistanceKm) {
+//     whereParts.push(
+//       Prisma.sql`ST_DWithin(
+//         j.location_point,
+//         ST_SetSRID(ST_MakePoint(${searchLng}, ${searchLat}), 4326),
+//         ${maxDistanceKm * 1000}
+//       )`
+//     );
+//   }
+
+//   const whereSql =
+//     whereParts.length > 0 ? Prisma.sql`WHERE ${Prisma.join(whereParts, ' AND ')}` : Prisma.empty;
+
+//   const selectDistance = hasCoords
+//     ? Prisma.sql`, ST_Distance(
+//       j.location_point,
+//       ST_SetSRID(ST_MakePoint(${searchLng}, ${searchLat}), 4326)
+//     ) AS distance`
+//     : Prisma.empty;
+
+//   let orderBySql: Prisma.Sql;
+//   if (sortBy === 'distance' && hasCoords) {
+//     orderBySql = Prisma.sql`ORDER BY ST_Distance(
+//       j.location_point,
+//       ST_SetSRID(ST_MakePoint(${searchLng}, ${searchLat}), 4326)
+//     ) ASC`;
+//   } else if (sortBy === 'price_asc') {
+//     orderBySql = Prisma.sql`ORDER BY j.price ASC`;
+//   } else if (sortBy === 'price_desc') {
+//     orderBySql = Prisma.sql`ORDER BY j.price DESC`;
+//   } else {
+//     orderBySql = Prisma.sql`ORDER BY j.start_time ASC, j.created_at DESC`;
+//   }
+
+//   const skip = (page - 1) * limit;
+
+//   const rows = await this.prisma.$queryRaw<any[]>(Prisma.sql`
+//     SELECT
+//       j.id,
+//       j.created_at,
+//       j.updated_at,
+//       j.deleted_at,
+//       j.status,
+//       j.job_status,
+//       j.title,
+//       j.category_id,
+//       j.date_and_time,
+//       j.price,
+//       j.final_price,
+//       j.payment_type,
+//       j.location,
+//       j.latitude,
+//       j.longitude,
+//       j.description,
+//       j.job_type,
+//       j.urgent_note,
+//       j.start_time,
+//       j.end_time,
+//       j.estimated_time,
+//       j.actual_start_time,
+//       j.actual_end_time,
+//       j.actual_hours,
+//       j.hourly_rate,
+//       j.estimated_hours,
+//       j.extra_time_requested,
+//       j.extra_time_approved,
+//       j.extra_time_requested_at,
+//       j.extra_time_approved_at,
+//       j.total_approved_hours,
+//       j.photos,
+//       j.user_id,
+//       j.accepted_counter_offer_id,
+//       j.pending_helper_id,
+//       j.assigned_helper_id,
+//       j.payment_intent_id,
+//       j.last_transfer_id,
+//       j.paid_at,
+//       u.id AS user_id, u.user_status, u.name, u.first_name, u.last_name, u.email, u.avatar, u.phone,
+//       c.id AS category_id, c.name AS category_name, c.label AS category_label
+//       ${selectDistance}
+//     FROM jobs j
+//     LEFT JOIN users u ON u.id = j.user_id
+//     LEFT JOIN categories c ON c.id = j.category_id
+//     ${whereSql}
+//     ${orderBySql}
+//     LIMIT ${limit} OFFSET ${skip}
+//   `);
+
+//   const countRows = await this.prisma.$queryRaw<{ count: bigint }[]>(Prisma.sql`
+//     SELECT COUNT(*)::bigint AS count
+//     FROM jobs j
+//     LEFT JOIN users u ON u.id = j.user_id
+//     LEFT JOIN categories c ON c.id = j.category_id
+//     ${whereSql}
+//   `);
+
+//   const total = Number(countRows[0]?.count ?? 0);
+
+//   const mapped = rows.map(r =>
+//     this.mapToResponseDto(hasCoords && 'distance' in r ? { ...r, distance: Number(r.distance) / 1000 } : r)
+//   );
+
+//   return {
+//     jobs: mapped,
+//     total,
+//     totalPages: Math.ceil(total / limit),
+//     currentPage: page
+//   };
+// }
+
+
+  async searchSuggestions(query: string) {
+
+    if(!query) {
+      return{
+        success: false,
+        message: 'Query is required',
+        data: {
+          suggestions: [],
+        },
+      }
+    }
+    if(query.length < 3) {
+      return{
+        success: false,
+        message: 'Query must be at least 3 characters',
+        data: {
+          suggestions: [],
+        },
+      }
+    }
+    const suggestions = await this.prisma.job.findMany({
+      where: {
+        title: {
+          contains: query,
+          mode: 'insensitive',
+        },
+    
+      },
+      select:{
+        title:true,
+      },
+      take: 5,
+    });
+    return{
+      success: true,
+      message: 'Search suggestions retrieved successfully',
+      data: 
+        suggestions.map((suggestion) => suggestion.title),
+    }
+  }
+  
   // Get a single job by ID
   async findOne(id: string): Promise<any> {
     const job = await this.prisma.job.findUnique({
@@ -861,73 +1447,44 @@ export class JobService {
         status: 1,
         deleted_at: null,
       },
-      include: {
+      select:{
+        title:true,
+        category:{
+          select:{
+            id: true,
+            name: true,
+          },
+        },
+        description: true,
+        price: true,
+        payment_type: true,
+        location: true,
+        latitude: true,
+        longitude: true,
+        job_type: true,
+        start_time: true,
+        end_time: true,
+        requirements: true,
+        notes: true,
+        photos: true,
         user: {
           select: {
             id: true,
             name: true,
             first_name: true,
             last_name: true,
-            email: true,
-            avatar: true,
-            phone: true,
           },
         },
-        category: {
-          select: {
-            id: true,
-            name: true,
-            label: true,
-          },
-        },
-        requirements: true,
-        notes: true,
-        counter_offers: {
-          include: {
-            helper: {
-              select: {
-                id: true,
-                name: true,
-                first_name: true,
-                last_name: true,
-                email: true,
-                phone: true,
-              },
-            },
-          },
-        },
-        accepted_counter_offer: {
-          include: {
-            helper: {
-              select: {
-                id: true,
-                name: true,
-                first_name: true,
-                last_name: true,
-                email: true,
-                phone: true,
-              },
-            },
-          },
-        },
-        assigned_helper: {
-          select: {
-            id: true,
-            name: true,
-            first_name: true,
-            last_name: true,
-            email: true,
-            phone: true,
-          },
-        },
-      },
+      }
     });
 
     if (!job) {
       throw new NotFoundException('Job not found');
     }
 
-    return this.mapToResponseDto(job);
+
+    job['photos_urls']=parsePhotos(job.photos);
+    return job;
   }
 
   // Get jobs posted by a specific user
@@ -1005,6 +1562,7 @@ export class JobService {
     updateJobDto: any,
     userId: string,
     newPhotoPath?: string,
+    removedPhotos: string[] = [],
   ): Promise<any> {
     const existingJob = await this.prisma.job.findFirst({
       where: {
@@ -1016,6 +1574,19 @@ export class JobService {
       },
     });
 
+    const category= await this.prisma.category.findFirst({
+      where:{
+        name: updateJobDto.category,
+      },
+      select:{
+        id: true,
+      }
+    });
+    
+    if (!category) {
+      throw new NotFoundException('Category not found');
+    }
+
     if (!existingJob) {
       throw new NotFoundException(
         'Job not found or you do not have permission to update it',
@@ -1023,14 +1594,14 @@ export class JobService {
     }
 
     // Extract nested relations and basic fields
-    const { requirements, notes, ...basicFields } = updateJobDto;
+    const { requirements, notes, category: _,deleted_photos, ...basicFields } = updateJobDto;
 
     // Map enums properly for update
     const mappedData: any = { ...basicFields };
 
     // Map category if provided
     if (basicFields.category) {
-      mappedData.category = basicFields.category;
+      mappedData.category_id = category.id;
     }
 
     // Map payment_type if provided
@@ -1043,10 +1614,56 @@ export class JobService {
       mappedData.job_type = basicFields.job_type;
     }
 
+    // Handle photo updates: remove deleted photos, keep existing ones, add new ones
+    let finalPhotos: string | null = null;
+    let finalPhotosArray: string[] = [];
+    if (removedPhotos.length > 0 || newPhotoPath) {
+      // Get current photos
+      const currentPhotos: string[] = existingJob.photos
+        ? (() => {
+            try {
+              return JSON.parse(existingJob.photos);
+            } catch {
+              return [];
+            }
+          })()
+        : [];
+
+      // Remove deleted photos
+      const toDelete = new Set(removedPhotos || []);
+      const keptPhotos = currentPhotos.filter((p) => !toDelete.has(p));
+
+      // Add new photos if any
+      const newPhotos: string[] = newPhotoPath
+        ? (() => {
+            try {
+              return JSON.parse(newPhotoPath);
+            } catch {
+              return [];
+            }
+          })()
+        : [];
+
+      const finalPhotoArray = [...keptPhotos, ...newPhotos];
+
+      // Delete removed photos from storage (best-effort, don't fail if delete fails)
+      // for (const photoKey of toDelete) {
+      //   try {
+      //     await SojebStorage.delete(photoKey);
+      //   } catch (error) {
+      //     console.warn(`Failed to delete photo ${photoKey}:`, error);
+      //     // Continue even if deletion fails
+      //   }
+      // }
+      finalPhotosArray = finalPhotoArray;
+
+      finalPhotos = finalPhotoArray.length > 0 ? JSON.stringify(finalPhotoArray) : null;
+    }
+
     // Handle nested relations properly
     const updateData: any = {
       ...mappedData,
-      ...(newPhotoPath ? { photos: newPhotoPath } : {}),
+      ...(finalPhotos !== null ? { photos: finalPhotos } : {}),
     };
 
     // Handle requirements if provided
@@ -1070,6 +1687,36 @@ export class JobService {
         })),
       };
     }
+    // console.log(deleted_photos, JSON.parse(existingJob.photos) );
+
+    //take photoes from deleted photoes field and remove all of them from existing
+    // for(const photo of JSON.parse(existingJob.photos)){
+    //   if(!updateData.deleted_photos.includes(photo)){
+    //     updateData.deleted_photos.push(photo);
+    //   }
+    //   return;
+    // }
+    //   updateData.deleted_photos = JSON.parse(existingJob.photos).filter((photo: string) => !updateData.deleted_photos.includes(photo));
+      
+    // }
+
+    const parsedPhotos = JSON.parse(existingJob.photos);
+
+    const updatedPhotos = parsedPhotos?.filter(
+      (photo: string) => !deleted_photos.includes(photo)
+    );
+    
+
+    deleted_photos?.forEach((photo: string) => {
+      if (parsedPhotos.includes(photo)) {
+        SojebStorage.delete(photo);
+      }
+    });
+
+  
+
+    updateData.photos =  JSON.stringify(Array.from(new Set([...finalPhotosArray || [],...updatedPhotos || []])));
+
 
     const job = await this.prisma.job.update({
       where: { id },
@@ -1125,7 +1772,10 @@ export class JobService {
       },
     });
 
-    return this.mapToResponseDto(job);
+
+    job['photos_urls']=parsePhotos(job.photos);
+    
+    return job;
   }
 
   // Delete a job
@@ -1139,9 +1789,10 @@ export class JobService {
       },
     });
 
+
     if (!job) {
       throw new NotFoundException(
-        'Job not found or you do not have permission to delete it',
+        'Job not found/in progress or you do not have permission to delete it',
       );
     }
 
@@ -1163,12 +1814,12 @@ export class JobService {
   }
 
   public mapToResponseDto(job: any): any {
-    // Handle accepted offer (either counter offer or direct assignment)
-    const accepted =
-      job.accepted_counter_offer ||
-      (job.assigned_helper_id ? { helper: job.assigned_helper } : undefined);
-    const hasCounterOffers =
-      job.counter_offers && job.counter_offers.length > 0;
+    // // Handle accepted offer (either counter offer or direct assignment)
+    // const accepted =
+    //   job.accepted_counter_offer ||
+    //   (job.assigned_helper_id ? { helper: job.assigned_helper } : undefined);
+    // const hasCounterOffers =
+    //   job.counter_offers && job.counter_offers.length > 0;
 
     return {
       id: job.id,
@@ -1181,54 +1832,12 @@ export class JobService {
       start_time: job.start_time,
       end_time: job.end_time,
       price: job.price,
-      final_price: job.final_price,
-      payment_type: job.payment_type,
       job_type: job.job_type,
+      payment_type: job.payment_type,
       location: job.location,
       latitude: job.latitude,
       longitude: job.longitude,
-      estimated_time: job.estimated_hours, // Return numeric hours
-      description: job.description,
-      requirements: job.requirements || [],
-      notes: job.notes || [],
-      urgent_note: job.urgent_note,
-      photos_urls: job.photos ? parsePhotos(job.photos) : [],
-      photos: job.photos ? job.photos : [],
-      user_id: job.user_id,
-      created_at: job.created_at,
-      updated_at: job.updated_at,
-      job_status: job.job_status,
-      current_status: job.job_status,
-      category_id: job.category ? job.category.id : null,
-      user: job.user
-        ? {
-            id: job.user.id,
-            name: job.user.name,
-            email: job.user.email,
-            avatar: job.user.avatar,
-            phone: job.user.phone,
-          }
-        : null,
-      counter_offers: job.counter_offers || [],
-      accepted_offer: accepted
-        ? {
-            amount: Number(accepted.amount || job.final_price || job.price),
-            type: job.payment_type, // Use the job's payment type (FIXED or HOURLY)
-            note: accepted.note ?? undefined,
-            helper: accepted.helper
-              ? {
-                  id: accepted.helper.id,
-                  name:
-                    accepted.helper.name ??
-                    [accepted.helper.first_name, accepted.helper.last_name]
-                      .filter(Boolean)
-                      .join(' '),
-                  email: accepted.helper.email ?? '',
-                  phone: accepted.helper.phone ?? undefined,
-                }
-              : undefined,
-          }
-        : undefined,
+      rating: job.avrg_rating_as_user != null ? Number(job.avrg_rating_as_user) : null,
     };
   }
 
@@ -1237,7 +1846,7 @@ export class JobService {
   async getJobCountsByCategory(): Promise<any> {
     const categories = await this.prisma.category.findMany({
       where: {
-        status: 1,
+        // status: 1,
         deleted_at: null,
       },
       include: {
@@ -2394,8 +3003,23 @@ export class JobService {
               },
             },
           },
+          
         },
       });
+      const paymentTransaction = job ? await this.prisma.paymentTransaction.findFirst({
+        where: {
+          order_id: job.id,
+        },
+        select: {
+          id:true,
+          amount:true,
+          status:true,
+          created_at:true,
+        },
+        orderBy:{
+          created_at: 'desc',
+        },
+      }) : null;
       const formattedJob = job
         ? {
             ...job,
@@ -2406,8 +3030,11 @@ export class JobService {
                   cards: job.user.cards?.[0] ?? null,
                 }
               : null,
+            stripe_payment: paymentTransaction?.status || null,
           }
         : null;
+       
+        
       return {
         message: 'upcoming appointments retrieved successfully',
         data: formattedJob,
@@ -2486,6 +3113,20 @@ export class JobService {
           },
         },
       });
+      const paymentTransaction = job ? await this.prisma.paymentTransaction.findFirst({
+        where: {
+          order_id: job.id,
+        },
+        select: {
+          id:true,
+          amount:true,
+          status:true,
+          created_at:true,
+        },
+        orderBy:{
+          created_at: 'desc',
+        },
+      }) : null;
       const formattedJob = job
         ? {
             ...job,
@@ -2496,6 +3137,7 @@ export class JobService {
                   cards: job.user.cards?.[0] ?? null,
                 }
               : null,
+            stripe_payment: paymentTransaction?.status || null,
           }
         : null;
       return {

@@ -62,6 +62,11 @@ export class AuthController {
       const email = data.email;
       const password = data.password;
       const type = data.type;
+      const address = (data as any).address;
+      const city = (data as any).city;
+      const state = (data as any).state;
+      const latitude = (data as any).latitude;
+      const longitude = (data as any).longitude;
       const phone = data.phone;
 
       if (!username) {
@@ -97,6 +102,11 @@ export class AuthController {
         password: password,
         phone: phone,
         type: type,
+        address,
+        city,
+        state,
+        latitude,
+        longitude,
       });
 
       return response;
@@ -196,10 +206,62 @@ export class AuthController {
   }
 
   // update user
+  // @ApiOperation({ summary: 'Update user (supports temporary JWT for profile completion)' })
+  // @ApiBearerAuth()
+  // @UseGuards(TemporaryJwtAuthGuard)
+  // @Patch('update')
+  // @UseInterceptors(
+  //   FileInterceptor('image', {
+  //     // storage: diskStorage({
+  //     //   destination:
+  //     //     appConfig().storageUrl.rootUrl + appConfig().storageUrl.avatar,
+  //     //   filename: (req, file, cb) => {
+  //     //     const randomName = Array(32)
+  //     //       .fill(null)
+  //     //       .map(() => Math.round(Math.random() * 16).toString(16))
+  //     //       .join('');
+  //     //     return cb(null, `${randomName}${file.originalname}`);
+  //     //   },
+  //     // }),
+  //     storage: memoryStorage(),
+  //   }),
+  // )
+  // async updateUser(
+  //   @Req() req: Request,
+  //   @Body() data: UpdateUserDto,
+  //   @UploadedFile() image: Express.Multer.File,
+  // ) {
+  //   try {
+      
+  //     const user_id = req.user.userId;
+  //     const isTemporary = (req.user as any).isTemporary;
+      
+      
+  //     const response = await this.authService.updateUser(user_id, data, image);
+      
+      
+  //     // If this was a temporary JWT, generate a permanent JWT
+  //     if (isTemporary) {
+  //       const permanentJwt = await this.authService.generatePermanentJwt(user_id);
+  //       return {
+  //         ...response,
+  //         success: true,
+  //         message: 'Profile updated successfully. ',
+  //       };
+  //     }
+      
+  //     return response;
+  //   } catch (error) {
+  //     return {
+  //       success: false,
+  //       message: 'Failed to update user',
+  //     };
+  //   }
+  // }
   @ApiOperation({ summary: 'Update user (supports temporary JWT for profile completion)' })
   @ApiBearerAuth()
-  @UseGuards(TemporaryJwtAuthGuard)
-  @Patch('update')
+  @UseGuards(JwtAuthGuard)
+  @Patch('user-profile-update')
   @UseInterceptors(
     FileInterceptor('image', {
       // storage: diskStorage({
@@ -216,26 +278,15 @@ export class AuthController {
       storage: memoryStorage(),
     }),
   )
-  async updateUser(
+  async userProfileUpdate(
     @Req() req: Request,
     @Body() data: UpdateUserDto,
     @UploadedFile() image: Express.Multer.File,
   ) {
     try {
       const user_id = req.user.userId;
-      const isTemporary = (req.user as any).isTemporary;
-      
       const response = await this.authService.updateUser(user_id, data, image);
-      
-      // If this was a temporary JWT, generate a permanent JWT
-      if (isTemporary) {
-        const permanentJwt = await this.authService.generatePermanentJwt(user_id);
-        return {
-          ...response,
-          success: true,
-          message: 'Profile updated successfully. ',
-        };
-      }
+     
       
       return response;
     } catch (error) {

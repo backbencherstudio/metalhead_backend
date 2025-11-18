@@ -10,7 +10,7 @@ export class UserService {
     try {
       const users = await this.prisma.user.findMany({
         where: {
-          status: 1,
+          deleted_at: null,
           type: {
             not: 'user',
           },

@@ -35,7 +35,7 @@ model User {
   created_at DateTime  @default(now())
   updated_at DateTime  @default(now())
   deleted_at DateTime?
-  status     Int?      @default(1) @db.SmallInt
+  user_status     Int?      @default(1) @db.SmallInt
 
   approved_at  DateTime?
   availability String?
@@ -500,6 +500,8 @@ model Job {
   location    String?
   latitude    Float? // Job location latitude
   longitude   Float? // Job location longitude
+  location_point      Unsupported("geometry(Point,4326)")?
+
   description String?  @db.Text
   job_type    jobType? @default(ANYTIME) // Urgency type: FIXED or ANYTIME
   urgent_note String?  @db.Text // Urgent note for urgent jobs
@@ -547,6 +549,11 @@ model Job {
   payment_intent_id String?
   last_transfer_id  String?
   paid_at           DateTime?
+
+  
+
+  seen_as_helper Boolean? @default(true)
+  seen_as_user Boolean? @default(true)
 
   @@map("jobs")
 }
@@ -712,7 +719,7 @@ model Category {
   created_at DateTime  @default(now())
   updated_at DateTime  @default(now())
   deleted_at DateTime?
-  status     Int?      @default(1) @db.SmallInt
+  category_status     Int?      @default(1) @db.SmallInt
 
   name  String @unique // Unique identifier (e.g., 'cleaning')
   label String // Display name (e.g., 'Cleaning Services')

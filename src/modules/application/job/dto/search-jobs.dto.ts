@@ -1,4 +1,5 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
+import { Transform } from 'class-transformer';
 import {
   IsEnum,
   IsIn,
@@ -139,13 +140,15 @@ export class SearchJobsDto {
 
   @ApiPropertyOptional({
     description: 'Sort field selection',
-    enum: ['price_asc', 'price_desc', 'rating_asc', 'rating_desc', 'distance', 'urgency', 'urgency_recent', 'created_at'],
+    enum: ['price_asc', 'price_desc', 'rating_asc', 'rating_desc', 'distance', 'urgency', 'urgency_recent', 'created_at', 'alphabetic_asc', 'alphabetic_desc'],
   })
   @IsOptional()
-  @IsIn(['price_asc', 'price_desc', 'rating_asc', 'rating_desc', 'distance', 'urgency', 'urgency_recent', 'created_at'], {
-    message:
-      'sortBy must be one of price_asc, price_desc, rating_asc, rating_desc, distance, urgency, urgency_recent, created_at',
-  })
-  sortBy?: string;
+  @Transform(({ value }) => Array.isArray(value) ? value.join(',') : (value != null ? String(value) : value))
+  @IsString()
+  sortBy?: string; // supports comma-separated multi-sort
+
+// 
+
 }
+
 
