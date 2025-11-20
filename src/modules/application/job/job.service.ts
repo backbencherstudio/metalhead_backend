@@ -1714,7 +1714,7 @@ export class JobService {
     });
 
   
-
+    // updateData.photos = JSON.stringify([...finalPhotosArray || [],...updatedPhotos || []]);
     updateData.photos =  JSON.stringify(Array.from(new Set([...finalPhotosArray || [],...updatedPhotos || []])));
 
 

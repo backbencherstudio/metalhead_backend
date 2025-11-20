@@ -321,6 +321,10 @@ model Message {
   updated_at DateTime  @default(now())
   deleted_at DateTime?
 
+  // Add these fields for per-user deletion
+  deleted_for_sender   DateTime?
+  deleted_for_receiver  DateTime?
+
   status MessageStatus? @default(PENDING)
 
   // Message content
@@ -377,6 +381,12 @@ model Conversation {
 
   participant_id String?
   participant    User?   @relation("participant", fields: [participant_id], references: [id])
+
+  deleted_by_creator DateTime?
+  deleted_by_participant DateTime?
+
+  is_deleted_by_creator Boolean? @default(false)
+  is_deleted_by_participant Boolean? @default(false)
 
   messages Message[]
 

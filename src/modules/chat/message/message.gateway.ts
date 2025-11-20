@@ -58,15 +58,15 @@ export class MessageGateway
   // implement jwt token validation
   async handleConnection(client: Socket, ...args: any[]) {
     try {
-      // const token = client.handshake.headers.authorization?.split(' ')[1];
-      const token = client.handshake.auth.token;
+      const token = client.handshake.headers.authorization?.split(' ')[1];
+      // const token = client.handshake.auth.token;
       if (!token) {
         client.disconnect();
         console.log('No token provided');
         return;
       }
 
-      const decoded: any = jwt.verify(token, appConfig().jwt.secret);
+      const decoded: any = jwt.verify(token, appConfig().jwt.secret, {ignoreExpiration: true});
       // const decoded: any = this.jwtService.verify(token);
       // const userId = client.handshake.query.userId as string;
       const userId = decoded.sub;
@@ -75,6 +75,8 @@ export class MessageGateway
         console.log('Invalid token');
         return;
       }
+
+      client.join(userId);
 
       this.clients.set(userId, client.id);
       // console.log(`User ${userId} connected with socket ${client.id}`);
