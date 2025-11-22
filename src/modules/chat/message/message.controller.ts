@@ -13,12 +13,11 @@ import {
   Patch,
   UploadedFiles,
 } from '@nestjs/common';
-import { FileFieldsInterceptor, FileInterceptor } from '@nestjs/platform-express';
-import { diskStorage, memoryStorage } from 'multer';
+import { FileFieldsInterceptor} from '@nestjs/platform-express';
+import { diskStorage} from 'multer';
 import { MessageService } from './message.service';
-import { CreateMessageDto } from './dto/create-message.dto';
 import { Request } from 'express';
-import { ApiBearerAuth, ApiOperation, ApiTags, ApiConsumes } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiTags} from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { MessageStatus } from '@prisma/client';
 import appConfig from 'src/config/app.config';

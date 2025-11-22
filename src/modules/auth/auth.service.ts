@@ -36,8 +36,9 @@ export class AuthService {
         },
         select: {
           id: true,
-          name: true,
           username: true,
+          first_name: true,
+          last_name: true,
           email: true,
           avatar: true,
           phone: true,
@@ -52,6 +53,8 @@ export class AuthService {
           age: true,
           date_of_birth: true,
           created_at: true,
+          latitude: true,
+          longitude: true,
         },
       });
 

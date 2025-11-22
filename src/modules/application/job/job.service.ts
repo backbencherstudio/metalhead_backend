@@ -1975,21 +1975,10 @@ export class JobService {
     // this.jobNotificationService.notifyJobCancelled(updatedJob);
 
     return {
+      success: true,
       message: refundResult
         ? 'Job cancelled and payment refunded successfully'
         : 'Job cancelled successfully',
-      job: this.mapToResponseDto(updatedJob),
-      refund: refundResult
-        ? {
-            id: refundResult.id,
-            status: refundResult.status,
-            amount: refundResult.amount ? refundResult.amount / 100 : null,
-            currency: refundResult.currency,
-            created: refundResult.created
-              ? new Date(refundResult.created * 1000)
-              : null,
-          }
-        : null,
     };
   }
 
@@ -2989,6 +2978,8 @@ export class JobService {
           },
           user: {
             select: {
+              first_name: true,
+              last_name: true,
               email: true,
               phone: true,
               cards: {
@@ -3097,6 +3088,8 @@ export class JobService {
           },
           user: {
             select: {
+              first_name: true,
+              last_name: true,
               email: true,
               phone: true,
               cards: {

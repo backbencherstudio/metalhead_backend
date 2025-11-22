@@ -20,7 +20,8 @@
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "cmd": "cross-env PRISMA_ENV=1 ts-node src/cmd.ts",
-    "seed:categories": "ts-node -r tsconfig-paths/register src/command/seed-categories.ts"
+    "seed:categories": "ts-node -r tsconfig-paths/register src/command/seed-categories.ts",
+    "seed:icons": "ts-node -r tsconfig-paths/register src/command/seed-icons.ts"
   },
   "dependencies": {
     "@casl/ability": "6.7.3",

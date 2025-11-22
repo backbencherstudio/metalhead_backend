@@ -90,6 +90,7 @@ export default () => ({
     attachment: '/attachment',
     // jobs
     jobPhotos: '/job-photos',
+    icons: 'icons/',
   },
 
   defaultUser: {

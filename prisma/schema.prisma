@@ -733,7 +733,7 @@ model Category {
 
   name  String @unique // Unique identifier (e.g., 'cleaning')
   label String // Display name (e.g., 'Cleaning Services')
-
+  icon String?
   // Relations
   jobs Job[]
 

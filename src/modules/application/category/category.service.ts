@@ -1,6 +1,8 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CreateCategoryDto, UpdateCategoryDto, CategoryResponseDto } from './dto';
+import { SojebStorage } from 'src/common/lib/Disk/SojebStorage';
+import appConfig from 'src/config/app.config';
 
 @Injectable()
 export class CategoryService {
@@ -35,31 +37,74 @@ export class CategoryService {
     return categories.map(category => this.mapToResponseDto(category));
   }
 
+  // async getCategoriesWithCounts(): Promise<any> {
+  //   const categories = await this.prisma.category.findMany({
+  //     where: { category_status: 1, deleted_at: null },
+  //     select: { id: true, label: true, name: true, icon: true },
+  //     orderBy: { label: 'asc' },
+  //   });
+  
+  //   const formatted = await Promise.all(
+  //     categories.map(async (category) => {
+  //       const count = await this.prisma.job.count({
+  //         where: {
+  //           category_id: category.id,
+  //           status: 1,
+  //           deleted_at: null,
+  //         },
+  //       });
+
+        
+  //       return {
+  //         id: category.id,
+  //         category: category.name,
+  //         label: category.label,
+  //         count,
+  //       };
+  //     }),
+  //   );
+  
+  //   return {
+  //     success: true,
+  //     message: 'Categories fetched successfully',
+  //     data: formatted,
+  //   };
+  // }
+  
   async getCategoriesWithCounts(): Promise<any> {
+    // 1. Fetch categories
     const categories = await this.prisma.category.findMany({
       where: { category_status: 1, deleted_at: null },
-      select: { id: true, label: true, name: true },
+      select: { id: true, label: true, name: true, icon: true },
       orderBy: { label: 'asc' },
     });
   
-    const formatted = await Promise.all(
-      categories.map(async (category) => {
-        const count = await this.prisma.job.count({
-          where: {
-            category_id: category.id,
-            status: 1,
-            deleted_at: null,
-          },
-        });
-        return {
-          id: category.id,
-          category: category.name,
-          label: category.label,
-          count,
-        };
-      }),
+    // 2. Fetch job counts grouped by category_id (one query only)
+    const jobCounts = await this.prisma.job.groupBy({
+      by: ['category_id'],
+      where: { status: 1, deleted_at: null },
+      _count: { id: true }
+    });
+  
+    // 3. Convert counts array into a lookup map for O(1) access
+    const countMap = new Map(
+      jobCounts.map((c) => [c.category_id, c._count.id])
     );
   
+    // 4. Merge categories with counts
+    const formatted = categories.map((category) => {
+     
+      const iconUrl=SojebStorage.url(appConfig().storageUrl.icons + category.icon);
+      
+      
+    return {
+      id: category.id,
+      category: category.name,
+      label: category.label,
+      icon: category.icon,
+      icon_url: iconUrl,
+      count: countMap.get(category.id) ?? 0, // default to 0
+    }});
     return {
       success: true,
       message: 'Categories fetched successfully',
